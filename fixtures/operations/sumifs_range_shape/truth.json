@@ -2,6 +2,7 @@
   "coverage": [
     "The range-shape defect is deliberately static and does not require evaluating SUMIFS."
   ],
+  "coverage_expectations": [],
   "facts": [
     {
       "cell": "H6",
@@ -13,7 +14,7 @@
   "id": "operations.sumifs_range_shape",
   "must_reach": [],
   "review_expectation": "block",
-  "schema_version": 2,
+  "schema_version": 3,
   "title": "A conditional aggregate has mismatched static ranges",
   "topology": "pair"
 }

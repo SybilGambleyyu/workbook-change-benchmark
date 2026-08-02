@@ -50,6 +50,18 @@ def test_committed_manifest_matches_fixture_tree() -> None:
     rows = case_rows(fixture_root, expected_ids=CASE_IDS)
     assert [row["id"] for row in rows] == sorted(CASE_IDS)
     assert all(row["baseline_files"] and row["candidate_files"] for row in rows)
+    assert all("coverage_expectations" in row for row in rows)
+    dynamic_row = next(
+        row for row in rows if row["id"] == "structural.dynamic_reference_introduced"
+    )
+    assert dynamic_row["coverage_expectations"] == [
+        {
+            "kind": "dynamic_reference_static_coverage",
+            "sheet": "Summary",
+            "cell": "B2",
+            "functions": ["INDIRECT"],
+        }
+    ]
     assert (fixture_root / "manifest.jsonl").read_text(encoding="utf-8") == manifest_text(rows)
 
 
@@ -79,6 +91,17 @@ def test_validator_rejects_a_false_structured_table_scope(tmp_path: Path) -> Non
     truth_path = case / "truth.json"
     truth = json.loads(truth_path.read_text(encoding="utf-8"))
     truth["facts"][0]["candidate_ref"] = "A1:D6"
+    truth_path.write_text(json.dumps(truth), encoding="utf-8")
+    assert validate_case(case)
+
+
+def test_validator_rejects_a_false_dynamic_reference_coverage_expectation(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "structural" / "dynamic_reference_introduced"
+    truth_path = case / "truth.json"
+    truth = json.loads(truth_path.read_text(encoding="utf-8"))
+    truth["coverage_expectations"][0]["functions"] = ["OFFSET"]
     truth_path.write_text(json.dumps(truth), encoding="utf-8")
     assert validate_case(case)
 
@@ -117,6 +140,41 @@ def test_formulafence_adapter_maps_a_structured_table_scope_fact(
     )
     assert result["status"] == "matched"
     assert result["matched"] == ["structured_table_scope_changed"]
+
+
+def test_formulafence_adapter_maps_dynamic_fact_and_coverage_expectation(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        return {
+            "summary": {"change_count": 2},
+            "changes": [
+                {
+                    "kind": "dynamic_formula_reference_added",
+                    "location": "Summary!B2",
+                    "details": {"functions": ["INDIRECT"]},
+                }
+            ],
+            "findings": [
+                {
+                    "rule_id": "FF012",
+                    "location": "Summary!B2",
+                    "details": {"functions": ["INDIRECT"]},
+                }
+            ],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "structural" / "dynamic_reference_introduced"
+    )
+    assert result["status"] == "matched"
+    assert result["matched"] == ["dynamic_formula_reference_added"]
+    assert len(result["matched_coverage_expectations"]) == 1
+    assert result["missed_coverage_expectations"] == []
 
 
 def test_formulafence_adapter_maps_a_portfolio_impact(monkeypatch, tmp_path: Path) -> None:

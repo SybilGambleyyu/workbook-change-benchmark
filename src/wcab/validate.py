@@ -17,6 +17,7 @@ _CELL_REFERENCE = re.compile(
     r"(?:(?:'(?P<quoted>(?:[^']|'')+)'|(?P<plain>[A-Za-z_][A-Za-z0-9_. ]*))!)?"
     r"(?P<cell>\$?[A-Z]{1,3}\$?[1-9][0-9]*)"
 )
+_DYNAMIC_REFERENCE_FUNCTION = re.compile(r"(?i)\b(?P<function>INDIRECT|OFFSET)\s*\(")
 
 
 class FixtureValidationError(ValueError):
@@ -46,6 +47,22 @@ def _cell_kind(cell: Any) -> str:
     if cell.data_type == "f":
         return "formula"
     return "value"
+
+
+def _dynamic_reference_functions(formula: str) -> tuple[str, ...]:
+    """Return dynamic-reference functions in first-appearance order.
+
+    This is deliberately a narrow fixture validator, not a general formula
+    parser.  It only establishes the direct, generated-workbook invariant that
+    a declared dynamic-reference boundary is present in the candidate.
+    """
+
+    return tuple(
+        dict.fromkeys(
+            match.group("function").upper()
+            for match in _DYNAMIC_REFERENCE_FUNCTION.finditer(formula)
+        )
+    )
 
 
 def _defined_name_text(workbook: Workbook, name: str) -> str | None:
@@ -132,6 +149,7 @@ def _validate_fact(
         "value_changed",
         "external_formula_added",
         "formula_cell_unlocked",
+        "dynamic_formula_reference_added",
     }:
         sheet_name = fact.get("sheet")
         coordinate = fact.get("cell")
@@ -166,6 +184,21 @@ def _validate_fact(
             _assert(
                 _cell_kind(after) == "formula" and "[" in str(after.value),
                 f"{truth['id']}: expected external formula at {sheet_name}!{coordinate}",
+                errors,
+            )
+        elif kind == "dynamic_formula_reference_added":
+            expected_functions = fact.get("functions")
+            before_functions = _dynamic_reference_functions(str(before.value))
+            after_functions = _dynamic_reference_functions(str(after.value))
+            _assert(
+                _cell_kind(before) == "formula"
+                and _cell_kind(after) == "formula"
+                and before.value != after.value
+                and not before_functions
+                and isinstance(expected_functions, list)
+                and all(isinstance(function, str) for function in expected_functions)
+                and after_functions == tuple(expected_functions),
+                f"{truth['id']}: expected dynamic reference functions {expected_functions!r} at {sheet_name}!{coordinate}",
                 errors,
             )
         else:
@@ -336,6 +369,53 @@ def _validate_fact(
     errors.append(f"{truth['id']}: unsupported fact kind {kind!r}")
 
 
+def _validate_coverage_expectations(
+    case_dir: Path, truth: dict[str, Any], errors: list[str]
+) -> None:
+    expectations = truth.get("coverage_expectations")
+    if not isinstance(expectations, list):
+        errors.append(f"{truth['id']}: coverage_expectations must be an array")
+        return
+    for expectation in expectations:
+        if not isinstance(expectation, dict):
+            errors.append(f"{truth['id']}: coverage expectation must be an object")
+            continue
+        kind = expectation.get("kind")
+        if kind != "dynamic_reference_static_coverage":
+            errors.append(f"{truth['id']}: unsupported coverage expectation kind {kind!r}")
+            continue
+        try:
+            baseline_path, candidate_path = _workbook_pair(case_dir, truth)
+        except FixtureValidationError as error:
+            errors.append(str(error))
+            continue
+        baseline = _load_workbook(baseline_path)
+        candidate = _load_workbook(candidate_path)
+        sheet_name = expectation.get("sheet")
+        coordinate = expectation.get("cell")
+        expected_functions = expectation.get("functions")
+        if (
+            not isinstance(sheet_name, str)
+            or not isinstance(coordinate, str)
+            or sheet_name not in baseline.sheetnames
+            or sheet_name not in candidate.sheetnames
+        ):
+            errors.append(f"{truth['id']}: dynamic-reference coverage location is absent")
+            continue
+        before = baseline[sheet_name][coordinate]
+        after = candidate[sheet_name][coordinate]
+        _assert(
+            _cell_kind(before) == "formula"
+            and _cell_kind(after) == "formula"
+            and not _dynamic_reference_functions(str(before.value))
+            and isinstance(expected_functions, list)
+            and all(isinstance(function, str) for function in expected_functions)
+            and _dynamic_reference_functions(str(after.value)) == tuple(expected_functions),
+            f"{truth['id']}: expected static-dependency coverage boundary at {sheet_name}!{coordinate}",
+            errors,
+        )
+
+
 def _validate_impacts(case_dir: Path, truth: dict[str, Any], errors: list[str]) -> None:
     if truth.get("topology") != "pair":
         return
@@ -376,6 +456,11 @@ def validate_case(case_dir: str | Path) -> list[str]:
         f"{truth.get('id', directory)}: invalid review expectation",
         errors,
     )
+    _assert(
+        isinstance(truth.get("coverage_expectations"), list),
+        f"{truth.get('id', directory)}: coverage_expectations must be an array",
+        errors,
+    )
     if truth.get("topology") == "pair":
         for filename in ("baseline.xlsx", "candidate.xlsx"):
             _assert(
@@ -401,6 +486,7 @@ def validate_case(case_dir: str | Path) -> list[str]:
             errors.append(f"{truth.get('id')}: fact must be an object")
             continue
         _validate_fact(directory, truth, fact, errors)
+    _validate_coverage_expectations(directory, truth, errors)
     _validate_impacts(directory, truth, errors)
     return errors
 

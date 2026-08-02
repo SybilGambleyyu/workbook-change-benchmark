@@ -1,0 +1,46 @@
+{
+  "coverage": [
+    "INDIRECT returns a reference from workbook text; this fixture does not evaluate that text or claim complete target resolution.",
+    "The scoreable coverage expectation requires an explicit static-dependency boundary disclosure, not a universal formula-evaluation claim."
+  ],
+  "coverage_expectations": [
+    {
+      "cell": "B2",
+      "functions": [
+        "INDIRECT"
+      ],
+      "kind": "dynamic_reference_static_coverage",
+      "sheet": "Summary"
+    }
+  ],
+  "facts": [
+    {
+      "cell": "B2",
+      "functions": [
+        "INDIRECT"
+      ],
+      "kind": "dynamic_formula_reference_added",
+      "sheet": "Summary"
+    }
+  ],
+  "family": "structural",
+  "id": "structural.dynamic_reference_introduced",
+  "must_reach": [
+    {
+      "source": {
+        "cell": "B2",
+        "sheet": "Summary"
+      },
+      "targets": [
+        {
+          "cell": "B4",
+          "sheet": "Dashboard"
+        }
+      ]
+    }
+  ],
+  "review_expectation": "block",
+  "schema_version": 3,
+  "title": "A direct output reference becomes an INDIRECT-driven reference",
+  "topology": "pair"
+}

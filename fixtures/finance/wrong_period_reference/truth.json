@@ -2,6 +2,7 @@
   "coverage": [
     "The benchmark asserts the reference drift, not the business correctness of every formula."
   ],
+  "coverage_expectations": [],
   "facts": [
     {
       "cell": "C8",
@@ -34,7 +35,7 @@
     }
   ],
   "review_expectation": "block",
-  "schema_version": 2,
+  "schema_version": 3,
   "title": "Revenue formula uses a prior-period units reference",
   "topology": "pair"
 }

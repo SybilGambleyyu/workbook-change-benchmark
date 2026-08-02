@@ -9,7 +9,7 @@ from typing import Any
 
 from .build import CASE_IDS, FIXTURE_SCHEMA_VERSION
 
-OBSERVATION_SCHEMA_VERSION = 1
+OBSERVATION_SCHEMA_VERSION = 2
 _CASE_STATUSES = frozenset({"analyzed", "unsupported", "error"})
 _REVIEW_DISPOSITIONS = frozenset({"allow", "review", "block"})
 
@@ -47,6 +47,11 @@ def _case_truths(fixture_root: str | Path) -> dict[str, dict[str, Any]]:
         facts = truth.get("facts")
         if not isinstance(facts, list) or not all(isinstance(fact, dict) for fact in facts):
             raise ObservationError(f"{manifest}: facts must be an array of objects")
+        coverage_expectations = truth.get("coverage_expectations")
+        if not isinstance(coverage_expectations, list) or not all(
+            isinstance(expectation, dict) for expectation in coverage_expectations
+        ):
+            raise ObservationError(f"{manifest}: coverage_expectations must be an array of objects")
         if truth.get("review_expectation") not in _REVIEW_DISPOSITIONS:
             raise ObservationError(f"{manifest}: invalid review expectation")
         truths[case_id] = truth
@@ -62,8 +67,36 @@ def _case_truths(fixture_root: str | Path) -> dict[str, dict[str, Any]]:
     return truths
 
 
-def _canonical_fact(fact: dict[str, Any]) -> str:
-    return json.dumps(fact, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+def _canonical_item(item: dict[str, Any]) -> str:
+    return json.dumps(item, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+
+
+def _match_contract_items(
+    expected_items: list[dict[str, Any]], reported_items: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    """Return matched, missing, and unrecognized targeted contract items."""
+
+    expected_counts = Counter(_canonical_item(item) for item in expected_items)
+    reported_counts = Counter(_canonical_item(item) for item in reported_items)
+    matched_keys = Counter(expected_counts & reported_counts)
+    matched: list[dict[str, Any]] = []
+    missing: list[dict[str, Any]] = []
+    for item in expected_items:
+        key = _canonical_item(item)
+        if matched_keys[key]:
+            matched.append(item)
+            matched_keys[key] -= 1
+        else:
+            missing.append(item)
+    unrecognized: list[dict[str, Any]] = []
+    remaining_expected = Counter(expected_counts)
+    for item in reported_items:
+        key = _canonical_item(item)
+        if remaining_expected[key]:
+            remaining_expected[key] -= 1
+        else:
+            unrecognized.append(item)
+    return matched, missing, unrecognized
 
 
 def _require_string(value: Any, *, path: str) -> str:
@@ -129,9 +162,30 @@ def _validate_observations(
         review = raw_case.get("review")
         if review is not None and review not in _REVIEW_DISPOSITIONS:
             raise ObservationError(f"{path}.review must be null or a WCAB review disposition")
-        coverage = raw_case.get("coverage", [])
-        if not isinstance(coverage, list) or not all(isinstance(item, str) for item in coverage):
-            raise ObservationError(f"{path}.coverage must be an array of strings")
+        coverage = raw_case.get("coverage")
+        if not isinstance(coverage, dict):
+            raise ObservationError(f"{path}.coverage must be an object")
+        declarations = coverage.get("declarations")
+        if not isinstance(declarations, list):
+            raise ObservationError(f"{path}.coverage.declarations must be an array")
+        normalized_declarations: list[dict[str, Any]] = []
+        for declaration_index, declaration in enumerate(declarations):
+            declaration_path = f"{path}.coverage.declarations[{declaration_index}]"
+            if not isinstance(declaration, dict):
+                raise ObservationError(f"{declaration_path}: declaration must be an object")
+            expectation = declaration.get("expectation")
+            if not isinstance(expectation, dict):
+                raise ObservationError(f"{declaration_path}.expectation must be an object")
+            _require_string(expectation.get("kind"), path=f"{declaration_path}.expectation.kind")
+            evidence = declaration.get("evidence")
+            if evidence is not None and not isinstance(evidence, dict):
+                raise ObservationError(
+                    f"{declaration_path}.evidence must be an object when provided"
+                )
+            normalized_declarations.append(declaration)
+        notes = coverage.get("notes")
+        if not isinstance(notes, list) or not all(isinstance(item, str) for item in notes):
+            raise ObservationError(f"{path}.coverage.notes must be an array of strings")
         error = raw_case.get("error")
         if status == "analyzed" and error is not None:
             raise ObservationError(f"{path}: analyzed cases cannot contain an error")
@@ -142,12 +196,16 @@ def _validate_observations(
                 raise ObservationError(
                     f"{path}: unsupported or errored cases cannot report a review"
                 )
+            if normalized_declarations:
+                raise ObservationError(
+                    f"{path}: unsupported or errored cases cannot report coverage declarations"
+                )
         if status == "error":
             _require_string(error, path=f"{path}.error")
         elif error is not None:
             raise ObservationError(f"{path}.error is only valid when status is error")
         cases[case_id] = {
-            "coverage": coverage,
+            "coverage": {"declarations": normalized_declarations, "notes": notes},
             "error": error,
             "facts": normalized_facts,
             "id": case_id,
@@ -164,7 +222,13 @@ def observation_template(fixture_root: str | Path) -> dict[str, Any]:
     return {
         "benchmark": {"fixture_schema_versions": [FIXTURE_SCHEMA_VERSION]},
         "cases": [
-            {"facts": [], "id": case_id, "review": None, "status": "unsupported"}
+            {
+                "coverage": {"declarations": [], "notes": []},
+                "facts": [],
+                "id": case_id,
+                "review": None,
+                "status": "unsupported",
+            }
             for case_id in CASE_IDS
         ],
         "schema_version": OBSERVATION_SCHEMA_VERSION,
@@ -181,10 +245,11 @@ def load_observations(path: str | Path) -> dict[str, Any]:
 def score_observations(fixture_root: str | Path, observations: dict[str, Any]) -> dict[str, Any]:
     """Score normalized tool observations against WCAB's declared contract.
 
-    WCAB facts are intentionally targeted rather than a complete inventory of
-    every workbook difference. The resulting report therefore gives expected
-    fact recall and lists unrecognized observations separately; it does not
-    label unlisted observations as false positives or claim a precision score.
+    WCAB facts and coverage expectations are intentionally targeted rather
+    than a complete inventory of every workbook difference. The resulting
+    report therefore gives expected recall and lists unrecognized observations
+    separately; it does not label unlisted observations as false positives or
+    claim a precision score.
     """
 
     truths = _case_truths(fixture_root)
@@ -193,6 +258,9 @@ def score_observations(fixture_root: str | Path, observations: dict[str, Any]) -
     expected_fact_count = 0
     matched_fact_count = 0
     unrecognized_fact_count = 0
+    expected_coverage_expectation_count = 0
+    matched_coverage_declaration_count = 0
+    unrecognized_coverage_declaration_count = 0
     analyzed_case_count = 0
     unsupported_case_count = 0
     errored_case_count = 0
@@ -205,14 +273,16 @@ def score_observations(fixture_root: str | Path, observations: dict[str, Any]) -
     for case_id in CASE_IDS:
         truth = truths[case_id]
         expected_facts = truth["facts"]
+        expected_coverage_expectations = truth["coverage_expectations"]
         expected_fact_count += len(expected_facts)
+        expected_coverage_expectation_count += len(expected_coverage_expectations)
         report = reported_cases.get(case_id)
         if report is None:
             not_reported_case_count += 1
             status = "not_reported"
             reported_facts: list[dict[str, Any]] = []
             review = None
-            coverage: list[str] = []
+            coverage: dict[str, Any] = {"declarations": [], "notes": []}
             error = None
         else:
             status = report["status"]
@@ -227,30 +297,22 @@ def score_observations(fixture_root: str | Path, observations: dict[str, Any]) -
             else:
                 errored_case_count += 1
 
-        expected_counts = Counter(_canonical_fact(fact) for fact in expected_facts)
-        reported_counts = Counter(_canonical_fact(fact) for fact in reported_facts)
-        matched_counts = expected_counts & reported_counts
-        matched_keys = Counter(matched_counts)
-        matched_facts: list[dict[str, Any]] = []
-        missing_facts: list[dict[str, Any]] = []
-        for fact in expected_facts:
-            key = _canonical_fact(fact)
-            if matched_keys[key]:
-                matched_facts.append(fact)
-                matched_keys[key] -= 1
-            else:
-                missing_facts.append(fact)
-        unrecognized_facts: list[dict[str, Any]] = []
-        remaining_expected = Counter(expected_counts)
-        for fact in reported_facts:
-            key = _canonical_fact(fact)
-            if remaining_expected[key]:
-                remaining_expected[key] -= 1
-            else:
-                unrecognized_facts.append(fact)
+        matched_facts, missing_facts, unrecognized_facts = _match_contract_items(
+            expected_facts, reported_facts
+        )
+        reported_coverage_expectations = [
+            declaration["expectation"] for declaration in coverage["declarations"]
+        ]
+        (
+            matched_coverage_declarations,
+            missing_coverage_expectations,
+            unrecognized_coverage_declarations,
+        ) = _match_contract_items(expected_coverage_expectations, reported_coverage_expectations)
 
         matched_fact_count += len(matched_facts)
         unrecognized_fact_count += len(unrecognized_facts)
+        matched_coverage_declaration_count += len(matched_coverage_declarations)
+        unrecognized_coverage_declaration_count += len(unrecognized_coverage_declarations)
         review_expected = truth["review_expectation"]
         review_matched = status == "analyzed" and review == review_expected
         if review is not None:
@@ -260,7 +322,12 @@ def score_observations(fixture_root: str | Path, observations: dict[str, Any]) -
             else:
                 review_mismatched_count += 1
         complete = (
-            status == "analyzed" and not missing_facts and not unrecognized_facts and review_matched
+            status == "analyzed"
+            and not missing_facts
+            and not unrecognized_facts
+            and not missing_coverage_expectations
+            and not unrecognized_coverage_declarations
+            and review_matched
         )
         if complete:
             complete_case_count += 1
@@ -269,12 +336,16 @@ def score_observations(fixture_root: str | Path, observations: dict[str, Any]) -
                 "case_id": case_id,
                 "coverage": coverage,
                 "error": error,
+                "expected_coverage_expectations": expected_coverage_expectations,
                 "expected_review": review_expected,
+                "matched_coverage_declarations": matched_coverage_declarations,
                 "matched_facts": matched_facts,
+                "missing_coverage_expectations": missing_coverage_expectations,
                 "missing_facts": missing_facts,
                 "reported_review": review,
                 "review_matched": review_matched,
                 "status": status,
+                "unrecognized_coverage_declarations": unrecognized_coverage_declarations,
                 "unrecognized_facts": unrecognized_facts,
             }
         )
@@ -284,6 +355,7 @@ def score_observations(fixture_root: str | Path, observations: dict[str, Any]) -
         "benchmark": {
             "case_count": case_count,
             "fixture_schema_versions": [FIXTURE_SCHEMA_VERSION],
+            "expected_coverage_expectation_count": expected_coverage_expectation_count,
             "expected_fact_count": expected_fact_count,
         },
         "cases": case_results,
@@ -292,10 +364,20 @@ def score_observations(fixture_root: str | Path, observations: dict[str, Any]) -
             "analyzed_case_count": analyzed_case_count,
             "analysis_coverage": analyzed_case_count / case_count,
             "complete_case_count": complete_case_count,
+            "coverage_disclosure_recall": (
+                matched_coverage_declaration_count / expected_coverage_expectation_count
+                if expected_coverage_expectation_count
+                else 1.0
+            ),
             "error_case_count": errored_case_count,
+            "expected_coverage_expectation_count": expected_coverage_expectation_count,
             "expected_fact_count": expected_fact_count,
             "fact_recall": matched_fact_count / expected_fact_count,
             "matched_fact_count": matched_fact_count,
+            "matched_coverage_declaration_count": matched_coverage_declaration_count,
+            "missing_coverage_expectation_count": (
+                expected_coverage_expectation_count - matched_coverage_declaration_count
+            ),
             "missing_fact_count": expected_fact_count - matched_fact_count,
             "not_reported_case_count": not_reported_case_count,
             "review_agreement": review_matched_count / case_count,
@@ -303,6 +385,7 @@ def score_observations(fixture_root: str | Path, observations: dict[str, Any]) -
             "review_mismatched_count": review_mismatched_count,
             "review_not_reported_count": case_count - review_reported_count,
             "unrecognized_fact_count": unrecognized_fact_count,
+            "unrecognized_coverage_declaration_count": unrecognized_coverage_declaration_count,
             "unsupported_case_count": unsupported_case_count,
         },
         "tool": tool,

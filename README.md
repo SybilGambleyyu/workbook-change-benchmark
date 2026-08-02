@@ -1,9 +1,10 @@
 # Workbook Change Assurance Benchmark
 
 `WCAB` is an open, reproducible benchmark for tools that review changes to
-Excel workbooks.  It supplies paired baseline/candidate workbooks, explicit
-change facts, dependency-impact lower bounds, and a small validator.  Its
-purpose is not to test whether a model can *write* a formula; it tests whether
+Excel workbooks. It supplies paired baseline/candidate workbooks, explicit
+change facts, dependency-impact lower bounds, scoreable analysis-boundary
+disclosures, and a small validator. Its purpose is not to test whether a model
+can *write* a formula; it tests whether
 a reviewer or CI gate can explain whether a workbook change is safe to accept.
 
 The first release is deliberately synthetic and open by construction.  Every
@@ -33,12 +34,13 @@ gates, static analyzers, and agent workflows that propose workbook edits.
 
 ## Scope and non-goals
 
-Version `0.2` covers formula-to-value replacements, formula reference drift,
+Version `0.4` covers formula-to-value replacements, formula reference drift,
 value changes with downstream effects, external formula references, named
 ranges, data validation, conditional formatting, sheet visibility, direct cell
 protection, calculation settings, static cycles, portfolio dependencies,
 formula refactors, 3-D-reference scope changes, and Excel Table scope changes
-that leave a structured-reference formula textually unchanged.
+that leave a structured-reference formula textually unchanged. It also covers
+new `INDIRECT` references whose dependency target comes from workbook text.
 
 The benchmark does **not** evaluate formula execution or claim that a
 candidate's numerical results are correct.  A case's `review_expectation` is a
@@ -82,7 +84,7 @@ where `manifest.jsonl` is available at the dataset root for programmatic use.
 
 ## Truth contract
 
-Each `truth.json` is schema version 2 and contains:
+Each `truth.json` is schema version 3 and contains:
 
 - `facts`: observable before/after facts, such as a formula becoming a value.
 - `must_reach`: formula cells that are statically reachable from a changed
@@ -91,6 +93,9 @@ Each `truth.json` is schema version 2 and contains:
 - `review_expectation`: `block`, `review`, or `allow` for the benchmark's
   reference policy.
 - `coverage`: case-specific boundaries that consumers must preserve.
+- `coverage_expectations`: machine-matchable analysis-boundary disclosures;
+  the initial expectation requires visible static-dependency coverage evidence
+  when a dynamic reference is introduced.
 
 The bundled validator checks the generated workbooks against this contract.  A
 tool adapter may map its own output into these facts, but WCAB deliberately
@@ -111,17 +116,17 @@ wcab observation-template --fixtures fixtures --output observations.json
 wcab score --fixtures fixtures --observations observations.json --output score.json
 ```
 
-The score reports expected-fact recall, analyzed coverage, and agreement with
-the benchmark's reference review convention. It deliberately lists
-unrecognized observations instead of calling them false positives: WCAB facts
-are targeted change assertions, not a claim to enumerate every possible
-workbook difference. See [docs/observations.md](docs/observations.md) for the
-complete protocol and strict-mode behavior.
+The score reports expected-fact recall, coverage-disclosure recall, analyzed
+coverage, and agreement with the benchmark's reference review convention. It
+deliberately lists unrecognized observations instead of calling them false
+positives: WCAB facts are targeted change assertions, not a claim to enumerate
+every possible workbook difference. See [docs/observations.md](docs/observations.md)
+for the complete protocol and strict-mode behavior.
 
 The optional FormulaFence reference adapter can also emit normalized
-observations directly. It records mapped change facts but intentionally leaves
-review dispositions unset because FormulaFence is an analyzer, not a universal
-approval-policy engine:
+observations directly. It records mapped change facts and native coverage
+warnings, but intentionally leaves review dispositions unset because
+FormulaFence is an analyzer, not a universal approval-policy engine:
 
 ```bash
 wcab formulafence-observations --fixtures fixtures \
@@ -141,8 +146,8 @@ wcab formulafence --fixtures fixtures --strict
 ```
 
 It runs only local commands against the synthetic fixtures. The adapter keeps
-unmapped facts explicit; in particular, version 0.1 does not treat the benign
-structural-rewrite annotation as a generic semantic-equivalence claim.
+unmapped facts explicit; it does not treat the benign structural-rewrite
+annotation as a generic semantic-equivalence claim.
 
 ## Reproducibility
 

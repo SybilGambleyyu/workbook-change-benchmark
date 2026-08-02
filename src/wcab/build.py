@@ -25,7 +25,7 @@ from openpyxl.worksheet.table import Table, TableStyleInfo
 
 from .manifest import write_manifest
 
-FIXTURE_SCHEMA_VERSION = 2
+FIXTURE_SCHEMA_VERSION = 3
 _FIXED_TIMESTAMP = datetime(2024, 1, 1, tzinfo=timezone.utc)
 _CORE_MODIFIED = re.compile(rb"(<dcterms:modified\b[^>]*>)[^<]*(</dcterms:modified>)")
 WorkbookFactory = Callable[[], Workbook]
@@ -92,6 +92,7 @@ def _truth(
     facts: list[dict[str, Any]],
     must_reach: list[dict[str, Any]] | None = None,
     coverage: list[str] | None = None,
+    coverage_expectations: list[dict[str, Any]] | None = None,
     topology: str = "pair",
 ) -> dict[str, Any]:
     return {
@@ -104,6 +105,7 @@ def _truth(
         "facts": facts,
         "must_reach": must_reach or [],
         "coverage": coverage or [],
+        "coverage_expectations": coverage_expectations or [],
     }
 
 
@@ -287,6 +289,36 @@ def _structured_table_workbook() -> Workbook:
     summary = workbook.create_sheet("Summary")
     summary["A1"] = "Structured table total"
     summary["B2"] = "=SUM(SalesLedger[Amount])"
+    return workbook
+
+
+def _dynamic_reference_workbook() -> Workbook:
+    """Build a small model whose candidate can introduce ``INDIRECT``.
+
+    The text driver is deliberately editable workbook data.  The fixture does
+    not calculate it; it tests whether a tool makes the resulting static
+    dependency-coverage boundary visible.
+    """
+
+    workbook = Workbook()
+    _configure_workbook(workbook, title="WCAB dynamic reference fixture")
+    inputs = workbook.active
+    inputs.title = "Inputs"
+    inputs["A1"] = "Address driver"
+    inputs["E12"] = "Revenue!C8"
+
+    revenue = workbook.create_sheet("Revenue")
+    revenue["A1"] = "Revenue sources"
+    revenue["B8"] = 100
+    revenue["C8"] = 120
+
+    summary = workbook.create_sheet("Summary")
+    summary["A1"] = "Selected revenue"
+    summary["B2"] = "=Revenue!$C$8"
+
+    dashboard = workbook.create_sheet("Dashboard")
+    dashboard["A1"] = "Board output"
+    dashboard["B4"] = "=Summary!$B$2"
     return workbook
 
 
@@ -701,6 +733,50 @@ def _build_structural_table_scope(root: Path) -> None:
     )
 
 
+def _build_structural_dynamic_reference(root: Path) -> None:
+    def mutate(workbook: Workbook) -> None:
+        workbook["Summary"]["B2"] = "=INDIRECT(Inputs!$E$12)"
+
+    truth = _truth(
+        case_id="structural.dynamic_reference_introduced",
+        title="A direct output reference becomes an INDIRECT-driven reference",
+        family="structural",
+        review_expectation="block",
+        facts=[
+            {
+                "kind": "dynamic_formula_reference_added",
+                "sheet": "Summary",
+                "cell": "B2",
+                "functions": ["INDIRECT"],
+            }
+        ],
+        must_reach=[
+            {
+                "source": {"sheet": "Summary", "cell": "B2"},
+                "targets": [{"sheet": "Dashboard", "cell": "B4"}],
+            }
+        ],
+        coverage=[
+            "INDIRECT returns a reference from workbook text; this fixture does not evaluate that text or claim complete target resolution.",
+            "The scoreable coverage expectation requires an explicit static-dependency boundary disclosure, not a universal formula-evaluation claim.",
+        ],
+        coverage_expectations=[
+            {
+                "kind": "dynamic_reference_static_coverage",
+                "sheet": "Summary",
+                "cell": "B2",
+                "functions": ["INDIRECT"],
+            }
+        ],
+    )
+    _write_pair(
+        root / "structural" / "dynamic_reference_introduced",
+        _dynamic_reference_workbook,
+        mutate,
+        truth,
+    )
+
+
 def _build_portfolio_external_driver(root: Path) -> None:
     directory = root / "portfolio" / "external_driver_value_change"
     baseline = directory / "baseline"
@@ -760,6 +836,7 @@ _BUILDERS: tuple[Callable[[Path], None], ...] = (
     _build_structural_three_d_scope,
     _build_structural_formula_rewrite,
     _build_structural_table_scope,
+    _build_structural_dynamic_reference,
     _build_portfolio_external_driver,
 )
 
@@ -780,6 +857,7 @@ CASE_IDS = (
     "structural.three_d_scope_expansion",
     "structural.formula_rewrite_after_column_insert",
     "structural.structured_table_scope_expansion",
+    "structural.dynamic_reference_introduced",
     "portfolio.external_driver_value_change",
 )
 

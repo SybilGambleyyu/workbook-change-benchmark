@@ -1,16 +1,18 @@
-# WCAB truth schema, version 2
+# WCAB truth schema, version 3
 
 Every case has one `truth.json`. It is public metadata for an original,
 generated fixture; it never relies on a private workbook or an external data
 source.
 
-Version 2 adds `structured_table_scope_changed`, which captures the stored
-Excel Table range changing while a dependent structured-reference formula keeps
-the same text. Version 1 remains available in the immutable v0.1.1 release.
+Version 3 adds `coverage_expectations`: machine-matchable disclosures for
+important analysis boundaries. Its first case requires a warning that an
+introduced `INDIRECT` reference can leave static dependency coverage
+incomplete. Version 2 remains available in the immutable v0.2.0 and v0.3.0
+releases.
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 3,
   "id": "family.case_name",
   "title": "Human-readable scenario",
   "family": "finance",
@@ -18,7 +20,8 @@ the same text. Version 1 remains available in the immutable v0.1.1 release.
   "review_expectation": "block",
   "facts": [],
   "must_reach": [],
-  "coverage": []
+  "coverage": [],
+  "coverage_expectations": []
 }
 ```
 
@@ -49,6 +52,7 @@ Facts are observed directly from the fixture files by `wcab validate`.
 | `portfolio_value_changed` | `workbook`, `sheet`, `cell` | A literal value differs between paired portfolio members. |
 | `portfolio_external_reference` | `workbook`, `sheet`, `cell`, `target_workbook` | The local portfolio model contains the declared external workbook reference. |
 | `structured_table_scope_changed` | `table_sheet`, `table`, `baseline_ref`, `candidate_ref`, `formula_sheet`, `formula_cell` | A stored Excel Table range changes while the declared formula remains textually unchanged and retains a reference to that table. |
+| `dynamic_formula_reference_added` | `sheet`, `cell`, `functions` | A previously direct formula changes to one containing the declared introduced dynamic-reference functions. |
 
 ## Static impact lower bounds
 
@@ -58,17 +62,42 @@ references and walks the resulting graph. The targets are therefore lower
 bounds: no result implies a complete Excel dependency calculation, a formula
 evaluation, dynamic-reference resolution, or a claim about cached values.
 
+## Scoreable coverage expectations
+
+`coverage_expectations` is an array of exact, validated objects. It does not
+ask a tool to claim universal support for an Excel construct. Instead, it asks
+whether an adapter can point to native evidence that the relevant analysis
+boundary was visible.
+
+| Expectation kind | Required fields | Observable contract |
+| --- | --- | --- |
+| `dynamic_reference_static_coverage` | `sheet`, `cell`, `functions` | Candidate formula contains the declared newly introduced `INDIRECT` or `OFFSET` function while the baseline formula has none. A matching observation declaration means the tool surfaced the static-dependency coverage boundary. |
+
+Excel documents that [INDIRECT returns a reference specified by a text
+string](https://support.microsoft.com/en-us/excel/functions/indirect-function)
+and that [OFFSET returns a reference displaced from another
+reference](https://support.microsoft.com/en-us/excel/functions/offset-function).
+WCAB consequently does not treat a simple static graph as a complete statement
+of all possible dependencies once either function is introduced.
+
+The observation protocol's `coverage.declarations` items wrap an exact
+expectation plus optional native evidence. See
+[docs/observations.md](observations.md) for matching and scoring rules.
+
 ## Coverage text
 
-Each case contains an explicit `coverage` list. Consumers must preserve these
-boundaries in reports and must not turn unsupported constructs into silent
-passes.
+Each case also contains an explicit free-text `coverage` list. Consumers must
+preserve these boundaries in reports and must not turn unsupported constructs
+into silent passes. The machine-matchable expectations complement rather than
+replace that prose: a case can document broader caveats than a score can fairly
+reduce to one metric.
 
 ## JSONL case catalogue
 
 `fixtures/manifest.jsonl` contains one deterministic JSON object per case. It
 copies the truth fields (`id`, `title`, `family`, `topology`,
-`review_expectation`, `facts`, `must_reach`, and `coverage`) and adds:
+`review_expectation`, `facts`, `must_reach`, `coverage`, and
+`coverage_expectations`) and adds:
 
 | Field | Meaning |
 | --- | --- |

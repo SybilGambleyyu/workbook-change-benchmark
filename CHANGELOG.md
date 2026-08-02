@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.0 — 2026-08-02
+
+- Upgrade the fixture contract to schema version 3 and add a deterministic
+  `INDIRECT`-introduction case with an explicit static-dependency boundary.
+- Upgrade the normalized observation protocol to version 2, adding scoreable
+  coverage declarations, disclosure recall, and strict-mode handling for
+  unrecognized declarations.
+- Extend the optional FormulaFence adapter to map native `FF012`
+  dynamic-reference coverage evidence without imposing an approval decision.
+
 ## 0.3.0 — 2026-08-02
 
 - Add a tool-neutral normalized observation protocol, template command, and

@@ -2,6 +2,7 @@
   "coverage": [
     "The formula text is intentionally unchanged; the observable risk is tab-order scope."
   ],
+  "coverage_expectations": [],
   "facts": [
     {
       "after_sheet": "Jan",
@@ -16,7 +17,7 @@
   "id": "structural.three_d_scope_expansion",
   "must_reach": [],
   "review_expectation": "block",
-  "schema_version": 2,
+  "schema_version": 3,
   "title": "A new period silently enters an unchanged 3-D formula span",
   "topology": "pair"
 }

@@ -37,6 +37,11 @@ _FACT_TO_CHANGE: dict[str, tuple[str, str | None]] = {
     "static_cycle_introduced": ("formula_changed", None),
     "three_d_scope_changed": ("three_d_reference_scope_changed", "formula_location"),
     "structured_table_scope_changed": ("table_definition_changed", None),
+    "dynamic_formula_reference_added": ("dynamic_formula_reference_added", "location"),
+}
+
+_COVERAGE_EXPECTATION_TO_RULE: dict[str, tuple[str, str | None]] = {
+    "dynamic_reference_static_coverage": ("FF012", "location"),
 }
 
 _LINT_EXPECTATIONS = {
@@ -191,6 +196,9 @@ def _evaluate_portfolio_case(
         "matched": matched,
         "missed": missed,
         "unmapped": unmapped,
+        "matched_coverage_expectations": [],
+        "missed_coverage_expectations": [],
+        "unmapped_coverage_expectations": [],
         "change_count": report.get("summary", {}).get("change_count"),
     }
 
@@ -198,9 +206,9 @@ def _evaluate_portfolio_case(
 def evaluate_diff_case(case_dir: str | Path, *, executable: str = "formulafence") -> dict[str, Any]:
     """Compare FormulaFence's diff evidence with mappable WCAB facts.
 
-    Unmappable facts remain visible in the result instead of being silently
-    counted as passes. Portfolio topology is intentionally left to a future
-    adapter extension because FormulaFence uses a different portfolio command.
+    Unmappable facts and coverage expectations remain visible in the result
+    instead of being silently counted as passes. Portfolio facts are handled
+    through FormulaFence's separate portfolio command.
     """
 
     directory = Path(case_dir)
@@ -228,19 +236,69 @@ def evaluate_diff_case(case_dir: str | Path, *, executable: str = "formulafence"
             continue
         expected_kind, location_mode = expectation
         expected_location = _fact_location(fact) if location_mode is not None else None
+        expected_functions = fact.get("functions")
         observed = any(
             change.get("kind") == expected_kind
             and (expected_location is None or change.get("location") == expected_location)
+            and (
+                expected_functions is None
+                or (
+                    isinstance(change.get("details"), dict)
+                    and change["details"].get("functions") == expected_functions
+                )
+            )
             for change in changes
             if isinstance(change, dict)
         )
         (matched if observed else missed).append(str(kind))
+
+    coverage_expectations = truth.get("coverage_expectations", [])
+    if not isinstance(coverage_expectations, list):
+        raise FormulaFenceAdapterError(f"{directory}: coverage_expectations must be an array")
+    findings: list[Any] = []
+    if coverage_expectations:
+        raw_findings = report.get("findings", [])
+        if not isinstance(raw_findings, list):
+            raise FormulaFenceAdapterError("FormulaFence report has no findings list")
+        findings = raw_findings
+    matched_coverage_expectations: list[dict[str, Any]] = []
+    missed_coverage_expectations: list[dict[str, Any]] = []
+    unmapped_coverage_expectations: list[dict[str, Any]] = []
+    for expectation in coverage_expectations:
+        if not isinstance(expectation, dict):
+            raise FormulaFenceAdapterError(f"{directory}: coverage expectation must be an object")
+        mapping = _COVERAGE_EXPECTATION_TO_RULE.get(str(expectation.get("kind")))
+        if mapping is None:
+            unmapped_coverage_expectations.append(expectation)
+            continue
+        expected_rule, location_mode = mapping
+        expected_location = _fact_location(expectation) if location_mode is not None else None
+        expected_functions = expectation.get("functions")
+        observed = any(
+            isinstance(finding, dict)
+            and finding.get("rule_id") == expected_rule
+            and (expected_location is None or finding.get("location") == expected_location)
+            and (
+                expected_functions is None
+                or (
+                    isinstance(finding.get("details"), dict)
+                    and finding["details"].get("functions") == expected_functions
+                )
+            )
+            for finding in findings
+        )
+        (matched_coverage_expectations if observed else missed_coverage_expectations).append(
+            expectation
+        )
     return {
         "case_id": truth.get("id"),
         "status": "matched" if not missed else "missed",
         "matched": matched,
         "missed": missed,
         "unmapped": unmapped,
+        "matched_coverage_expectations": matched_coverage_expectations,
+        "missed_coverage_expectations": missed_coverage_expectations,
+        "unmapped_coverage_expectations": unmapped_coverage_expectations,
         "change_count": report.get("summary", {}).get("change_count"),
     }
 
@@ -275,10 +333,21 @@ def evaluate_reference_suite(
                 }
             )
     missed = [case for case in cases if case["missed"]]
+    coverage_missed = [case for case in cases if case["missed_coverage_expectations"]]
     lint_missed = [case for case in lint_results if not case["matched"]]
     mapped_fact_count = sum(len(case["matched"]) + len(case["missed"]) for case in cases)
     matched_fact_count = sum(len(case["matched"]) for case in cases)
     unmapped_fact_count = sum(len(case["unmapped"]) for case in cases)
+    mapped_coverage_expectation_count = sum(
+        len(case["matched_coverage_expectations"]) + len(case["missed_coverage_expectations"])
+        for case in cases
+    )
+    matched_coverage_expectation_count = sum(
+        len(case["matched_coverage_expectations"]) for case in cases
+    )
+    unmapped_coverage_expectation_count = sum(
+        len(case["unmapped_coverage_expectations"]) for case in cases
+    )
     return {
         "tool": "FormulaFence",
         "case_count": len(cases),
@@ -288,6 +357,10 @@ def evaluate_reference_suite(
         "unmapped_diff_fact_count": unmapped_fact_count,
         "diff_cases_with_misses": missed,
         "diff_cases": cases,
+        "mapped_coverage_expectation_count": mapped_coverage_expectation_count,
+        "matched_coverage_expectation_count": matched_coverage_expectation_count,
+        "unmapped_coverage_expectation_count": unmapped_coverage_expectation_count,
+        "coverage_expectations_with_misses": coverage_missed,
         "lint_rule_count": len(lint_results),
         "lint_rule_misses": lint_missed,
         "lint_rules": lint_results,
@@ -333,15 +406,40 @@ def reference_observations(root: str | Path, *, executable: str = "formulafence"
                     continue
                 evidence = {"native_change_kind": expectation[0]}
             facts.append({"evidence": evidence, "fact": fact})
-        coverage = []
+        coverage_notes: list[str] = []
         if result["unmapped"]:
-            coverage.append(
+            coverage_notes.append(
                 "FormulaFence adapter mapping intentionally unavailable for: "
                 + ", ".join(sorted(result["unmapped"]))
             )
+        unmapped_coverage_expectations = result.get("unmapped_coverage_expectations", [])
+        if unmapped_coverage_expectations:
+            coverage_notes.append(
+                "FormulaFence adapter coverage mapping intentionally unavailable for: "
+                + ", ".join(
+                    sorted(
+                        str(expectation.get("kind"))
+                        for expectation in unmapped_coverage_expectations
+                        if isinstance(expectation, dict)
+                    )
+                )
+            )
+        coverage_declarations: list[dict[str, Any]] = []
+        for expectation in result.get("matched_coverage_expectations", []):
+            if not isinstance(expectation, dict):
+                continue
+            mapping = _COVERAGE_EXPECTATION_TO_RULE.get(str(expectation.get("kind")))
+            if mapping is None:
+                continue
+            coverage_declarations.append(
+                {
+                    "evidence": {"native_rule_id": mapping[0]},
+                    "expectation": expectation,
+                }
+            )
         cases.append(
             {
-                "coverage": coverage,
+                "coverage": {"declarations": coverage_declarations, "notes": coverage_notes},
                 "facts": facts,
                 "id": case_id,
                 "review": None,

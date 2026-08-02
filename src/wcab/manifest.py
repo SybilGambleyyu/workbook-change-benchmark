@@ -82,6 +82,7 @@ def case_rows(
                 "candidate_files": _role_files(case_dir, root, topology, "candidate"),
                 "case_path": case_dir.relative_to(root).as_posix(),
                 "coverage": truth.get("coverage", []),
+                "coverage_expectations": truth.get("coverage_expectations", []),
                 "facts": truth.get("facts", []),
                 "family": truth.get("family"),
                 "id": case_id,

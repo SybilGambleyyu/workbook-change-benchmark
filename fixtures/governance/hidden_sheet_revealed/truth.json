@@ -2,6 +2,7 @@
   "coverage": [
     "Visibility is an observable workbook control; cell content is not part of this assertion."
   ],
+  "coverage_expectations": [],
   "facts": [
     {
       "baseline_state": "hidden",
@@ -14,7 +15,7 @@
   "id": "governance.hidden_sheet_revealed",
   "must_reach": [],
   "review_expectation": "review",
-  "schema_version": 2,
+  "schema_version": 3,
   "title": "A hidden review-control sheet is made visible",
   "topology": "pair"
 }

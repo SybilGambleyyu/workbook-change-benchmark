@@ -2,6 +2,7 @@
   "coverage": [
     "Static dependency lower bound; numerical recalculation is out of scope."
   ],
+  "coverage_expectations": [],
   "facts": [
     {
       "cell": "C8",
@@ -38,7 +39,7 @@
     }
   ],
   "review_expectation": "block",
-  "schema_version": 2,
+  "schema_version": 3,
   "title": "Revenue formula is replaced with a hard-coded value",
   "topology": "pair"
 }

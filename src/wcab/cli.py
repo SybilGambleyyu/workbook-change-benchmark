@@ -93,7 +93,7 @@ def _parser() -> argparse.ArgumentParser:
     score.add_argument(
         "--strict",
         action="store_true",
-        help="return nonzero unless every case is complete with no unrecognized facts",
+        help="return nonzero unless every case is complete with no unrecognized facts or coverage declarations",
     )
     subcommands.add_parser("list", help="list stable case identifiers")
     return parser
@@ -121,7 +121,11 @@ def main(argv: list[str] | None = None) -> int:
             print(f"FormulaFence adapter error: {error}", file=sys.stderr)
             return 2
         print(json.dumps(result, indent=2, sort_keys=True))
-        has_miss = bool(result["diff_cases_with_misses"] or result["lint_rule_misses"])
+        has_miss = bool(
+            result["diff_cases_with_misses"]
+            or result["coverage_expectations_with_misses"]
+            or result["lint_rule_misses"]
+        )
         return 1 if args.strict and has_miss else 0
     if args.command == "formulafence-observations":
         try:
@@ -166,7 +170,16 @@ def main(argv: list[str] | None = None) -> int:
             print(f"wrote WCAB score report to {args.output}")
         summary = result["summary"]
         complete = summary["complete_case_count"] == len(CASE_IDS)
-        return 1 if args.strict and (not complete or summary["unrecognized_fact_count"]) else 0
+        return (
+            1
+            if args.strict
+            and (
+                not complete
+                or summary["unrecognized_fact_count"]
+                or summary["unrecognized_coverage_declaration_count"]
+            )
+            else 0
+        )
     for case_id in CASE_IDS:
         print(case_id)
     return 0

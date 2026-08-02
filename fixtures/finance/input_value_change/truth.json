@@ -2,6 +2,7 @@
   "coverage": [
     "An input change is not inherently an error; it remains material review evidence."
   ],
+  "coverage_expectations": [],
   "facts": [
     {
       "cell": "C2",
@@ -42,7 +43,7 @@
     }
   ],
   "review_expectation": "review",
-  "schema_version": 2,
+  "schema_version": 3,
   "title": "Approved input changes and propagates into outputs",
   "topology": "pair"
 }

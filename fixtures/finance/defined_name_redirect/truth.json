@@ -2,6 +2,7 @@
   "coverage": [
     "The assertion compares the defined-name destination; name resolution beyond this fixture is out of scope."
   ],
+  "coverage_expectations": [],
   "facts": [
     {
       "kind": "defined_name_changed",
@@ -12,7 +13,7 @@
   "id": "finance.defined_name_redirect",
   "must_reach": [],
   "review_expectation": "block",
-  "schema_version": 2,
+  "schema_version": 3,
   "title": "A named rate redirects to a different assumption",
   "topology": "pair"
 }

@@ -1,6 +1,6 @@
 # Validation record
 
-This record describes the WCAB 0.3.0 / schema-version-2 validation run on
+This record describes the WCAB 0.4.0 / schema-version-3 validation run on
 2026-08-02. It is reproducible from this repository; no network service or
 private workbook is required.
 
@@ -32,29 +32,31 @@ wcab validate --fixtures fixtures
 
 Results:
 
-- 17 cases: 16 paired-workbook cases and one directory portfolio case.
-- 19 observable truth facts: 12 `block` and five `review` dispositions.
-- 53 workbook and truth-manifest fixture files, plus one generated JSONL case
+- 18 cases: 17 paired-workbook cases and one directory portfolio case.
+- 20 observable truth facts across 13 `block` and five `review` cases.
+- One scoreable coverage expectation requires an explicit static-dependency
+  boundary disclosure for an introduced `INDIRECT` reference.
+- 56 workbook and truth-manifest fixture files, plus one generated JSONL case
   catalogue, all generated from source.
-- Eighteen unit tests passed under both Python versions, including independent
+- Twenty-three unit tests passed under both Python versions, including independent
   regeneration and byte-for-byte fixture-tree equality.
-- The fixture validator accepted all 17 cases.
+- The fixture validator accepted all 18 cases.
 
 ## Distribution supplement
 
-The 0.3.0 release builds a one-row-per-case `manifest.jsonl` catalogue and a
-tool-neutral observation protocol. Each catalogue row retains the
-schema-version-2 truth contract and includes byte counts and SHA-256 digests
-for the workbooks it names.
+The 0.4.0 release retains the one-row-per-case `manifest.jsonl` catalogue and
+upgrades the tool-neutral observation protocol to version 2. Each catalogue
+row retains the schema-version-3 truth contract and includes byte counts and
+SHA-256 digests for the workbooks it names.
 
 Commands:
 
 ```bash
 python -m build
-twine check dist/workbook_change_benchmark-0.3.0*
+twine check dist/workbook_change_benchmark-0.4.0*
 python -m venv /tmp/wcab-wheel-test
 /tmp/wcab-wheel-test/bin/python -m pip install \
-  dist/workbook_change_benchmark-0.3.0-py3-none-any.whl
+  dist/workbook_change_benchmark-0.4.0-py3-none-any.whl
 /tmp/wcab-wheel-test/bin/wcab validate --fixtures fixtures
 /tmp/wcab-wheel-test/bin/wcab manifest --fixtures fixtures --output /tmp/manifest.jsonl
 cmp fixtures/manifest.jsonl /tmp/manifest.jsonl
@@ -67,14 +69,16 @@ cmp fixtures/manifest.jsonl /tmp/manifest.jsonl
 Results:
 
 - The source distribution and universal wheel passed `twine check`.
-- A fresh Python 3.12 wheel installation validated all 17 fixtures and emitted
+- A fresh Python 3.12 wheel installation validated all 18 fixtures and emitted
   byte-identical JSONL output.
-- The full eighteen-test suite, lint, and format checks passed under the supported
+- The full twenty-three-test suite, lint, and format checks passed under the supported
   local Python versions (3.12 and 3.13).
 - The generated unsupported template scored as zero analyzed coverage and zero
-  expected-fact recall, confirming that unsupported cases cannot become a pass.
-- The FormulaFence normalizer emitted 18 matched facts, one intentionally
-  unmapped fact, and no invented review disposition.
+  expected-fact recall and zero coverage-disclosure recall, confirming that
+  unsupported cases cannot become a pass.
+- The FormulaFence normalizer emitted 19 matched facts, one intentionally
+  unmapped fact, one matched coverage declaration, and no invented review
+  disposition.
 
 ## FormulaFence reference adapter
 
@@ -87,11 +91,14 @@ wcab formulafence --fixtures fixtures --strict
 
 Results:
 
-- All 18 currently mappable diff/portfolio facts were observed.
-- No mapped fact was missed across all 17 cases.
+- All 19 currently mappable diff/portfolio facts were observed.
+- No mapped fact or coverage expectation was missed across all 18 cases.
 - The schema-version-2 structured Table scope case was observed as a
   `table_definition_changed` diff, even though its summary formula text stays
   unchanged.
+- The schema-version-3 dynamic-reference case was observed as both a
+  `dynamic_formula_reference_added` diff and `FF012` coverage warning; the
+  adapter preserves that warning as one normalized coverage declaration.
 - Five targeted lint expectations were observed: copied-formula interruption
   (`FF082`), conditional-aggregate range shape (`FF093`), explicitly unlocked
   formula cell (`FF085`), incomplete manual calculation (`FF086`), and static

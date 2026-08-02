@@ -2,6 +2,7 @@
   "coverage": [
     "The target workbook is present only as a local sibling; no network or filesystem path resolution is permitted."
   ],
+  "coverage_expectations": [],
   "facts": [
     {
       "cell": "B2",
@@ -21,7 +22,7 @@
   "id": "portfolio.external_driver_value_change",
   "must_reach": [],
   "review_expectation": "review",
-  "schema_version": 2,
+  "schema_version": 3,
   "title": "An upstream workbook driver changes while a downstream workbook consumes it",
   "topology": "portfolio"
 }
