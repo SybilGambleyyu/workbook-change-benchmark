@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import base64
+import io
 import json
+import struct
 from hashlib import sha256
 from pathlib import Path
 from xml.etree import ElementTree
@@ -168,6 +171,76 @@ def _pivot_slicer_selection_details() -> dict[str, object]:
     }
 
 
+def _power_query_m_filter_details() -> dict[str, object]:
+    profile = {
+        "present": True,
+        "mashup_count": 1,
+        "parsed_mashup_count": 1,
+        "formula_document_count": 1,
+        "package_part_count": 3,
+        "embedded_content_part_count": 0,
+        "metadata_document_count": 1,
+        "metadata_item_count": 1,
+        "permission_controls": {
+            "payload_count": 1,
+            "parsed_count": 1,
+            "firewall_enabled_count": 1,
+            "future_packages_allowed_count": 0,
+            "workbook_group_type_count": 0,
+            "opaque_metadata": {"present": False, "count": 0},
+        },
+        "permission_binding_count": 0,
+        "opaque_metadata": {"present": False, "count": 0},
+    }
+    return {
+        "before": profile,
+        "after": profile,
+        "formula_material_changed": True,
+    }
+
+
+def _replace_power_query_m_filter_literal(path: Path, *, before: bytes, after: bytes) -> None:
+    """Rewrite one test fixture's embedded M formula without changing its truth."""
+
+    with ZipFile(path) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    mashup_member = "customXml/item1.xml"
+    mashup = ElementTree.fromstring(members[mashup_member])
+    assert isinstance(mashup.text, str)
+    stream = base64.b64decode(mashup.text, validate=True)
+    version = struct.unpack_from("<I", stream)[0]
+    cursor = 4
+    fields: list[bytes] = []
+    for _ in range(4):
+        size = struct.unpack_from("<I", stream, cursor)[0]
+        cursor += 4
+        fields.append(stream[cursor : cursor + size])
+        cursor += size
+    assert cursor == len(stream)
+    package_payload = io.BytesIO()
+    with ZipFile(io.BytesIO(fields[0])) as package:
+        package_members = {
+            entry.filename: package.read(entry.filename) for entry in package.infolist()
+        }
+    formula_member = "Formulas/Section1.m"
+    assert package_members[formula_member].count(before) == 1
+    package_members[formula_member] = package_members[formula_member].replace(before, after)
+    with ZipFile(package_payload, "w", compression=ZIP_DEFLATED) as package:
+        for name in sorted(package_members):
+            package.writestr(name, package_members[name])
+    fields[0] = package_payload.getvalue()
+    rewritten_stream = struct.pack("<I", version)
+    for field in fields:
+        rewritten_stream += struct.pack("<I", len(field)) + field
+    mashup.text = base64.b64encode(rewritten_stream).decode("ascii")
+    members[mashup_member] = ElementTree.tostring(mashup, encoding="utf-8", xml_declaration=True)
+    staging = path.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(path)
+
+
 def test_committed_fixtures_validate() -> None:
     assert validate_all(PROJECT_ROOT / "fixtures") == {}
 
@@ -316,6 +389,26 @@ def test_committed_manifest_matches_fixture_tree() -> None:
             "candidate_selected_item_index": 1,
             "baseline_selected_value": "North",
             "candidate_selected_value": "South",
+        }
+    ]
+    power_query_row = next(
+        row for row in rows if row["id"] == "structural.power_query_m_filter_changed"
+    )
+    assert power_query_row["facts"] == [
+        {
+            "kind": "power_query_m_filter_changed",
+            "data_mashup_part": "customXml/item1.xml",
+            "source_sheet": "Source",
+            "source_table": "SourceData",
+            "source_ref": "A1:B5",
+            "query_section": "Section1",
+            "query_name": "RegionQuery",
+            "filter_column": "Region",
+            "baseline_filter_value": "North",
+            "candidate_filter_value": "South",
+            "fill_enabled": False,
+            "firewall_enabled": True,
+            "future_packages_allowed": False,
         }
     ]
     external_link_policy_row = next(
@@ -794,6 +887,69 @@ def test_pivot_slicer_selection_pair_changes_only_its_slicer_cache(tmp_path: Pat
         for member in sorted(baseline_members)
         if baseline_members[member] != candidate_members[member]
     ] == ["xl/slicerCaches/slicerCache1.xml"]
+
+
+def test_validator_rejects_a_false_power_query_m_filter_fact(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "structural" / "power_query_m_filter_changed"
+    truth_path = case / "truth.json"
+    truth = json.loads(truth_path.read_text(encoding="utf-8"))
+    truth["facts"][0]["candidate_filter_value"] = "North"
+    truth_path.write_text(json.dumps(truth), encoding="utf-8")
+    assert validate_case(case)
+
+
+def test_validator_rejects_a_corrupted_power_query_m_filter_literal(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = fixture_root / "structural" / "power_query_m_filter_changed" / "candidate.xlsx"
+    _replace_power_query_m_filter_literal(candidate, before=b'"South"', after=b'"North"')
+    assert validate_case(candidate.parent)
+
+
+def test_validator_rejects_a_corrupted_power_query_root_relationship(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = fixture_root / "structural" / "power_query_m_filter_changed" / "candidate.xlsx"
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    relationships_member = "_rels/.rels"
+    relationships = ElementTree.fromstring(members[relationships_member])
+    relationship = next(item for item in relationships if item.get("Id") == "rIdWCABPowerQuery")
+    relationship.set(
+        "Type", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"
+    )
+    members[relationships_member] = ElementTree.tostring(
+        relationships, encoding="utf-8", xml_declaration=True
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_power_query_m_filter_pair_changes_only_its_data_mashup_part(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "structural" / "power_query_m_filter_changed"
+    with ZipFile(case / "baseline.xlsx") as baseline, ZipFile(case / "candidate.xlsx") as candidate:
+        assert baseline.testzip() is None
+        assert candidate.testzip() is None
+        baseline_members = {
+            entry.filename: baseline.read(entry.filename) for entry in baseline.infolist()
+        }
+        candidate_members = {
+            entry.filename: candidate.read(entry.filename) for entry in candidate.infolist()
+        }
+    assert set(baseline_members) == set(candidate_members)
+    assert [
+        member
+        for member in sorted(baseline_members)
+        if baseline_members[member] != candidate_members[member]
+    ] == ["customXml/item1.xml"]
 
 
 def test_validator_rejects_a_false_chart_series_reference_fact(tmp_path: Path) -> None:
@@ -2142,6 +2298,92 @@ def test_formulafence_adapter_requires_the_pivot_slicer_selection_finding(
     assert result["status"] == "missed"
     assert result["matched"] == []
     assert result["missed"] == ["pivot_slicer_selection_changed"]
+
+
+def test_formulafence_adapter_maps_the_exact_power_query_m_filter_change(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _power_query_m_filter_details()
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "power_query_changed",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF024", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "structural" / "power_query_m_filter_changed"
+    )
+    assert result["status"] == "matched"
+    assert result["matched"] == ["power_query_m_filter_changed"]
+
+
+def test_formulafence_adapter_rejects_an_inexact_power_query_m_filter_change(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _power_query_m_filter_details()
+        details["metadata_control_material_changed"] = True
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "power_query_changed",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF024", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "structural" / "power_query_m_filter_changed"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["power_query_m_filter_changed"]
+
+
+def test_formulafence_adapter_requires_the_power_query_m_filter_finding(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "power_query_changed",
+                    "location": None,
+                    "details": _power_query_m_filter_details(),
+                }
+            ],
+            "findings": [],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "structural" / "power_query_m_filter_changed"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["power_query_m_filter_changed"]
 
 
 def test_formulafence_adapter_maps_the_exact_chart_series_reference_change(

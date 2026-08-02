@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.18.0 — 2026-08-03
+
+- Add a deterministic connection-only Power Query case over a local
+  `SourceData` Excel Table. Its stored M `Table.SelectRows` literal moves from
+  `North` to `South`; source cells, table definition, calculation properties,
+  metadata, permissions, and every package member except
+  `customXml/item1.xml` remain unchanged.
+- Add the exact `power_query_m_filter_changed` fact, a bounded raw Data Mashup
+  envelope validator, custom-XML relationship validation, package-isolation
+  check, and corruption regressions. WCAB records only the stored definition:
+  it does not execute M, refresh a query, materialize output, calculate a
+  workbook, infer returned rows, or claim client behavior.
+- Extend the optional FormulaFence adapter to require the exact redacted
+  one-query `power_query_changed` profile and high-severity `FF024`, while
+  WCAB independently proves the local source and `North -> South` M literal.
+
 ## 0.17.0 — 2026-08-03
 
 - Add a deterministic relationship-backed PivotTable Slicer-selection case.

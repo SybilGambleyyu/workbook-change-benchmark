@@ -43,6 +43,7 @@ _FACT_TO_CHANGE: dict[str, tuple[str, str | None]] = {
     "chart_series_value_reference_changed": ("chart_definitions_changed", None),
     "pivot_data_field_aggregation_changed": ("pivot_table_definitions_changed", None),
     "pivot_slicer_selection_changed": ("slicer_timeline_cache_definitions_changed", None),
+    "power_query_m_filter_changed": ("power_query_changed", None),
     "external_data_connection_refresh_on_load_changed": (
         "external_data_connections_changed",
         None,
@@ -696,6 +697,75 @@ def _pivot_slicer_selection_finding_observed(finding: dict[str, Any], fact: dict
     )
 
 
+def _power_query_m_filter_details_observed(details: Any, fact: dict[str, Any]) -> bool:
+    """Match FormulaFence's redacted one-query M-definition evidence.
+
+    FormulaFence deliberately reports the shape of a Power Query surface, not
+    M source text, local-table values, or query results. WCAB therefore
+    requires this exact one-query profile and FF024, while its raw validator
+    establishes the stored M transition and connection-only controls.
+    """
+
+    if (
+        fact.get("data_mashup_part") != "customXml/item1.xml"
+        or fact.get("source_sheet") != "Source"
+        or fact.get("source_table") != "SourceData"
+        or fact.get("source_ref") != "A1:B5"
+        or fact.get("query_section") != "Section1"
+        or fact.get("query_name") != "RegionQuery"
+        or fact.get("filter_column") != "Region"
+        or fact.get("baseline_filter_value") != "North"
+        or fact.get("candidate_filter_value") != "South"
+        or fact.get("fill_enabled") is not False
+        or fact.get("firewall_enabled") is not True
+        or fact.get("future_packages_allowed") is not False
+        or not isinstance(details, dict)
+    ):
+        return False
+    expected_profile = {
+        "present": True,
+        "mashup_count": 1,
+        "parsed_mashup_count": 1,
+        "formula_document_count": 1,
+        "package_part_count": 3,
+        "embedded_content_part_count": 0,
+        "metadata_document_count": 1,
+        "metadata_item_count": 1,
+        "permission_controls": {
+            "payload_count": 1,
+            "parsed_count": 1,
+            "firewall_enabled_count": 1,
+            "future_packages_allowed_count": 0,
+            "workbook_group_type_count": 0,
+            "opaque_metadata": {"present": False, "count": 0},
+        },
+        "permission_binding_count": 0,
+        "opaque_metadata": {"present": False, "count": 0},
+    }
+    return (
+        details.get("before") == expected_profile
+        and details.get("after") == expected_profile
+        and details.get("formula_material_changed") is True
+        and set(details) == {"before", "after", "formula_material_changed"}
+    )
+
+
+def _power_query_m_filter_observed(change: dict[str, Any], fact: dict[str, Any]) -> bool:
+    """Match FormulaFence's Power Query definition change record."""
+
+    return change.get("kind") == "power_query_changed" and (
+        _power_query_m_filter_details_observed(change.get("details"), fact)
+    )
+
+
+def _power_query_m_filter_finding_observed(finding: dict[str, Any], fact: dict[str, Any]) -> bool:
+    """Require FormulaFence's matching high-severity Power Query finding."""
+
+    return finding.get("rule_id") == "FF024" and _power_query_m_filter_details_observed(
+        finding.get("details"), fact
+    )
+
+
 def _formula_cached_result_details_observed(details: Any, fact: dict[str, Any]) -> bool:
     """Match FormulaFence's intentionally redacted saved-result details.
 
@@ -969,6 +1039,16 @@ def evaluate_diff_case(case_dir: str | Path, *, executable: str = "formulafence"
                 if isinstance(change, dict)
             ) and any(
                 _pivot_slicer_selection_finding_observed(finding, fact)
+                for finding in findings
+                if isinstance(finding, dict)
+            )
+        if kind == "power_query_m_filter_changed":
+            observed = any(
+                _power_query_m_filter_observed(change, fact)
+                for change in changes
+                if isinstance(change, dict)
+            ) and any(
+                _power_query_m_filter_finding_observed(finding, fact)
                 for finding in findings
                 if isinstance(finding, dict)
             )

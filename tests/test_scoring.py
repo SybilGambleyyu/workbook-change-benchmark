@@ -48,8 +48,8 @@ def test_score_reports_full_expected_fact_recall_and_policy_agreement(tmp_path: 
     build_all(fixture_root)
     result = score_observations(fixture_root, _perfect_observations(fixture_root))
     summary = result["summary"]
-    assert summary["expected_fact_count"] == 34
-    assert summary["matched_fact_count"] == 34
+    assert summary["expected_fact_count"] == 35
+    assert summary["matched_fact_count"] == 35
     assert summary["missing_fact_count"] == 0
     assert summary["fact_recall"] == 1.0
     assert summary["expected_coverage_expectation_count"] == 3
@@ -82,7 +82,7 @@ def test_score_records_unsupported_cases_without_treating_them_as_passes(tmp_pat
     assert summary["analyzed_case_count"] == 0
     assert summary["unsupported_case_count"] == len(CASE_IDS)
     assert summary["matched_fact_count"] == 0
-    assert summary["missing_fact_count"] == 34
+    assert summary["missing_fact_count"] == 35
     assert summary["missing_coverage_expectation_count"] == 3
     assert summary["review_not_reported_count"] == len(CASE_IDS)
 
@@ -199,7 +199,7 @@ def test_formulafence_reference_observations_are_scoreable(monkeypatch, tmp_path
     result = score_observations(fixture_root, observations)
     summary = result["summary"]
     assert summary["analyzed_case_count"] == len(CASE_IDS)
-    assert summary["matched_fact_count"] == 33
+    assert summary["matched_fact_count"] == 34
     assert summary["missing_fact_count"] == 1
     assert summary["matched_coverage_declaration_count"] == 3
     assert summary["coverage_disclosure_recall"] == 1.0

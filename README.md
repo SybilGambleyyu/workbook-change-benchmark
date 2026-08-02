@@ -34,7 +34,7 @@ gates, static analyzers, and agent workflows that propose workbook edits.
 
 ## Scope and non-goals
 
-Version `0.17` covers formula-to-value replacements, formula reference drift,
+Version `0.18` covers formula-to-value replacements, formula reference drift,
 value changes with downstream effects, external formula references, named
 ranges, data validation, conditional formatting, sheet visibility, direct cell
 protection, calculation settings, static cycles, portfolio dependencies,
@@ -80,6 +80,13 @@ PivotCache, stored `Report!A1:B2` display cells, and
 item state only: it does not create a visual Slicer or drawing, apply the
 filter, refresh, calculate, or render the PivotTable, infer a changed report
 result, or claim client behavior.
+It also covers a connection-only local Power Query whose stored M
+`Table.SelectRows` filter moves from `North` to `South` over the generated
+`SourceData` Excel Table. Source cells, the table definition, calculation
+properties, metadata, and permission controls remain unchanged. It records the
+stored M definition only: it does not execute M, apply a filter, refresh a
+query, materialize output, calculate formulas, infer returned rows, or claim
+client behavior.
 It also covers a Dashboard DrawingML chart whose raw numeric-series reference
 switches from `Source!$B$2:$B$4` to `Source!$C$2:$C$4` while all source cells,
 the chart anchor, its title/category references, and every package member
@@ -220,6 +227,15 @@ PivotCache/PivotTable graph, stable stored cells, exact `North`-to-`South`
 selected-item transition, and Slicer-cache-part-only package change. Neither
 layer creates a visual Slicer, applies the filter, refreshes, calculates, or
 renders a PivotTable.
+For the Power Query M-filter case, it requires FormulaFence's exact redacted
+one-query `power_query_changed` profile, `formula_material_changed`, and
+`FF024`. FormulaFence does not expose M source text, local-table values, or a
+query result. WCAB's raw validator instead proves the package-root custom-XML
+relationship, compact Data Mashup envelope, connection-only metadata and
+permission controls, exact local table binding, `North`-to-`South` stored M
+literal, and custom-XML-part-only package change. Neither layer executes M,
+refreshes a query, materializes output, calculates a workbook, or infers
+returned rows.
 For the chart-series case, it requires FormulaFence's exact redacted one-chart
 profile, `chart_definition_material_changed`, and `FF030`; FormulaFence does
 not expose the source formula or a visual result. WCAB's raw validator instead

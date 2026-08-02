@@ -224,6 +224,29 @@ compares the Slicer cache after removing only selection state. It creates no
 visual Slicer or drawing, does not apply the filter, refresh data, calculate or
 render a PivotTable, infer a report value, or claim client behavior.
 
+## Power Query definitions without a worksheet edit
+
+Microsoft's [Power Query overview](https://support.microsoft.com/en-us/excel/about-power-query-in-excel)
+explains that transformations are recorded and can be edited as M source. Its
+[query-management guidance](https://support.microsoft.com/en-us/excel/manage-queries-power-query)
+also makes clear that a query can load to a worksheet, the Data Model, or stay
+connection-only. The [Power Query M language reference](https://learn.microsoft.com/en-us/powerquery-m/)
+and [`Excel.CurrentWorkbook`](https://learn.microsoft.com/en-us/powerquery-m/excel-currentworkbook)
+show why a local Excel Table can be a query source without an external service.
+That creates a high-value review surface: a query definition can materially
+change while all ordinary cells and any saved output remain unchanged.
+
+WCAB 0.18 isolates a small, deterministic version of that boundary. It creates
+one generated `SourceData` Table at `Source!A1:B5` and stores one
+connection-only M formula in a compact Data Mashup custom-XML part. The only
+semantic difference is `Table.SelectRows` changing its `Region` literal from
+`North` to `South`; the table, worksheet cells, formula-free dashboard text,
+metadata, permissions, and calculation properties stay fixed. The validator
+follows the package-root custom-XML relationship and parses only the generated,
+bounded envelope. It does not claim general Power Query support, execute M,
+apply a filter, refresh a query, materialize a result, calculate a workbook,
+infer returned rows, or predict client behavior.
+
 ## Chart series sources without a worksheet edit
 
 Microsoft's [chart-series guidance](https://support.microsoft.com/en-US/Excel/rename-a-data-series)

@@ -7,8 +7,11 @@ rights unambiguous.
 
 from __future__ import annotations
 
+import base64
+import io
 import json
 import re
+import struct
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
@@ -83,6 +86,17 @@ _PIVOT_SLICER_PIVOT_TAB_ID = 2
 _PIVOT_SLICER_ITEM_COUNT = 2
 _PIVOT_SLICER_BASELINE_SELECTED_INDEX = 0
 _PIVOT_SLICER_CANDIDATE_SELECTED_INDEX = 1
+_DATA_MASHUP_NS = "http://schemas.microsoft.com/DataMashup"
+_POWER_QUERY_CUSTOM_XML_MEMBER = "customXml/item1.xml"
+_POWER_QUERY_ROOT_RELATIONSHIP_ID = "rIdWCABPowerQuery"
+_POWER_QUERY_SOURCE_SHEET = "Source"
+_POWER_QUERY_SOURCE_TABLE = "SourceData"
+_POWER_QUERY_SOURCE_REF = "A1:B5"
+_POWER_QUERY_SECTION = "Section1"
+_POWER_QUERY_NAME = "RegionQuery"
+_POWER_QUERY_FILTER_COLUMN = "Region"
+_POWER_QUERY_BASELINE_FILTER_VALUE = "North"
+_POWER_QUERY_CANDIDATE_FILTER_VALUE = "South"
 _CHART_SERIES_SOURCE_SHEET = "Source"
 _CHART_SERIES_DASHBOARD_SHEET = "Dashboard"
 _CHART_SERIES_ANCHOR = "D2"
@@ -392,6 +406,30 @@ def _structured_table_workbook() -> Workbook:
     summary = workbook.create_sheet("Summary")
     summary["A1"] = "Structured table total"
     summary["B2"] = "=SUM(SalesLedger[Amount])"
+    return workbook
+
+
+def _power_query_local_table_workbook() -> Workbook:
+    """Build a local Excel Table consumed by a connection-only M query.
+
+    The Data Mashup payload is attached after openpyxl writes the ordinary
+    worksheet/table package. Its formula is a stored query definition, not a
+    request to execute Power Query or materialize a query result.
+    """
+
+    workbook = Workbook()
+    _configure_workbook(workbook, title="WCAB Power Query local-table filter fixture")
+    source = workbook.active
+    source.title = _POWER_QUERY_SOURCE_SHEET
+    source.append([_POWER_QUERY_FILTER_COLUMN, "Amount"])
+    for region, amount in (("North", 10), ("South", 20), ("North", 15), ("South", 25)):
+        source.append([region, amount])
+    table = Table(displayName=_POWER_QUERY_SOURCE_TABLE, ref=_POWER_QUERY_SOURCE_REF)
+    table.tableStyleInfo = TableStyleInfo(name="TableStyleMedium2", showRowStripes=True)
+    source.add_table(table)
+
+    dashboard = workbook.create_sheet("Dashboard")
+    dashboard["A1"] = "Connection-only query output is not materialized"
     return workbook
 
 
@@ -1170,6 +1208,132 @@ def _add_pivot_cache_refresh_control(path: Path, *, refresh_on_load: bool) -> No
                 {"PartName": part_name, "ContentType": content_type},
             )
         members["[Content_Types].xml"] = serialize(content_types)
+
+    _rewrite_xlsx_parts(path, mutate)
+
+
+def _power_query_nested_zip(parts: dict[str, bytes]) -> bytes:
+    """Build a deterministic compact package embedded in a Data Mashup."""
+
+    payload = io.BytesIO()
+    with ZipFile(payload, "w", compression=ZIP_DEFLATED, compresslevel=9) as archive:
+        for name in sorted(parts):
+            info = ZipInfo(filename=name, date_time=(1980, 1, 1, 0, 0, 0))
+            info.compress_type = ZIP_DEFLATED
+            info.create_system = 3
+            info.external_attr = 0o100644 << 16
+            archive.writestr(info, parts[name])
+    return payload.getvalue()
+
+
+def _power_query_m_filter_formula(filter_value: str) -> str:
+    """Return WCAB's compact connection-only local-table M program."""
+
+    if filter_value not in {
+        _POWER_QUERY_BASELINE_FILTER_VALUE,
+        _POWER_QUERY_CANDIDATE_FILTER_VALUE,
+    }:
+        raise ValueError(f"unsupported Power Query filter value {filter_value!r}")
+    return (
+        f"section {_POWER_QUERY_SECTION};\n\n"
+        f"shared {_POWER_QUERY_NAME} = let\n"
+        f'    Source = Excel.CurrentWorkbook(){{[Name="{_POWER_QUERY_SOURCE_TABLE}"]}}[Content],\n'
+        f'    FilteredRows = Table.SelectRows(Source, each [{_POWER_QUERY_FILTER_COLUMN}] = "{filter_value}")\n'
+        "in\n"
+        "    FilteredRows;\n"
+    )
+
+
+def _power_query_local_table_data_mashup(filter_value: str) -> bytes:
+    """Return a deterministic compact Data Mashup with one stored M program.
+
+    The package has no external source, load target, embedded content, or
+    user-bound permission payload. It describes a connection-only query over
+    the local generated Excel Table and is not evaluated while building.
+    """
+
+    package_parts = _power_query_nested_zip(
+        {
+            "[Content_Types].xml": b"<Types/>",
+            "Config/Package.xml": b"<Package>WCAB connection-only local table query</Package>",
+            f"Formulas/{_POWER_QUERY_SECTION}.m": _power_query_m_filter_formula(
+                filter_value
+            ).encode("utf-8"),
+        }
+    )
+    metadata_xml = (
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        f'<LocalPackageMetadataFile xmlns="{_DATA_MASHUP_NS}">\n'
+        "  <Items>\n"
+        "    <Item>\n"
+        "      <ItemLocation>\n"
+        "        <ItemType>Formula</ItemType>\n"
+        f"        <ItemPath>{_POWER_QUERY_SECTION}/{_POWER_QUERY_NAME}</ItemPath>\n"
+        "      </ItemLocation>\n"
+        "      <StableEntries>\n"
+        '        <Entry Type="FillEnabled" Value="l0" />\n'
+        "      </StableEntries>\n"
+        "    </Item>\n"
+        "  </Items>\n"
+        "</LocalPackageMetadataFile>\n"
+    ).encode()
+    metadata = struct.pack("<II", 0, len(metadata_xml)) + metadata_xml + struct.pack("<I", 0)
+    permissions = (
+        b'<?xml version="1.0" encoding="utf-8"?>\n'
+        b"<PermissionList>\n"
+        b"  <CanEvaluateFuturePackages>false</CanEvaluateFuturePackages>\n"
+        b"  <FirewallEnabled>true</FirewallEnabled>\n"
+        b"</PermissionList>\n"
+    )
+    stream = struct.pack("<I", 0)
+    for field in (package_parts, permissions, metadata, b""):
+        stream += struct.pack("<I", len(field)) + field
+    root = ElementTree.Element(f"{{{_DATA_MASHUP_NS}}}DataMashup")
+    root.text = base64.b64encode(stream).decode("ascii")
+    return ElementTree.tostring(root, encoding="utf-8", xml_declaration=True)
+
+
+def _add_power_query_local_table_filter(path: Path, *, filter_value: str) -> None:
+    """Attach one generated local-table Data Mashup query to an XLSX package."""
+
+    # Validate before editing the package so callers cannot create an ambiguous
+    # fixture with a value outside its explicit two-value truth contract.
+    _power_query_m_filter_formula(filter_value)
+
+    def serialize(root: ElementTree.Element) -> bytes:
+        return ElementTree.tostring(root, encoding="utf-8", xml_declaration=True)
+
+    def mutate(members: dict[str, bytes]) -> None:
+        relationships = ElementTree.fromstring(members["_rels/.rels"])
+        relationship_tag = f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationship"
+        custom_xml_relationship_type = f"{_DOCUMENT_RELATIONSHIPS_NS}/customXml"
+        if any(
+            relationship.get("Id") == _POWER_QUERY_ROOT_RELATIONSHIP_ID
+            or relationship.get("Type") == custom_xml_relationship_type
+            for relationship in relationships.findall(relationship_tag)
+        ):
+            raise ValueError("Power Query fixture unexpectedly already has custom XML")
+        ElementTree.SubElement(
+            relationships,
+            relationship_tag,
+            {
+                "Id": _POWER_QUERY_ROOT_RELATIONSHIP_ID,
+                "Type": custom_xml_relationship_type,
+                "Target": _POWER_QUERY_CUSTOM_XML_MEMBER,
+            },
+        )
+        members["_rels/.rels"] = serialize(relationships)
+
+        content_types = ElementTree.fromstring(members["[Content_Types].xml"])
+        default_tag = f"{{{_CONTENT_TYPES_NS}}}Default"
+        xml_defaults = [
+            item
+            for item in content_types.findall(default_tag)
+            if item.get("Extension") == "xml" and item.get("ContentType") == "application/xml"
+        ]
+        if len(xml_defaults) != 1:
+            raise ValueError("Power Query fixture lacks the default XML content type")
+        members[_POWER_QUERY_CUSTOM_XML_MEMBER] = _power_query_local_table_data_mashup(filter_value)
 
     _rewrite_xlsx_parts(path, mutate)
 
@@ -2215,6 +2379,50 @@ def _build_structural_pivot_slicer_selection(root: Path) -> None:
     )
 
 
+def _build_structural_power_query_m_filter(root: Path) -> None:
+    """Build a connection-only local-table Power Query M filter transition."""
+
+    directory = root / "structural" / "power_query_m_filter_changed"
+    directory.mkdir(parents=True, exist_ok=True)
+    baseline = directory / "baseline.xlsx"
+    candidate = directory / "candidate.xlsx"
+    _save_workbook(_power_query_local_table_workbook(), baseline)
+    _save_workbook(_power_query_local_table_workbook(), candidate)
+    _add_power_query_local_table_filter(baseline, filter_value=_POWER_QUERY_BASELINE_FILTER_VALUE)
+    _add_power_query_local_table_filter(candidate, filter_value=_POWER_QUERY_CANDIDATE_FILTER_VALUE)
+    _write_json(
+        directory / "truth.json",
+        _truth(
+            case_id="structural.power_query_m_filter_changed",
+            title="A Power Query local-table filter switches from North to South",
+            family="structural",
+            review_expectation="block",
+            facts=[
+                {
+                    "kind": "power_query_m_filter_changed",
+                    "data_mashup_part": _POWER_QUERY_CUSTOM_XML_MEMBER,
+                    "source_sheet": _POWER_QUERY_SOURCE_SHEET,
+                    "source_table": _POWER_QUERY_SOURCE_TABLE,
+                    "source_ref": _POWER_QUERY_SOURCE_REF,
+                    "query_section": _POWER_QUERY_SECTION,
+                    "query_name": _POWER_QUERY_NAME,
+                    "filter_column": _POWER_QUERY_FILTER_COLUMN,
+                    "baseline_filter_value": _POWER_QUERY_BASELINE_FILTER_VALUE,
+                    "candidate_filter_value": _POWER_QUERY_CANDIDATE_FILTER_VALUE,
+                    "fill_enabled": False,
+                    "firewall_enabled": True,
+                    "future_packages_allowed": False,
+                }
+            ],
+            coverage=[
+                "The pair changes only the stored M filter literal in one Data Mashup custom-XML part. It does not edit the local source table, worksheet cells, table definition, workbook calculation properties, connection settings, or a stored query result.",
+                "The query is connection-only (FillEnabled=false) and reads the generated workbook's local SourceData table. WCAB does not execute M, apply the filter, refresh a query, materialize output, calculate formulas, or infer returned rows or client behavior.",
+                "The validator follows the package-root customXml relationship, parses only this compact generated Data Mashup envelope, and verifies its one local Table source plus stable metadata and permission controls. It is not a general M parser or a proof of query execution semantics.",
+            ],
+        ),
+    )
+
+
 def _build_governance_external_workbook_link_update_policy(root: Path) -> None:
     """Build a pair differing only in the global external-link open policy."""
 
@@ -2614,6 +2822,7 @@ _BUILDERS: tuple[Callable[[Path], None], ...] = (
     _build_governance_external_workbook_link_update_policy,
     _build_structural_pivot_data_field_aggregation,
     _build_structural_pivot_slicer_selection,
+    _build_structural_power_query_m_filter,
     _build_structural_chart_series_reference,
     _build_structural_array_formula_mode,
     _build_structural_three_d_scope,
@@ -2648,6 +2857,7 @@ CASE_IDS = (
     "governance.external_workbook_link_update_on_open",
     "structural.pivot_data_field_aggregation_changed",
     "structural.pivot_slicer_selection_changed",
+    "structural.power_query_m_filter_changed",
     "structural.chart_series_reference_changed",
     "structural.array_formula_mode_changed",
     "structural.three_d_scope_expansion",

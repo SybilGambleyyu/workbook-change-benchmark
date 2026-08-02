@@ -208,7 +208,17 @@ not expose the Slicer name, selected item/value, or a rendered report. WCAB's
 raw validator—not the adapter—then establishes the local graph, stable stored
 cells, exact selected `North`-to-`South` item transition, and Slicer-cache-part-
 only package change. Neither report creates a visual Slicer, applies a filter,
-refreshes, calculates, or renders a PivotTable. For the chart-series
+refreshes, calculates, or renders a PivotTable. For the Power Query M-filter
+case, it requires one exact `power_query_changed` record and matching `FF024`:
+FormulaFence's redacted profile must retain one parsed mashup, one formula
+document, one metadata item, three package parts, local permission controls,
+and no embedded or opaque content while only `formula_material_changed` is set.
+FormulaFence does not expose M text, local-table values, or a query result.
+WCAB's raw validator—not the adapter—then establishes the package-root custom
+XML binding, connection-only controls, exact local `SourceData` source, stored
+`North`-to-`South` M literal, and custom-XML-part-only package change. Neither
+report executes M, refreshes a query, materializes output, calculates a
+workbook, or infers returned rows. For the chart-series
 case, it requires one exact `chart_definitions_changed` record and matching
 `FF030`: FormulaFence's redacted profile must retain one host sheet, one
 drawing, one legacy chart, one series, three data references, no chart cache,

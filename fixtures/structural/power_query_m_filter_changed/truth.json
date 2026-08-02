@@ -1,0 +1,32 @@
+{
+  "coverage": [
+    "The pair changes only the stored M filter literal in one Data Mashup custom-XML part. It does not edit the local source table, worksheet cells, table definition, workbook calculation properties, connection settings, or a stored query result.",
+    "The query is connection-only (FillEnabled=false) and reads the generated workbook's local SourceData table. WCAB does not execute M, apply the filter, refresh a query, materialize output, calculate formulas, or infer returned rows or client behavior.",
+    "The validator follows the package-root customXml relationship, parses only this compact generated Data Mashup envelope, and verifies its one local Table source plus stable metadata and permission controls. It is not a general M parser or a proof of query execution semantics."
+  ],
+  "coverage_expectations": [],
+  "facts": [
+    {
+      "baseline_filter_value": "North",
+      "candidate_filter_value": "South",
+      "data_mashup_part": "customXml/item1.xml",
+      "fill_enabled": false,
+      "filter_column": "Region",
+      "firewall_enabled": true,
+      "future_packages_allowed": false,
+      "kind": "power_query_m_filter_changed",
+      "query_name": "RegionQuery",
+      "query_section": "Section1",
+      "source_ref": "A1:B5",
+      "source_sheet": "Source",
+      "source_table": "SourceData"
+    }
+  ],
+  "family": "structural",
+  "id": "structural.power_query_m_filter_changed",
+  "must_reach": [],
+  "review_expectation": "block",
+  "schema_version": 3,
+  "title": "A Power Query local-table filter switches from North to South",
+  "topology": "pair"
+}

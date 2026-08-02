@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
+import io
 import json
 import posixpath
 import re
+import struct
 from collections import deque
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -28,10 +32,22 @@ _DOCUMENT_RELATIONSHIPS_NS = "http://schemas.openxmlformats.org/officeDocument/2
 _CONTENT_TYPES_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
 _OFFICE_2010_SPREADSHEET_NS = "http://schemas.microsoft.com/office/spreadsheetml/2009/9/main"
 _SLICER_CACHE_RELATIONSHIP = "http://schemas.microsoft.com/office/2007/relationships/slicerCache"
+_DATA_MASHUP_NS = "http://schemas.microsoft.com/DataMashup"
+_POWER_QUERY_CUSTOM_XML_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/customXml"
+_POWER_QUERY_STREAM_MAX_ENCODED_BYTES = 128 * 1024
+_POWER_QUERY_PACKAGE_MAX_UNCOMPRESSED_BYTES = 128 * 1024
 _DYNAMIC_ARRAY_NS = "http://schemas.microsoft.com/office/spreadsheetml/2017/dynamicarray"
 _DRAWINGML_CHART_NS = "http://schemas.openxmlformats.org/drawingml/2006/chart"
 _DRAWINGML_SPREADSHEET_DRAWING_NS = (
     "http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"
+)
+_POWER_QUERY_M_FILTER = re.compile(
+    r"\Asection (?P<section>[A-Za-z_][A-Za-z0-9_]*);\n\n"
+    r"shared (?P<query>[A-Za-z_][A-Za-z0-9_]*) = let\n"
+    r'    Source = Excel\.CurrentWorkbook\(\)\{\[Name="(?P<source_table>[A-Za-z_][A-Za-z0-9_]*)"\]\}\[Content\],\n'
+    r'    FilteredRows = Table\.SelectRows\(Source, each \[(?P<filter_column>[A-Za-z_][A-Za-z0-9_]*)\] = "(?P<filter_value>[A-Za-z_][A-Za-z0-9_]*)"\)\n'
+    r"in\n"
+    r"    FilteredRows;\n\Z"
 )
 
 
@@ -706,6 +722,188 @@ def _slicer_cache_without_selection_state(path: Path, pivot_sheet: str) -> bytes
     for item in item_sets[0]:
         item.attrib.pop("s", None)
     return ElementTree.tostring(slicer_cache, encoding="utf-8", xml_declaration=True)
+
+
+def _power_query_length_prefixed_fields(payload: bytes) -> tuple[int, tuple[bytes, ...]] | None:
+    """Read the four compact fields from WCAB's generated Data Mashup stream."""
+
+    if len(payload) < 4:
+        return None
+    version = struct.unpack_from("<I", payload)[0]
+    cursor = 4
+    fields: list[bytes] = []
+    for _ in range(4):
+        if cursor + 4 > len(payload):
+            return None
+        field_size = struct.unpack_from("<I", payload, cursor)[0]
+        cursor += 4
+        if field_size > len(payload) - cursor:
+            return None
+        fields.append(payload[cursor : cursor + field_size])
+        cursor += field_size
+    return (version, tuple(fields)) if cursor == len(payload) else None
+
+
+def _raw_power_query_m_filter_state(path: Path) -> dict[str, Any] | None:
+    """Read WCAB's compact, connection-only local-table Data Mashup contract.
+
+    This reader accepts only the small generated envelope, with bounded nested
+    ZIP members and a deliberately narrow M formula pattern. It never executes
+    M, refreshes a query, materializes output, or evaluates a workbook formula.
+    """
+
+    try:
+        with ZipFile(path) as archive:
+            relationships = ElementTree.fromstring(archive.read("_rels/.rels"))
+            relationship_tag = f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationship"
+            custom_xml_relationships = [
+                relationship
+                for relationship in relationships.findall(relationship_tag)
+                if relationship.get("Id") == "rIdWCABPowerQuery"
+                and relationship.get("Type") == _POWER_QUERY_CUSTOM_XML_RELATIONSHIP
+                and relationship.get("Target") == "customXml/item1.xml"
+                and relationship.get("TargetMode") != "External"
+            ]
+            if len(custom_xml_relationships) != 1:
+                return None
+
+            content_types = ElementTree.fromstring(archive.read("[Content_Types].xml"))
+            xml_defaults = [
+                item
+                for item in content_types.findall(f"{{{_CONTENT_TYPES_NS}}}Default")
+                if item.get("Extension") == "xml" and item.get("ContentType") == "application/xml"
+            ]
+            if len(xml_defaults) != 1:
+                return None
+
+            mashup_root = ElementTree.fromstring(archive.read("customXml/item1.xml"))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    if mashup_root.tag != f"{{{_DATA_MASHUP_NS}}}DataMashup" or mashup_root.attrib:
+        return None
+    encoded_stream = mashup_root.text
+    if (
+        not isinstance(encoded_stream, str)
+        or not encoded_stream
+        or len(encoded_stream.encode("ascii", "ignore")) > _POWER_QUERY_STREAM_MAX_ENCODED_BYTES
+    ):
+        return None
+    try:
+        decoded_stream = base64.b64decode(encoded_stream, validate=True)
+    except (binascii.Error, ValueError):
+        return None
+    stream_fields = _power_query_length_prefixed_fields(decoded_stream)
+    if stream_fields is None:
+        return None
+    stream_version, (package_payload, permissions_payload, metadata_payload, permission_binding) = (
+        stream_fields
+    )
+    try:
+        with ZipFile(io.BytesIO(package_payload)) as package:
+            package_entries = package.infolist()
+            expected_package_members = (
+                "Config/Package.xml",
+                "Formulas/Section1.m",
+                "[Content_Types].xml",
+            )
+            if (
+                tuple(sorted(entry.filename for entry in package_entries))
+                != expected_package_members
+                or any(
+                    entry.file_size > _POWER_QUERY_PACKAGE_MAX_UNCOMPRESSED_BYTES
+                    for entry in package_entries
+                )
+                or sum(entry.file_size for entry in package_entries)
+                > _POWER_QUERY_PACKAGE_MAX_UNCOMPRESSED_BYTES
+                or package.testzip() is not None
+            ):
+                return None
+            package_content_types = package.read("[Content_Types].xml")
+            package_configuration = package.read("Config/Package.xml")
+            formula = package.read("Formulas/Section1.m").decode("utf-8")
+    except (BadZipFile, KeyError, OSError, RuntimeError, UnicodeDecodeError):
+        return None
+    formula_match = _POWER_QUERY_M_FILTER.fullmatch(formula)
+    if formula_match is None:
+        return None
+    if len(metadata_payload) < 12:
+        return None
+    metadata_version, metadata_xml_size = struct.unpack_from("<II", metadata_payload)
+    metadata_xml_end = 8 + metadata_xml_size
+    if metadata_xml_end + 4 > len(metadata_payload):
+        return None
+    metadata_content_size = struct.unpack_from("<I", metadata_payload, metadata_xml_end)[0]
+    metadata_content_start = metadata_xml_end + 4
+    if metadata_content_size != 0 or metadata_content_start != len(metadata_payload):
+        return None
+    try:
+        metadata_root = ElementTree.fromstring(metadata_payload[8:metadata_xml_end])
+        permissions_root = ElementTree.fromstring(permissions_payload)
+    except ElementTree.ParseError:
+        return None
+    if (
+        metadata_root.tag != f"{{{_DATA_MASHUP_NS}}}LocalPackageMetadataFile"
+        or metadata_root.attrib
+    ):
+        return None
+    item_sets = metadata_root.findall(f"{{{_DATA_MASHUP_NS}}}Items")
+    if len(item_sets) != 1 or len(item_sets[0]) != 1:
+        return None
+    metadata_item = item_sets[0][0]
+    if metadata_item.tag != f"{{{_DATA_MASHUP_NS}}}Item" or metadata_item.attrib:
+        return None
+    metadata_item_parts = list(metadata_item)
+    if [part.tag for part in metadata_item_parts] != [
+        f"{{{_DATA_MASHUP_NS}}}ItemLocation",
+        f"{{{_DATA_MASHUP_NS}}}StableEntries",
+    ]:
+        return None
+    item_location, stable_entries = metadata_item_parts
+    if len(item_location) != 2 or len(stable_entries) != 1:
+        return None
+    item_type, item_path = list(item_location)
+    stable_entry = stable_entries[0]
+    if (
+        item_type.tag != f"{{{_DATA_MASHUP_NS}}}ItemType"
+        or item_type.text != "Formula"
+        or item_path.tag != f"{{{_DATA_MASHUP_NS}}}ItemPath"
+        or not isinstance(item_path.text, str)
+        or stable_entry.tag != f"{{{_DATA_MASHUP_NS}}}Entry"
+        or tuple(sorted(stable_entry.attrib.items())) != (("Type", "FillEnabled"), ("Value", "l0"))
+        or len(stable_entry)
+    ):
+        return None
+    if permissions_root.tag != "PermissionList" or permissions_root.attrib:
+        return None
+    permission_children = list(permissions_root)
+    if any(child.attrib or len(child) for child in permission_children):
+        return None
+    permission_values = {child.tag: child.text for child in permission_children}
+    if permission_values != {
+        "CanEvaluateFuturePackages": "false",
+        "FirewallEnabled": "true",
+    }:
+        return None
+    return {
+        "data_mashup_member": "customXml/item1.xml",
+        "root_relationship_attributes": tuple(sorted(custom_xml_relationships[0].attrib.items())),
+        "stream_version": stream_version,
+        "package_members": tuple(sorted(entry.filename for entry in package_entries)),
+        "package_content_types": package_content_types,
+        "package_configuration": package_configuration,
+        "formula": formula,
+        "query_section": formula_match.group("section"),
+        "query_name": formula_match.group("query"),
+        "source_table": formula_match.group("source_table"),
+        "filter_column": formula_match.group("filter_column"),
+        "filter_value": formula_match.group("filter_value"),
+        "metadata_version": metadata_version,
+        "metadata_item_path": item_path.text,
+        "fill_enabled": False,
+        "firewall_enabled": True,
+        "future_packages_allowed": False,
+        "permission_binding": permission_binding,
+    }
 
 
 def _chart_anchor_cell(anchor: ElementTree.Element) -> str | None:
@@ -1915,6 +2113,139 @@ def _validate_fact(
             == {before_state["chart_member"]}
             and _calculation_properties(baseline_path) == _calculation_properties(candidate_path),
             f"{truth['id']}: expected one relationship-bound chart value-series reference to change with stable worksheets and chart bindings",
+            errors,
+        )
+        return
+
+    if kind == "power_query_m_filter_changed":
+        data_mashup_part = fact.get("data_mashup_part")
+        source_sheet = fact.get("source_sheet")
+        source_table = fact.get("source_table")
+        source_reference = fact.get("source_ref")
+        query_section = fact.get("query_section")
+        query_name = fact.get("query_name")
+        filter_column = fact.get("filter_column")
+        baseline_filter_value = fact.get("baseline_filter_value")
+        candidate_filter_value = fact.get("candidate_filter_value")
+
+        def source_table_state(
+            workbook: Workbook,
+        ) -> tuple[str, tuple[tuple[Any, ...], ...]] | None:
+            if (
+                not isinstance(source_sheet, str)
+                or not isinstance(source_table, str)
+                or not isinstance(source_reference, str)
+                or source_sheet not in workbook.sheetnames
+            ):
+                return None
+            worksheet = workbook[source_sheet]
+            try:
+                table = worksheet.tables[source_table]
+                cells = worksheet[source_reference]
+            except (KeyError, ValueError):
+                return None
+            if not isinstance(cells, tuple) or any(not isinstance(row, tuple) for row in cells):
+                return None
+            return table.ref, tuple(tuple(cell.value for cell in row) for row in cells)
+
+        before_state = _raw_power_query_m_filter_state(baseline_path)
+        after_state = _raw_power_query_m_filter_state(candidate_path)
+        before_table_state = source_table_state(baseline)
+        after_table_state = source_table_state(candidate)
+        expected_root_relationship_attributes = tuple(
+            sorted(
+                {
+                    "Id": "rIdWCABPowerQuery",
+                    "Type": _POWER_QUERY_CUSTOM_XML_RELATIONSHIP,
+                    "Target": "customXml/item1.xml",
+                }.items()
+            )
+        )
+        expected_package_members = (
+            "Config/Package.xml",
+            "Formulas/Section1.m",
+            "[Content_Types].xml",
+        )
+        expected_source_rows = (
+            ("Region", "Amount"),
+            ("North", 10),
+            ("South", 20),
+            ("North", 15),
+            ("South", 25),
+        )
+
+        def expected_formula(filter_value: str) -> str:
+            return (
+                f"section {query_section};\n\n"
+                f"shared {query_name} = let\n"
+                f'    Source = Excel.CurrentWorkbook(){{[Name="{source_table}"]}}[Content],\n'
+                f'    FilteredRows = Table.SelectRows(Source, each [{filter_column}] = "{filter_value}")\n'
+                "in\n"
+                "    FilteredRows;\n"
+            )
+
+        mutable_fields = {"formula", "filter_value"}
+        _assert(
+            data_mashup_part == "customXml/item1.xml"
+            and source_sheet == "Source"
+            and source_table == "SourceData"
+            and source_reference == "A1:B5"
+            and query_section == "Section1"
+            and query_name == "RegionQuery"
+            and filter_column == "Region"
+            and baseline_filter_value == "North"
+            and candidate_filter_value == "South"
+            and fact.get("fill_enabled") is False
+            and fact.get("firewall_enabled") is True
+            and fact.get("future_packages_allowed") is False
+            and before_state is not None
+            and after_state is not None
+            and before_table_state == after_table_state
+            and before_table_state == (source_reference, expected_source_rows)
+            and {key: value for key, value in before_state.items() if key not in mutable_fields}
+            == {key: value for key, value in after_state.items() if key not in mutable_fields}
+            and before_state["data_mashup_member"] == data_mashup_part
+            and after_state["data_mashup_member"] == data_mashup_part
+            and before_state["root_relationship_attributes"]
+            == expected_root_relationship_attributes
+            and after_state["root_relationship_attributes"] == expected_root_relationship_attributes
+            and before_state["stream_version"] == 0
+            and after_state["stream_version"] == 0
+            and before_state["package_members"] == expected_package_members
+            and after_state["package_members"] == expected_package_members
+            and before_state["package_content_types"] == b"<Types/>"
+            and after_state["package_content_types"] == b"<Types/>"
+            and before_state["package_configuration"]
+            == b"<Package>WCAB connection-only local table query</Package>"
+            and after_state["package_configuration"]
+            == b"<Package>WCAB connection-only local table query</Package>"
+            and before_state["formula"] == expected_formula(baseline_filter_value)
+            and after_state["formula"] == expected_formula(candidate_filter_value)
+            and before_state["query_section"] == query_section
+            and after_state["query_section"] == query_section
+            and before_state["query_name"] == query_name
+            and after_state["query_name"] == query_name
+            and before_state["source_table"] == source_table
+            and after_state["source_table"] == source_table
+            and before_state["filter_column"] == filter_column
+            and after_state["filter_column"] == filter_column
+            and before_state["filter_value"] == baseline_filter_value
+            and after_state["filter_value"] == candidate_filter_value
+            and before_state["metadata_version"] == 0
+            and after_state["metadata_version"] == 0
+            and before_state["metadata_item_path"] == f"{query_section}/{query_name}"
+            and after_state["metadata_item_path"] == f"{query_section}/{query_name}"
+            and before_state["fill_enabled"] is False
+            and after_state["fill_enabled"] is False
+            and before_state["firewall_enabled"] is True
+            and after_state["firewall_enabled"] is True
+            and before_state["future_packages_allowed"] is False
+            and after_state["future_packages_allowed"] is False
+            and before_state["permission_binding"] == b""
+            and after_state["permission_binding"] == b""
+            and _xlsx_member_differences(baseline_path, candidate_path) == {data_mashup_part}
+            and _calculation_properties(baseline_path) == _calculation_properties(candidate_path),
+            f"{truth['id']}: expected only one compact connection-only local-table Power Query M filter literal to change with stable source, metadata, permissions, and calculation controls",
             errors,
         )
         return
