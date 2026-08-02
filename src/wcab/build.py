@@ -45,6 +45,10 @@ _ITERATION_DELTA = 0.001
 _PRECISION_AS_DISPLAYED_INPUT = 10.005
 _PRECISION_AS_DISPLAYED_NUMBER_FORMAT = "0.00"
 _PRECISION_AS_DISPLAYED_FORMULA = "=Inputs!$B$2*2"
+_FORMULA_CACHED_RESULT_INPUT = 10
+_FORMULA_CACHED_RESULT_FORMULA = "=Inputs!$B$2*2"
+_FORMULA_CACHED_RESULT_BASELINE = 20
+_FORMULA_CACHED_RESULT_CANDIDATE = 25
 
 
 def _configure_workbook(workbook: Workbook, *, title: str) -> None:
@@ -496,6 +500,72 @@ def _precision_as_displayed_workbook() -> Workbook:
     workbook.calculation.calcCompleted = True
     workbook.calculation.calcOnSave = True
     return workbook
+
+
+def _formula_cached_result_workbook() -> Workbook:
+    """Build a model whose saved formula result can change in isolation.
+
+    Formula text and the direct input remain ordinary workbook content. The
+    generated pair receives a raw ``<v>`` value for ``Model!B2`` only after
+    saving, since openpyxl intentionally writes formula text rather than a
+    cached result. The stable manual calculation metadata is descriptive save
+    state, not a request for WCAB to evaluate either formula.
+    """
+
+    workbook = Workbook()
+    _configure_workbook(workbook, title="WCAB stored formula result fixture")
+    inputs = workbook.active
+    inputs.title = "Inputs"
+    inputs["A1"] = "Unchanged direct input"
+    inputs["B2"] = _FORMULA_CACHED_RESULT_INPUT
+
+    model = workbook.create_sheet("Model")
+    model["A1"] = "Saved formula result"
+    model["B2"] = _FORMULA_CACHED_RESULT_FORMULA
+
+    dashboard = workbook.create_sheet("Dashboard")
+    dashboard["A1"] = "Local formula consumer"
+    dashboard["B4"] = "=Model!$B$2"
+
+    workbook.calculation.calcMode = "manual"
+    workbook.calculation.calcCompleted = True
+    workbook.calculation.calcOnSave = False
+    return workbook
+
+
+def _set_formula_cached_result(path: Path, *, result: int) -> None:
+    """Set the raw numeric ``<v>`` cache for the generated ``Model!B2``.
+
+    This narrowly mutates the serialized worksheet rather than calculating or
+    opening the workbook in an Excel client. The structural guards make a
+    changed generator dependency fail loudly instead of silently broadening
+    the fixture's claim.
+    """
+
+    def mutate(members: dict[str, bytes]) -> None:
+        worksheet_member = "xl/worksheets/sheet2.xml"
+        worksheet = ElementTree.fromstring(members[worksheet_member])
+        cell_tag = f"{{{_SPREADSHEETML_NS}}}c"
+        formula_tag = f"{{{_SPREADSHEETML_NS}}}f"
+        value_tag = f"{{{_SPREADSHEETML_NS}}}v"
+        cells = [cell for cell in worksheet.iter(cell_tag) if cell.get("r") == "B2"]
+        if len(cells) != 1:
+            raise ValueError("formula-cache fixture has an unexpected Model!B2 cell")
+        cell = cells[0]
+        formula = cell.find(formula_tag)
+        if formula is None or f"={formula.text or ''}" != _FORMULA_CACHED_RESULT_FORMULA:
+            raise ValueError("formula-cache fixture has an unexpected Model!B2 formula")
+        if cell.get("t") not in {None, "n"}:
+            raise ValueError("formula-cache fixture has a nonnumeric Model!B2 cell")
+        cached_value = cell.find(value_tag)
+        if cached_value is None:
+            cached_value = ElementTree.SubElement(cell, value_tag)
+        cached_value.text = str(result)
+        members[worksheet_member] = ElementTree.tostring(
+            worksheet, encoding="utf-8", xml_declaration=True
+        )
+
+    _rewrite_xlsx_parts(path, mutate)
 
 
 def _array_formula_semantics_workbook() -> Workbook:
@@ -1054,6 +1124,60 @@ def _build_governance_precision_as_displayed(root: Path) -> None:
     )
 
 
+def _build_governance_formula_cached_result(root: Path) -> None:
+    """Build a pair with exactly one unexplained saved formula-result change."""
+
+    directory = root / "governance" / "formula_cached_result_changed"
+    directory.mkdir(parents=True, exist_ok=True)
+    baseline = directory / "baseline.xlsx"
+    candidate = directory / "candidate.xlsx"
+    _save_workbook(_formula_cached_result_workbook(), baseline)
+    _save_workbook(_formula_cached_result_workbook(), candidate)
+    _set_formula_cached_result(baseline, result=_FORMULA_CACHED_RESULT_BASELINE)
+    _set_formula_cached_result(candidate, result=_FORMULA_CACHED_RESULT_CANDIDATE)
+    _write_json(
+        directory / "truth.json",
+        _truth(
+            case_id="governance.formula_cached_result_changed",
+            title="A saved formula result changes without a formula or input edit",
+            family="governance",
+            review_expectation="block",
+            facts=[
+                {
+                    "kind": "formula_cached_result_changed",
+                    "sheet": "Model",
+                    "cell": "B2",
+                    "formula": _FORMULA_CACHED_RESULT_FORMULA,
+                    "input_sheet": "Inputs",
+                    "input_cell": "B2",
+                    "input_value": _FORMULA_CACHED_RESULT_INPUT,
+                    "result_type": "numeric",
+                    "baseline_cached_result": _FORMULA_CACHED_RESULT_BASELINE,
+                    "candidate_cached_result": _FORMULA_CACHED_RESULT_CANDIDATE,
+                }
+            ],
+            must_reach=[
+                {
+                    "source": {"sheet": "Inputs", "cell": "B2"},
+                    "targets": [
+                        {"sheet": "Model", "cell": "B2"},
+                        {"sheet": "Dashboard", "cell": "B4"},
+                    ],
+                },
+                {
+                    "source": {"sheet": "Model", "cell": "B2"},
+                    "targets": [{"sheet": "Dashboard", "cell": "B4"}],
+                },
+            ],
+            coverage=[
+                "The pair changes exactly one raw OOXML CellValue (<v>) saved beside an unchanged formula; it does not calculate either formula or change a visible input, formula, dependency edge, or calculation control.",
+                "A saved formula result is evidence of the last stored calculation, not proof that either result is current, stale, tampered, mathematically correct, or what an Excel client will display after opening or recalculating.",
+                "The validator compares the raw formula cache, formula text, input, and package members. It does not execute a formula, infer volatile or external inputs, or claim a downstream displayed result changed.",
+            ],
+        ),
+    )
+
+
 def _build_governance_static_cycle(root: Path) -> None:
     def mutate(workbook: Workbook) -> None:
         workbook["Controls"]["D10"] = "=D11+1"
@@ -1463,6 +1587,7 @@ _BUILDERS: tuple[Callable[[Path], None], ...] = (
     _build_governance_manual_calculation,
     _build_governance_iterative_calculation,
     _build_governance_precision_as_displayed,
+    _build_governance_formula_cached_result,
     _build_governance_static_cycle,
     _build_governance_external_data_refresh,
     _build_governance_external_workbook_link_update_policy,
@@ -1490,6 +1615,7 @@ CASE_IDS = (
     "governance.manual_calculation_incomplete",
     "governance.iterative_calculation_enabled",
     "governance.precision_as_displayed_enabled",
+    "governance.formula_cached_result_changed",
     "governance.static_cycle_introduced",
     "governance.external_data_refresh_on_open",
     "governance.external_workbook_link_update_on_open",

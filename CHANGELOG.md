@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.11.0 — 2026-08-02
+
+- Add a deterministic saved-formula-result case. Its direct input, formula,
+  calculation properties, and local downstream formula remain unchanged while
+  the raw numeric `<v>` saved beside `Model!B2`'s `<f>` changes from `20` to
+  `25`.
+- Add the exact `formula_cached_result_changed` fact, relationship-resolved
+  raw-OOXML validator, package-member isolation check, and corruption
+  regressions. WCAB records a saved result; it does not calculate a formula,
+  decide whether either value is current, stale, tampered, or correct, or
+  claim what an Excel client displays after opening.
+- Extend the optional FormulaFence adapter to require the exact one-result
+  `FF042` evidence profile and unexplained-change count, respecting its
+  deliberate redaction of cache values and formula-cell locations.
+
 ## 0.10.0 — 2026-08-02
 
 - Add a deterministic precision-as-displayed case. Its stored `10.005` input,

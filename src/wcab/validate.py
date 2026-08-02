@@ -186,6 +186,107 @@ def _relationship_target(
     return target.lstrip("/")
 
 
+def _worksheet_member_for_sheet(archive: ZipFile, sheet_name: str) -> str | None:
+    """Resolve one generated worksheet name to its local OOXML part.
+
+    This follows only the workbook-local relationship needed by WCAB's raw
+    fixture contracts. It rejects traversal targets and never opens a linked
+    workbook or evaluates a formula.
+    """
+
+    try:
+        workbook = ElementTree.fromstring(archive.read("xl/workbook.xml"))
+        sheets = workbook.find(f"{{{_SPREADSHEETML_NS}}}sheets")
+        if sheets is None:
+            return None
+        sheet_tag = f"{{{_SPREADSHEETML_NS}}}sheet"
+        matches = [sheet for sheet in sheets.findall(sheet_tag) if sheet.get("name") == sheet_name]
+        if len(matches) != 1:
+            return None
+        relationship_id = matches[0].get(f"{{{_DOCUMENT_RELATIONSHIPS_NS}}}id")
+        if not isinstance(relationship_id, str):
+            return None
+        relationships = ElementTree.fromstring(archive.read("xl/_rels/workbook.xml.rels"))
+        target = _relationship_target(
+            relationships,
+            relationship_id,
+            relationship_type=f"{_DOCUMENT_RELATIONSHIPS_NS}/worksheet",
+        )
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    if target is None:
+        return None
+    return target if target.startswith("xl/") else f"xl/{target}"
+
+
+def _formula_cached_result_state(
+    path: Path, sheet_name: str, coordinate: str
+) -> tuple[str, str, str, str, bytes] | None:
+    """Read one formula expression and its raw saved ``<v>`` result.
+
+    The tuple is ``(worksheet_member, formula, result_type, result_text,
+    worksheet_without_result)``. It is intentionally a narrow raw-OOXML
+    reader: the final item lets the validator prove that the fixture changed
+    only the selected result text, without treating that text as an evaluated
+    or business-correct outcome.
+    """
+
+    try:
+        with ZipFile(path) as archive:
+            worksheet_member = _worksheet_member_for_sheet(archive, sheet_name)
+            if worksheet_member is None:
+                return None
+            worksheet = ElementTree.fromstring(archive.read(worksheet_member))
+            cell_tag = f"{{{_SPREADSHEETML_NS}}}c"
+            cells = [cell for cell in worksheet.iter(cell_tag) if cell.get("r") == coordinate]
+            if len(cells) != 1:
+                return None
+            cell = cells[0]
+            formula = cell.find(f"{{{_SPREADSHEETML_NS}}}f")
+            cached_result = cell.find(f"{{{_SPREADSHEETML_NS}}}v")
+            if formula is None or cached_result is None or cached_result.text is None:
+                return None
+            formula_text = f"={formula.text or ''}"
+            cell_type = cell.get("t")
+            result_type = "numeric" if cell_type in {None, "n"} else cell_type
+            result_text = cached_result.text
+            cached_result.text = None
+            worksheet_without_result = ElementTree.tostring(
+                worksheet, encoding="utf-8", xml_declaration=True
+            )
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    return (
+        worksheet_member,
+        formula_text,
+        result_type,
+        result_text,
+        worksheet_without_result,
+    )
+
+
+def _xlsx_member_differences(baseline_path: Path, candidate_path: Path) -> set[str] | None:
+    """Return changed member names when two small fixture archives align."""
+
+    try:
+        with ZipFile(baseline_path) as baseline, ZipFile(candidate_path) as candidate:
+            baseline_members = {
+                entry.filename: baseline.read(entry.filename) for entry in baseline.infolist()
+            }
+            candidate_members = {
+                entry.filename: candidate.read(entry.filename) for entry in candidate.infolist()
+            }
+    except (BadZipFile, OSError):
+        return None
+    if set(baseline_members) != set(candidate_members):
+        return None
+    return {
+        member
+        for member in baseline_members
+        if baseline_members[member] != candidate_members[member]
+    }
+
+
 def _dynamic_array_cell_metadata_indexes(archive: ZipFile) -> set[int] | None:
     """Read the generated package's cell-metadata bindings for dynamic arrays.
 
@@ -650,6 +751,103 @@ def _validate_fact(
             and after_formula.value == formula
             and (formula_sheet, formula_cell) in graph.get((input_sheet, input_cell), set()),
             f"{truth['id']}: expected unchanged stored input/formula and calcPr fullPrecision true -> false only",
+            errors,
+        )
+        return
+
+    if kind == "formula_cached_result_changed":
+        sheet_name = fact.get("sheet")
+        coordinate = fact.get("cell")
+        formula = fact.get("formula")
+        input_sheet = fact.get("input_sheet")
+        input_cell = fact.get("input_cell")
+        result_type = fact.get("result_type")
+        try:
+            declared_input = Decimal(str(fact.get("input_value")))
+            declared_before_result = Decimal(str(fact.get("baseline_cached_result")))
+            declared_after_result = Decimal(str(fact.get("candidate_cached_result")))
+        except InvalidOperation:
+            declared_input = declared_before_result = declared_after_result = None
+        before_state = (
+            _formula_cached_result_state(baseline_path, sheet_name, coordinate)
+            if isinstance(sheet_name, str) and isinstance(coordinate, str)
+            else None
+        )
+        after_state = (
+            _formula_cached_result_state(candidate_path, sheet_name, coordinate)
+            if isinstance(sheet_name, str) and isinstance(coordinate, str)
+            else None
+        )
+        if before_state is None or after_state is None:
+            errors.append(f"{truth['id']}: formula cached-result location is absent or malformed")
+            return
+        (
+            before_member,
+            before_formula_text,
+            before_result_type,
+            before_result_text,
+            before_without_result,
+        ) = before_state
+        (
+            after_member,
+            after_formula_text,
+            after_result_type,
+            after_result_text,
+            after_without_result,
+        ) = after_state
+        try:
+            before_result = Decimal(before_result_text)
+            after_result = Decimal(after_result_text)
+        except InvalidOperation:
+            before_result = after_result = None
+        if (
+            not isinstance(input_sheet, str)
+            or not isinstance(input_cell, str)
+            or input_sheet not in baseline.sheetnames
+            or input_sheet not in candidate.sheetnames
+        ):
+            errors.append(f"{truth['id']}: formula cached-result input location is absent")
+            return
+        before_input = baseline[input_sheet][input_cell]
+        after_input = candidate[input_sheet][input_cell]
+        try:
+            before_input_value = Decimal(str(before_input.value))
+            after_input_value = Decimal(str(after_input.value))
+        except InvalidOperation:
+            before_input_value = after_input_value = None
+        graph = _direct_graph(candidate)
+        _assert(
+            isinstance(formula, str)
+            and result_type == "numeric"
+            and declared_input is not None
+            and declared_input.is_finite()
+            and declared_before_result is not None
+            and declared_before_result.is_finite()
+            and declared_after_result is not None
+            and declared_after_result.is_finite()
+            and declared_before_result != declared_after_result
+            and before_formula_text == formula
+            and after_formula_text == formula
+            and before_result_type == result_type
+            and after_result_type == result_type
+            and before_result == declared_before_result
+            and after_result == declared_after_result
+            and before_result is not None
+            and after_result is not None
+            and before_result.is_finite()
+            and after_result.is_finite()
+            and _cell_kind(before_input) == "value"
+            and _cell_kind(after_input) == "value"
+            and before_input_value == declared_input
+            and after_input_value == declared_input
+            and _cell_kind(baseline[sheet_name][coordinate]) == "formula"
+            and _cell_kind(candidate[sheet_name][coordinate]) == "formula"
+            and before_member == after_member
+            and before_without_result == after_without_result
+            and _xlsx_member_differences(baseline_path, candidate_path) == {before_member}
+            and _calculation_properties(baseline_path) == _calculation_properties(candidate_path)
+            and (sheet_name, coordinate) in graph.get((input_sheet, input_cell), set()),
+            f"{truth['id']}: expected only raw numeric formula cache {sheet_name}!{coordinate} to change with formula, input, and controls unchanged",
             errors,
         )
         return

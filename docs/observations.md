@@ -192,7 +192,13 @@ exact `calculation_settings_changed` details: `iterate` moves from `false` to
 controls remain unchanged. For the precision-as-displayed case, it requires
 the exact `calculation_settings_changed` details: `fullPrecision` moves from
 `true` to `false`, while the declared input, number format, formula, and all
-other stored calculation controls remain unchanged. The adapter leaves `review` as `null`: FormulaFence
+other stored calculation controls remain unchanged. For the saved-formula-result
+case, it requires one `formula_cached_result_changed` record with FormulaFence's
+stable two-formula/one-numeric-cache profile, exactly one unexplained cache
+change, and material-change evidence. FormulaFence deliberately redacts raw
+cache values and formula-cell locations from that record; WCAB's independent
+raw validator establishes the declared `Model!B2` location and `20`-to-`25`
+value change. The adapter leaves `review` as `null`: FormulaFence
 surfaces evidence but does not impose WCAB's reference policy as a universal
 approval decision. Any intentionally unmapped fact or coverage expectation
 becomes an adapter note and remains missing from its respective recall metric.

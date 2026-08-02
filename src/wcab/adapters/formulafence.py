@@ -36,6 +36,7 @@ _FACT_TO_CHANGE: dict[str, tuple[str, str | None]] = {
     "manual_calculation_incomplete": ("calculation_settings_changed", None),
     "iterative_calculation_enabled": ("calculation_settings_changed", None),
     "precision_as_displayed_enabled": ("calculation_settings_changed", None),
+    "formula_cached_result_changed": ("formula_cached_result_changed", None),
     "array_formula_mode_changed": ("array_formula_mode_changed", "location"),
     "external_data_connection_refresh_on_load_changed": (
         "external_data_connections_changed",
@@ -307,6 +308,60 @@ def _precision_as_displayed_enabled_observed(change: dict[str, Any], fact: dict[
     return details.get("before") == expected_before and details.get("after") == expected_after
 
 
+def _formula_cached_result_details_observed(details: Any, fact: dict[str, Any]) -> bool:
+    """Match FormulaFence's intentionally redacted saved-result details.
+
+    FormulaFence does not disclose formula-cell locations or cached values for
+    this detector. The adapter therefore requires the exact one-result numeric
+    profile and the native material-change count, while WCAB's raw validator
+    establishes the declared formula, location, and values independently.
+    """
+
+    if (
+        fact.get("result_type") != "numeric"
+        or not isinstance(fact.get("sheet"), str)
+        or not isinstance(fact.get("cell"), str)
+        or not isinstance(fact.get("formula"), str)
+        or fact.get("baseline_cached_result") == fact.get("candidate_cached_result")
+    ):
+        return False
+    if not isinstance(details, dict):
+        return False
+    expected_profile = {
+        "present": True,
+        "formula_cell_count": 2,
+        "cached_result_cell_count": 1,
+        "missing_cached_result_cell_count": 1,
+        "numeric_cached_result_count": 1,
+        "string_cached_result_count": 0,
+        "boolean_cached_result_count": 0,
+        "error_cached_result_count": 0,
+        "unrecognized_cached_result_count": 0,
+    }
+    return (
+        details.get("before") == expected_profile
+        and details.get("after") == expected_profile
+        and details.get("unexplained_cached_result_change_count") == 1
+        and details.get("cached_result_material_changed") is True
+    )
+
+
+def _formula_cached_result_observed(change: dict[str, Any], fact: dict[str, Any]) -> bool:
+    """Match the dedicated FormulaFence change record."""
+
+    return change.get("kind") == "formula_cached_result_changed" and (
+        _formula_cached_result_details_observed(change.get("details"), fact)
+    )
+
+
+def _formula_cached_result_finding_observed(finding: dict[str, Any], fact: dict[str, Any]) -> bool:
+    """Require the corresponding high-severity FormulaFence finding."""
+
+    return finding.get("rule_id") == "FF042" and _formula_cached_result_details_observed(
+        finding.get("details"), fact
+    )
+
+
 def _array_formula_mode_observed(change: dict[str, Any], fact: dict[str, Any]) -> bool:
     """Require FormulaFence to identify this exact CSE-to-dynamic transition."""
 
@@ -416,6 +471,9 @@ def evaluate_diff_case(case_dir: str | Path, *, executable: str = "formulafence"
     changes = report.get("changes", [])
     if not isinstance(changes, list):
         raise FormulaFenceAdapterError("FormulaFence report has no changes list")
+    findings = report.get("findings", [])
+    if not isinstance(findings, list):
+        raise FormulaFenceAdapterError("FormulaFence report has no findings list")
 
     matched: list[str] = []
     missed: list[str] = []
@@ -466,6 +524,16 @@ def evaluate_diff_case(case_dir: str | Path, *, executable: str = "formulafence"
                 for change in changes
                 if isinstance(change, dict)
             )
+        if kind == "formula_cached_result_changed":
+            observed = any(
+                _formula_cached_result_observed(change, fact)
+                for change in changes
+                if isinstance(change, dict)
+            ) and any(
+                _formula_cached_result_finding_observed(finding, fact)
+                for finding in findings
+                if isinstance(finding, dict)
+            )
         if kind == "array_formula_mode_changed":
             observed = any(
                 _array_formula_mode_observed(change, fact)
@@ -477,12 +545,6 @@ def evaluate_diff_case(case_dir: str | Path, *, executable: str = "formulafence"
     coverage_expectations = truth.get("coverage_expectations", [])
     if not isinstance(coverage_expectations, list):
         raise FormulaFenceAdapterError(f"{directory}: coverage_expectations must be an array")
-    findings: list[Any] = []
-    if coverage_expectations:
-        raw_findings = report.get("findings", [])
-        if not isinstance(raw_findings, list):
-            raise FormulaFenceAdapterError("FormulaFence report has no findings list")
-        findings = raw_findings
     candidate_profile: dict[str, Any] | None = None
     matched_coverage_expectations: list[dict[str, Any]] = []
     missed_coverage_expectations: list[dict[str, Any]] = []

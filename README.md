@@ -34,7 +34,7 @@ gates, static analyzers, and agent workflows that propose workbook edits.
 
 ## Scope and non-goals
 
-Version `0.10` covers formula-to-value replacements, formula reference drift,
+Version `0.11` covers formula-to-value replacements, formula reference drift,
 value changes with downstream effects, external formula references, named
 ranges, data validation, conditional formatting, sheet visibility, direct cell
 protection, calculation settings, static cycles, portfolio dependencies,
@@ -48,7 +48,9 @@ switches from never to always updating when the workbook opens. It also covers
 an unchanged direct circular formula that enables iterative calculation, an
 unchanged precision-sensitive input and formula whose calculation switches to
 precision as displayed, and an unchanged array formula switching from a fixed
-legacy CSE output range to dynamic-array semantics.
+legacy CSE output range to dynamic-array semantics. It also covers a saved
+numeric formula result changing while its formula, direct input, calculation
+metadata, and local downstream reference remain unchanged.
 
 The benchmark does **not** evaluate formula execution or claim that a
 candidate's numerical results are correct.  A case's `review_expectation` is a
@@ -167,7 +169,10 @@ requires the exact `FF009` switch from iteration disabled to enabled with the
 declared bounds. For the precision-as-displayed case, it requires the exact
 isolated `fullPrecision: true -> false` `FF009` control transition while the
 stored input, number format, formula, and other calculation controls remain
-unchanged. It keeps unmapped facts explicit; it does not treat the benign
+unchanged. For the saved-formula-result case, it requires FormulaFence's exact
+one-result `FF042` evidence: the tool intentionally redacts the result and
+formula-cell location, so the adapter also requires its stable numeric cache
+profile and unexplained-change count. It keeps unmapped facts explicit; it does not treat the benign
 structural-rewrite annotation as a generic semantic-equivalence claim.
 
 ## Reproducibility

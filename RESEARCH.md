@@ -111,6 +111,23 @@ the stored metadata, input value, format, and formulas only. It does not open
 or save either workbook, emulate Excel, calculate a result, round a stored
 value, or assert any client will apply or persist the control.
 
+## Saved formula results without a visible precedent edit
+
+Microsoft's [SpreadsheetML formula guidance](https://learn.microsoft.com/en-us/office/open-xml/spreadsheet/working-with-formulas)
+separates a formula's `<f>` expression from the `<v>` cached value based on
+the last calculation. Its [`CellValue` reference](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.spreadsheet.cellvalue?view=openxml-3.0.1)
+also states that a formula-cell `<v>` stores the last calculated result. This
+is a distinct review surface: an ordinary formula or literal-value diff can
+stay silent when the saved result evidence has changed.
+
+WCAB 0.11 therefore retains an original `Inputs!B2=10`, the direct
+`Model!B2 = Inputs!$B$2*2` formula, stable calculation properties, and a local
+`Dashboard!B4` consumer, while changing only `Model!B2`'s raw numeric `<v>`
+from `20` to `25`. The pair is deliberately not a claim that either value is
+correct, stale, tampered, or will be displayed after opening: volatile,
+external, and client-specific calculation behavior are out of scope. Its
+purpose is to make the saved-result discrepancy observable and reviewable.
+
 ## Array-formula semantics
 
 Microsoft's [dynamic-array versus legacy-CSE guidance](https://support.microsoft.com/en-US/Excel/dynamic-array-formulas-vs-legacy-cse-array-formulas)

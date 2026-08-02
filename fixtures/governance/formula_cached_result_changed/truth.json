@@ -1,0 +1,58 @@
+{
+  "coverage": [
+    "The pair changes exactly one raw OOXML CellValue (<v>) saved beside an unchanged formula; it does not calculate either formula or change a visible input, formula, dependency edge, or calculation control.",
+    "A saved formula result is evidence of the last stored calculation, not proof that either result is current, stale, tampered, mathematically correct, or what an Excel client will display after opening or recalculating.",
+    "The validator compares the raw formula cache, formula text, input, and package members. It does not execute a formula, infer volatile or external inputs, or claim a downstream displayed result changed."
+  ],
+  "coverage_expectations": [],
+  "facts": [
+    {
+      "baseline_cached_result": 20,
+      "candidate_cached_result": 25,
+      "cell": "B2",
+      "formula": "=Inputs!$B$2*2",
+      "input_cell": "B2",
+      "input_sheet": "Inputs",
+      "input_value": 10,
+      "kind": "formula_cached_result_changed",
+      "result_type": "numeric",
+      "sheet": "Model"
+    }
+  ],
+  "family": "governance",
+  "id": "governance.formula_cached_result_changed",
+  "must_reach": [
+    {
+      "source": {
+        "cell": "B2",
+        "sheet": "Inputs"
+      },
+      "targets": [
+        {
+          "cell": "B2",
+          "sheet": "Model"
+        },
+        {
+          "cell": "B4",
+          "sheet": "Dashboard"
+        }
+      ]
+    },
+    {
+      "source": {
+        "cell": "B2",
+        "sheet": "Model"
+      },
+      "targets": [
+        {
+          "cell": "B4",
+          "sheet": "Dashboard"
+        }
+      ]
+    }
+  ],
+  "review_expectation": "block",
+  "schema_version": 3,
+  "title": "A saved formula result changes without a formula or input edit",
+  "topology": "pair"
+}

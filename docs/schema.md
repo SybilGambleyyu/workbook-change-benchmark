@@ -12,9 +12,10 @@ fact, WCAB 0.7 adds an unchanged anchor formula that moves from fixed
 legacy-CSE to dynamic-array semantics, and WCAB 0.8 adds an unchanged
 external-workbook formula whose stored open-time link-update policy changes.
 WCAB 0.9 adds an unchanged direct circular formula whose stored iterative
-calculation setting changes, and WCAB 0.10 adds a precision-as-displayed
-calculation control change without a cell edit. Version 2 remains available in the immutable
-v0.2.0 and v0.3.0 releases.
+calculation setting changes, WCAB 0.10 adds a precision-as-displayed
+calculation control change without a cell edit, and WCAB 0.11 adds a raw saved
+formula-result change without a formula or input edit. Version 2 remains
+available in the immutable v0.2.0 and v0.3.0 releases.
 
 ```json
 {
@@ -54,6 +55,7 @@ Facts are observed directly from the fixture files by `wcab validate`.
 | `manual_calculation_incomplete` | none | Candidate calculation metadata is `manual` and records incomplete calculation. |
 | `iterative_calculation_enabled` | `sheet`, `cell`, `formula`, `baseline_iterate`, `candidate_iterate`, `iteration_count`, `iteration_delta` | The declared direct self-referencing formula remains unchanged while raw `calcPr/@iterate` changes exactly from `false` to `true`; the explicit count and delta remain the declared values, and all non-iteration calculation attributes are unchanged. The validator does not calculate the model. |
 | `precision_as_displayed_enabled` | `input_sheet`, `input_cell`, `input_value`, `number_format`, `formula_sheet`, `formula_cell`, `formula`, `baseline_full_precision`, `candidate_full_precision` | The declared stored input, number format, and formula remain unchanged while raw `calcPr/@fullPrecision` changes exactly from `true` to `false`; all other `calcPr` attributes are unchanged. The validator does not calculate, open, or save the workbook. |
+| `formula_cached_result_changed` | `sheet`, `cell`, `formula`, `input_sheet`, `input_cell`, `input_value`, `result_type`, `baseline_cached_result`, `candidate_cached_result` | One raw numeric formula-cell `<v>` value changes while its raw `<f>` expression, direct input, calculation properties, and every other package member remain unchanged. The validator reads OOXML only; it does not calculate, validate, or interpret the saved result. |
 | `external_data_connection_refresh_on_load_changed` | `connection_id`, `baseline_refresh_on_load`, `candidate_refresh_on_load` | The relationship-backed connection with this workbook-local ID explicitly changes `refreshOnLoad` from `false` to `true`. The validator reads raw OOXML only. |
 | `external_workbook_link_update_policy_changed` | `sheet`, `cell`, `formula`, `baseline_update_links`, `candidate_update_links` | The declared external-workbook formula remains unchanged while raw `workbookPr/@updateLinks` changes exactly from `never` to `always`; all other stored `workbookPr` attributes are unchanged. The validator does not resolve the source workbook. |
 | `array_formula_mode_changed` | `sheet`, `cell`, `formula`, `baseline_mode`, `candidate_mode`, `baseline_output_range`, `candidate_output_range` | The declared unchanged array anchor moves from `legacy_cse` to `dynamic`, with its stored formula text and output range exactly as declared. The validator reads the raw OOXML cell-metadata binding. |
@@ -138,6 +140,23 @@ WCAB's precision case preserves an explicitly stored `Inputs!B2=10.005`, its
 calculation attributes. It never opens or saves either workbook, executes a
 formula, alters the stored 10.005 value, predicts a rounded value, or claims
 that a particular Excel client will apply or persist the setting.
+
+## Saved formula results
+
+SpreadsheetML stores a formula expression in [`<f>`](https://learn.microsoft.com/en-us/office/open-xml/spreadsheet/working-with-formulas)
+and its last calculated result in the neighboring `<v>` element. The Open XML
+[`CellValue` documentation](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.spreadsheet.cellvalue?view=openxml-3.0.1)
+likewise describes formula-cell `<v>` content as the last calculated result.
+
+WCAB's saved-result case keeps `Inputs!B2=10`, `Model!B2`'s
+`=Inputs!$B$2*2` expression, calculation properties, and the local
+`Dashboard!B4` consumer unchanged. It changes only the raw numeric `<v>` next
+to `Model!B2`'s `<f>` from `20` to `25`. The validator resolves the worksheet
+through the workbook relationship, checks the raw expression and numeric
+result text, and proves that the selected worksheet is identical once that
+one result text is erased. It does not execute the formula, determine whether
+either saved value is current or correct, infer volatile or external inputs,
+claim that a client will display either value, or assert a downstream result.
 
 ## Array-formula mode
 

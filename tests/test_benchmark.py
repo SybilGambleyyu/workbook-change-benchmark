@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from hashlib import sha256
 from pathlib import Path
+from xml.etree import ElementTree
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from wcab.adapters import formulafence
@@ -128,6 +129,23 @@ def test_committed_manifest_matches_fixture_tree() -> None:
             "formula": "=Inputs!$B$2*2",
             "baseline_full_precision": True,
             "candidate_full_precision": False,
+        }
+    ]
+    formula_cached_result_row = next(
+        row for row in rows if row["id"] == "governance.formula_cached_result_changed"
+    )
+    assert formula_cached_result_row["facts"] == [
+        {
+            "kind": "formula_cached_result_changed",
+            "sheet": "Model",
+            "cell": "B2",
+            "formula": "=Inputs!$B$2*2",
+            "input_sheet": "Inputs",
+            "input_cell": "B2",
+            "input_value": 10,
+            "result_type": "numeric",
+            "baseline_cached_result": 20,
+            "candidate_cached_result": 25,
         }
     ]
     array_row = next(row for row in rows if row["id"] == "structural.array_formula_mode_changed")
@@ -388,6 +406,82 @@ def test_precision_as_displayed_pair_changes_only_workbook_xml(tmp_path: Path) -
         for member in sorted(baseline_members)
         if baseline_members[member] != candidate_members[member]
     ] == ["xl/workbook.xml"]
+
+
+def test_validator_rejects_a_false_formula_cached_result_fact(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "governance" / "formula_cached_result_changed"
+    truth_path = case / "truth.json"
+    truth = json.loads(truth_path.read_text(encoding="utf-8"))
+    truth["facts"][0]["candidate_cached_result"] = 24
+    truth_path.write_text(json.dumps(truth), encoding="utf-8")
+    assert validate_case(case)
+
+
+def test_validator_rejects_a_corrupted_formula_cached_result(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = fixture_root / "governance" / "formula_cached_result_changed" / "candidate.xlsx"
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    worksheet_member = "xl/worksheets/sheet2.xml"
+    worksheet = ElementTree.fromstring(members[worksheet_member])
+    namespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    cell = next(cell for cell in worksheet.iter(f"{{{namespace}}}c") if cell.get("r") == "B2")
+    cell.find(f"{{{namespace}}}v").text = "20"
+    members[worksheet_member] = ElementTree.tostring(
+        worksheet, encoding="utf-8", xml_declaration=True
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_validator_rejects_an_unrelated_formula_cached_result_formula_change(
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = fixture_root / "governance" / "formula_cached_result_changed" / "candidate.xlsx"
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    worksheet_member = "xl/worksheets/sheet2.xml"
+    worksheet = ElementTree.fromstring(members[worksheet_member])
+    namespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    cell = next(cell for cell in worksheet.iter(f"{{{namespace}}}c") if cell.get("r") == "B2")
+    cell.find(f"{{{namespace}}}f").text = "Inputs!$B$2*3"
+    members[worksheet_member] = ElementTree.tostring(
+        worksheet, encoding="utf-8", xml_declaration=True
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_formula_cached_result_pair_changes_only_model_worksheet_xml(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "governance" / "formula_cached_result_changed"
+    with ZipFile(case / "baseline.xlsx") as baseline, ZipFile(case / "candidate.xlsx") as candidate:
+        baseline_members = {
+            entry.filename: baseline.read(entry.filename) for entry in baseline.infolist()
+        }
+        candidate_members = {
+            entry.filename: candidate.read(entry.filename) for entry in candidate.infolist()
+        }
+    assert set(baseline_members) == set(candidate_members)
+    assert [
+        member
+        for member in sorted(baseline_members)
+        if baseline_members[member] != candidate_members[member]
+    ] == ["xl/worksheets/sheet2.xml"]
 
 
 def test_validator_rejects_a_false_array_formula_mode_fact(tmp_path: Path) -> None:
@@ -823,6 +917,139 @@ def test_formulafence_adapter_rejects_an_inexact_precision_as_displayed_transiti
     assert result["status"] == "missed"
     assert result["matched"] == []
     assert result["missed"] == ["precision_as_displayed_enabled"]
+
+
+def test_formulafence_adapter_maps_the_exact_formula_cached_result_change(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        profile = {
+            "present": True,
+            "formula_cell_count": 2,
+            "cached_result_cell_count": 1,
+            "missing_cached_result_cell_count": 1,
+            "numeric_cached_result_count": 1,
+            "string_cached_result_count": 0,
+            "boolean_cached_result_count": 0,
+            "error_cached_result_count": 0,
+            "unrecognized_cached_result_count": 0,
+        }
+        details = {
+            "before": profile,
+            "after": profile,
+            "unexplained_cached_result_change_count": 1,
+            "cached_result_material_changed": True,
+        }
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "formula_cached_result_changed",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF042", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "formula_cached_result_changed"
+    )
+    assert result["status"] == "matched"
+    assert result["matched"] == ["formula_cached_result_changed"]
+
+
+def test_formulafence_adapter_rejects_an_explained_formula_cached_result_change(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        profile = {
+            "present": True,
+            "formula_cell_count": 2,
+            "cached_result_cell_count": 1,
+            "missing_cached_result_cell_count": 1,
+            "numeric_cached_result_count": 1,
+            "string_cached_result_count": 0,
+            "boolean_cached_result_count": 0,
+            "error_cached_result_count": 0,
+            "unrecognized_cached_result_count": 0,
+        }
+        details = {
+            "before": profile,
+            "after": profile,
+            "unexplained_cached_result_change_count": 0,
+            "cached_result_material_changed": True,
+        }
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "formula_cached_result_changed",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF042", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "formula_cached_result_changed"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["formula_cached_result_changed"]
+
+
+def test_formulafence_adapter_requires_the_formula_cached_result_finding(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        profile = {
+            "present": True,
+            "formula_cell_count": 2,
+            "cached_result_cell_count": 1,
+            "missing_cached_result_cell_count": 1,
+            "numeric_cached_result_count": 1,
+            "string_cached_result_count": 0,
+            "boolean_cached_result_count": 0,
+            "error_cached_result_count": 0,
+            "unrecognized_cached_result_count": 0,
+        }
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "formula_cached_result_changed",
+                    "location": None,
+                    "details": {
+                        "before": profile,
+                        "after": profile,
+                        "unexplained_cached_result_change_count": 1,
+                        "cached_result_material_changed": True,
+                    },
+                }
+            ],
+            "findings": [],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "formula_cached_result_changed"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["formula_cached_result_changed"]
 
 
 def test_formulafence_adapter_maps_the_exact_array_formula_mode_transition(
