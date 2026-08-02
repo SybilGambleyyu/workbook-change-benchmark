@@ -218,7 +218,17 @@ WCAB's raw validator—not the adapter—then establishes the package-root custo
 XML binding, connection-only controls, exact local `SourceData` source, stored
 `North`-to-`South` M literal, and custom-XML-part-only package change. Neither
 report executes M, refreshes a query, materializes output, calculates a
-workbook, or infers returned rows. For the chart-series
+workbook, or infers returned rows. For the Scenario Manager stored-input case,
+it requires one exact `scenario_manager_changed` record and matching `FF035`:
+FormulaFence's redacted profile must retain one scenario-bearing worksheet, one
+scenario, two stored inputs, one selected/locked scenario, one summary
+reference, one formatted input, and no malformed declaration while only
+`scenario_definition_material_changed` is set. FormulaFence does not expose
+the scenario name, stored values, input references, comment, or user metadata.
+WCAB's raw validator—not the adapter—then establishes the generated `B2`
+`0.08`-to-`0.16` stored transition, stable scenario metadata, visible cells,
+formula path, and Inputs-worksheet-only package change. Neither report shows or
+applies a scenario, calculates a result, or generates a Scenario Summary. For the chart-series
 case, it requires one exact `chart_definitions_changed` record and matching
 `FF030`: FormulaFence's redacted profile must retain one host sheet, one
 drawing, one legacy chart, one series, three data references, no chart cache,

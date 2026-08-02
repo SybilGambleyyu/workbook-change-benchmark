@@ -44,6 +44,7 @@ _FACT_TO_CHANGE: dict[str, tuple[str, str | None]] = {
     "pivot_data_field_aggregation_changed": ("pivot_table_definitions_changed", None),
     "pivot_slicer_selection_changed": ("slicer_timeline_cache_definitions_changed", None),
     "power_query_m_filter_changed": ("power_query_changed", None),
+    "scenario_manager_stored_input_value_changed": ("scenario_manager_changed", None),
     "external_data_connection_refresh_on_load_changed": (
         "external_data_connections_changed",
         None,
@@ -766,6 +767,78 @@ def _power_query_m_filter_finding_observed(finding: dict[str, Any], fact: dict[s
     )
 
 
+def _scenario_manager_stored_input_details_observed(details: Any, fact: dict[str, Any]) -> bool:
+    """Match FormulaFence's redacted one-scenario stored-input evidence.
+
+    FormulaFence reports only Scenario Manager structure, deliberately omitting
+    the scenario name, stored values, input references, comment, and user
+    metadata. WCAB's raw validator verifies that one generated stored value
+    changed; the adapter requires this exact redacted profile and FF035.
+    """
+
+    if (
+        fact.get("scenario_sheet") != "Inputs"
+        or fact.get("scenario_name") != "WCAB downside"
+        or fact.get("changing_cell") != "B2"
+        or fact.get("stable_input_cell") != "B3"
+        or fact.get("baseline_stored_value") != "0.08"
+        or fact.get("candidate_stored_value") != "0.16"
+        or fact.get("stable_stored_value") != "125"
+        or fact.get("input_number_format_id") != 10
+        or fact.get("summary_ref") != "D2"
+        or fact.get("worksheet_input_value") != 0.1
+        or fact.get("worksheet_stable_input_value") != 125
+        or fact.get("result_cell") != "D2"
+        or fact.get("result_formula") != "=B2*B3"
+        or fact.get("dashboard_sheet") != "Dashboard"
+        or fact.get("dashboard_cell") != "B4"
+        or fact.get("dashboard_formula") != "=Inputs!$D$2"
+        or not isinstance(details, dict)
+    ):
+        return False
+    expected_profile = {
+        "present": True,
+        "scenario_sheet_count": 1,
+        "scenario_count": 1,
+        "input_cell_count": 2,
+        "locked_scenario_count": 1,
+        "hidden_scenario_count": 0,
+        "scenario_with_comment_count": 1,
+        "scenario_with_user_count": 1,
+        "summary_reference_count": 1,
+        "current_scenario_selection_count": 1,
+        "shown_scenario_selection_count": 1,
+        "deleted_input_cell_count": 0,
+        "undone_input_cell_count": 0,
+        "formatted_input_cell_count": 1,
+        "unrecognized_scenario_count": 0,
+    }
+    return (
+        details.get("before") == expected_profile
+        and details.get("after") == expected_profile
+        and details.get("scenario_definition_material_changed") is True
+        and set(details) == {"before", "after", "scenario_definition_material_changed"}
+    )
+
+
+def _scenario_manager_stored_input_observed(change: dict[str, Any], fact: dict[str, Any]) -> bool:
+    """Match FormulaFence's Scenario Manager control-change record."""
+
+    return change.get("kind") == "scenario_manager_changed" and (
+        _scenario_manager_stored_input_details_observed(change.get("details"), fact)
+    )
+
+
+def _scenario_manager_stored_input_finding_observed(
+    finding: dict[str, Any], fact: dict[str, Any]
+) -> bool:
+    """Require FormulaFence's matching high-severity Scenario Manager finding."""
+
+    return finding.get("rule_id") == "FF035" and _scenario_manager_stored_input_details_observed(
+        finding.get("details"), fact
+    )
+
+
 def _formula_cached_result_details_observed(details: Any, fact: dict[str, Any]) -> bool:
     """Match FormulaFence's intentionally redacted saved-result details.
 
@@ -1049,6 +1122,16 @@ def evaluate_diff_case(case_dir: str | Path, *, executable: str = "formulafence"
                 if isinstance(change, dict)
             ) and any(
                 _power_query_m_filter_finding_observed(finding, fact)
+                for finding in findings
+                if isinstance(finding, dict)
+            )
+        if kind == "scenario_manager_stored_input_value_changed":
+            observed = any(
+                _scenario_manager_stored_input_observed(change, fact)
+                for change in changes
+                if isinstance(change, dict)
+            ) and any(
+                _scenario_manager_stored_input_finding_observed(finding, fact)
                 for finding in findings
                 if isinstance(finding, dict)
             )

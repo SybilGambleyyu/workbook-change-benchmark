@@ -97,6 +97,23 @@ _POWER_QUERY_NAME = "RegionQuery"
 _POWER_QUERY_FILTER_COLUMN = "Region"
 _POWER_QUERY_BASELINE_FILTER_VALUE = "North"
 _POWER_QUERY_CANDIDATE_FILTER_VALUE = "South"
+_SCENARIO_MANAGER_SHEET = "Inputs"
+_SCENARIO_MANAGER_DASHBOARD_SHEET = "Dashboard"
+_SCENARIO_MANAGER_CHANGING_CELL = "B2"
+_SCENARIO_MANAGER_STABLE_INPUT_CELL = "B3"
+_SCENARIO_MANAGER_RESULT_CELL = "D2"
+_SCENARIO_MANAGER_DASHBOARD_CELL = "B4"
+_SCENARIO_MANAGER_WORKSHEET_INPUT_VALUE = 0.1
+_SCENARIO_MANAGER_WORKSHEET_STABLE_INPUT_VALUE = 125
+_SCENARIO_MANAGER_FORMULA = "=B2*B3"
+_SCENARIO_MANAGER_DASHBOARD_FORMULA = "=Inputs!$D$2"
+_SCENARIO_MANAGER_NAME = "WCAB downside"
+_SCENARIO_MANAGER_COMMENT = "Synthetic downside assumption set"
+_SCENARIO_MANAGER_USER = "WCAB"
+_SCENARIO_MANAGER_BASELINE_STORED_VALUE = "0.08"
+_SCENARIO_MANAGER_CANDIDATE_STORED_VALUE = "0.16"
+_SCENARIO_MANAGER_STABLE_STORED_VALUE = "125"
+_SCENARIO_MANAGER_INPUT_NUMBER_FORMAT_ID = 10
 _CHART_SERIES_SOURCE_SHEET = "Source"
 _CHART_SERIES_DASHBOARD_SHEET = "Dashboard"
 _CHART_SERIES_ANCHOR = "D2"
@@ -430,6 +447,34 @@ def _power_query_local_table_workbook() -> Workbook:
 
     dashboard = workbook.create_sheet("Dashboard")
     dashboard["A1"] = "Connection-only query output is not materialized"
+    return workbook
+
+
+def _scenario_manager_workbook() -> Workbook:
+    """Build a small model whose alternate inputs live in Scenario Manager.
+
+    The Scenario Manager declaration is attached after openpyxl saves the
+    ordinary workbook. The visible input cells and formula path stay fixed;
+    the benchmark concerns a stored alternate input value, not an applied
+    scenario or a calculated result.
+    """
+
+    workbook = Workbook()
+    _configure_workbook(workbook, title="WCAB Scenario Manager stored-input fixture")
+    inputs = workbook.active
+    inputs.title = _SCENARIO_MANAGER_SHEET
+    inputs["A1"] = "Scenario-controlled inputs"
+    inputs["A2"] = "Margin"
+    inputs[_SCENARIO_MANAGER_CHANGING_CELL] = _SCENARIO_MANAGER_WORKSHEET_INPUT_VALUE
+    inputs["A3"] = "Volume"
+    inputs[_SCENARIO_MANAGER_STABLE_INPUT_CELL] = _SCENARIO_MANAGER_WORKSHEET_STABLE_INPUT_VALUE
+    inputs["C2"] = "Scenario summary result"
+    inputs[_SCENARIO_MANAGER_RESULT_CELL] = _SCENARIO_MANAGER_FORMULA
+
+    dashboard = workbook.create_sheet(_SCENARIO_MANAGER_DASHBOARD_SHEET)
+    dashboard["A1"] = "Board scenario output"
+    dashboard["A4"] = "Scenario result"
+    dashboard[_SCENARIO_MANAGER_DASHBOARD_CELL] = _SCENARIO_MANAGER_DASHBOARD_FORMULA
     return workbook
 
 
@@ -1334,6 +1379,75 @@ def _add_power_query_local_table_filter(path: Path, *, filter_value: str) -> Non
         if len(xml_defaults) != 1:
             raise ValueError("Power Query fixture lacks the default XML content type")
         members[_POWER_QUERY_CUSTOM_XML_MEMBER] = _power_query_local_table_data_mashup(filter_value)
+
+    _rewrite_xlsx_parts(path, mutate)
+
+
+def _add_scenario_manager_stored_input(path: Path, *, stored_value: str) -> None:
+    """Attach WCAB's one raw Scenario Manager declaration to a worksheet.
+
+    Scenario Manager is represented directly inside the worksheet part rather
+    than as ordinary cells. This helper creates one selected, locked scenario
+    with two stored input records; callers vary only the first record's value.
+    It does not ask a spreadsheet client to show a scenario or calculate the
+    resulting workbook.
+    """
+
+    if stored_value not in {
+        _SCENARIO_MANAGER_BASELINE_STORED_VALUE,
+        _SCENARIO_MANAGER_CANDIDATE_STORED_VALUE,
+    }:
+        raise ValueError(f"unsupported Scenario Manager stored value {stored_value!r}")
+
+    def mutate(members: dict[str, bytes]) -> None:
+        worksheet_member = "xl/worksheets/sheet1.xml"
+        worksheet = ElementTree.fromstring(members[worksheet_member])
+        scenarios_tag = f"{{{_SPREADSHEETML_NS}}}scenarios"
+        if worksheet.findall(scenarios_tag):
+            raise ValueError("Scenario Manager fixture unexpectedly already has scenarios")
+        sheet_data_tag = f"{{{_SPREADSHEETML_NS}}}sheetData"
+        sheet_data_indexes = [
+            index for index, child in enumerate(worksheet) if child.tag == sheet_data_tag
+        ]
+        if len(sheet_data_indexes) != 1:
+            raise ValueError("Scenario Manager fixture lacks one sheetData element")
+
+        scenarios = ElementTree.Element(
+            scenarios_tag,
+            {"current": "0", "show": "0", "sqref": _SCENARIO_MANAGER_RESULT_CELL},
+        )
+        scenario = ElementTree.SubElement(
+            scenarios,
+            f"{{{_SPREADSHEETML_NS}}}scenario",
+            {
+                "name": _SCENARIO_MANAGER_NAME,
+                "locked": "1",
+                "count": "2",
+                "user": _SCENARIO_MANAGER_USER,
+                "comment": _SCENARIO_MANAGER_COMMENT,
+            },
+        )
+        ElementTree.SubElement(
+            scenario,
+            f"{{{_SPREADSHEETML_NS}}}inputCells",
+            {
+                "r": _SCENARIO_MANAGER_CHANGING_CELL,
+                "val": stored_value,
+                "numFmtId": str(_SCENARIO_MANAGER_INPUT_NUMBER_FORMAT_ID),
+            },
+        )
+        ElementTree.SubElement(
+            scenario,
+            f"{{{_SPREADSHEETML_NS}}}inputCells",
+            {
+                "r": _SCENARIO_MANAGER_STABLE_INPUT_CELL,
+                "val": _SCENARIO_MANAGER_STABLE_STORED_VALUE,
+            },
+        )
+        worksheet.insert(sheet_data_indexes[0] + 1, scenarios)
+        members[worksheet_member] = ElementTree.tostring(
+            worksheet, encoding="utf-8", xml_declaration=True
+        )
 
     _rewrite_xlsx_parts(path, mutate)
 
@@ -2423,6 +2537,76 @@ def _build_structural_power_query_m_filter(root: Path) -> None:
     )
 
 
+def _build_structural_scenario_manager_stored_input(root: Path) -> None:
+    """Build a Scenario Manager alternate-input transition without cell churn."""
+
+    directory = root / "structural" / "scenario_manager_stored_input_changed"
+    directory.mkdir(parents=True, exist_ok=True)
+    baseline = directory / "baseline.xlsx"
+    candidate = directory / "candidate.xlsx"
+    _save_workbook(_scenario_manager_workbook(), baseline)
+    _save_workbook(_scenario_manager_workbook(), candidate)
+    _add_scenario_manager_stored_input(
+        baseline, stored_value=_SCENARIO_MANAGER_BASELINE_STORED_VALUE
+    )
+    _add_scenario_manager_stored_input(
+        candidate, stored_value=_SCENARIO_MANAGER_CANDIDATE_STORED_VALUE
+    )
+    _write_json(
+        directory / "truth.json",
+        _truth(
+            case_id="structural.scenario_manager_stored_input_changed",
+            title="A Scenario Manager downside input changes without a worksheet-cell edit",
+            family="structural",
+            review_expectation="block",
+            facts=[
+                {
+                    "kind": "scenario_manager_stored_input_value_changed",
+                    "scenario_sheet": _SCENARIO_MANAGER_SHEET,
+                    "scenario_name": _SCENARIO_MANAGER_NAME,
+                    "changing_cell": _SCENARIO_MANAGER_CHANGING_CELL,
+                    "stable_input_cell": _SCENARIO_MANAGER_STABLE_INPUT_CELL,
+                    "baseline_stored_value": _SCENARIO_MANAGER_BASELINE_STORED_VALUE,
+                    "candidate_stored_value": _SCENARIO_MANAGER_CANDIDATE_STORED_VALUE,
+                    "stable_stored_value": _SCENARIO_MANAGER_STABLE_STORED_VALUE,
+                    "input_number_format_id": _SCENARIO_MANAGER_INPUT_NUMBER_FORMAT_ID,
+                    "summary_ref": _SCENARIO_MANAGER_RESULT_CELL,
+                    "worksheet_input_value": _SCENARIO_MANAGER_WORKSHEET_INPUT_VALUE,
+                    "worksheet_stable_input_value": _SCENARIO_MANAGER_WORKSHEET_STABLE_INPUT_VALUE,
+                    "result_cell": _SCENARIO_MANAGER_RESULT_CELL,
+                    "result_formula": _SCENARIO_MANAGER_FORMULA,
+                    "dashboard_sheet": _SCENARIO_MANAGER_DASHBOARD_SHEET,
+                    "dashboard_cell": _SCENARIO_MANAGER_DASHBOARD_CELL,
+                    "dashboard_formula": _SCENARIO_MANAGER_DASHBOARD_FORMULA,
+                }
+            ],
+            must_reach=[
+                {
+                    "source": {
+                        "sheet": _SCENARIO_MANAGER_SHEET,
+                        "cell": _SCENARIO_MANAGER_CHANGING_CELL,
+                    },
+                    "targets": [
+                        {
+                            "sheet": _SCENARIO_MANAGER_SHEET,
+                            "cell": _SCENARIO_MANAGER_RESULT_CELL,
+                        },
+                        {
+                            "sheet": _SCENARIO_MANAGER_DASHBOARD_SHEET,
+                            "cell": _SCENARIO_MANAGER_DASHBOARD_CELL,
+                        },
+                    ],
+                }
+            ],
+            coverage=[
+                "The pair changes only one raw scenarios/scenario/inputCells/@val record in the Inputs worksheet part. It does not edit visible worksheet cells, formula text, calculation properties, or the Scenario Manager selection, protection, comment, user, summary-reference, or number-format metadata.",
+                "The observed contract is one stored alternate Scenario Manager input value. WCAB does not show or apply a scenario, calculate the model, predict a result, generate a Scenario Summary, or claim a client will use the stored input.",
+                "The stable local formula path from the declared changing cell to the dashboard is a lower bound only if a client applies the scenario. The validator reads raw worksheet OOXML and formula text without executing either action.",
+            ],
+        ),
+    )
+
+
 def _build_governance_external_workbook_link_update_policy(root: Path) -> None:
     """Build a pair differing only in the global external-link open policy."""
 
@@ -2823,6 +3007,7 @@ _BUILDERS: tuple[Callable[[Path], None], ...] = (
     _build_structural_pivot_data_field_aggregation,
     _build_structural_pivot_slicer_selection,
     _build_structural_power_query_m_filter,
+    _build_structural_scenario_manager_stored_input,
     _build_structural_chart_series_reference,
     _build_structural_array_formula_mode,
     _build_structural_three_d_scope,
@@ -2858,6 +3043,7 @@ CASE_IDS = (
     "structural.pivot_data_field_aggregation_changed",
     "structural.pivot_slicer_selection_changed",
     "structural.power_query_m_filter_changed",
+    "structural.scenario_manager_stored_input_changed",
     "structural.chart_series_reference_changed",
     "structural.array_formula_mode_changed",
     "structural.three_d_scope_expansion",

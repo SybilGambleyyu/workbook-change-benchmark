@@ -24,7 +24,9 @@ unchanged worksheet cells. WCAB 0.16 adds a relationship-backed PivotTable
 value-field aggregation change with unchanged source/cache/report cells.
 WCAB 0.17 adds a relationship-backed PivotTable Slicer-cache selection change
 with unchanged source/cache/report cells. WCAB 0.18 adds a connection-only
-Power Query M filter change over an unchanged local Excel Table.
+Power Query M filter change over an unchanged local Excel Table. WCAB 0.19
+adds a stored Scenario Manager alternate-input change with unchanged visible
+worksheet cells, formulas, and calculation properties.
 Version 2 remains
 available in the immutable v0.2.0 and v0.3.0 releases.
 
@@ -74,6 +76,7 @@ Facts are observed directly from the fixture files by `wcab validate`.
 | `pivot_data_field_aggregation_changed` | `cache_id`, `source_type`, `source_sheet`, `source_ref`, `pivot_sheet`, `pivot_ref`, `pivot_output_cell`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula`, `data_field_source_index`, `baseline_subtotal`, `candidate_subtotal` | One relationship-bound local worksheet PivotTable retains its source/cache bindings, stored report/dashboard cells, refresh control, and calculation properties while raw `dataFields/dataField/@subtotal` moves between the declared aggregate functions. Every package member except its PivotTable definition remains unchanged. The validator does not refresh, calculate, render, or infer a displayed result. |
 | `pivot_slicer_selection_changed` | `cache_id`, `source_type`, `source_sheet`, `source_ref`, `pivot_sheet`, `pivot_ref`, `pivot_output_cell`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula`, `slicer_name`, `slicer_source_name`, `slicer_pivot_table_name`, `slicer_pivot_tab_id`, `item_count`, `baseline_selected_item_index`, `candidate_selected_item_index`, `baseline_selected_value`, `candidate_selected_value` | One relationship-bound local Slicer cache retains its source/PivotCache/PivotTable bindings, stored report/dashboard cells, refresh control, and calculation properties while exactly one selected cache item moves between the declared index/value pairs. Every package member except its Slicer-cache definition remains unchanged. The validator does not create a Slicer drawing, apply a filter, refresh, calculate, render, or infer a displayed result. |
 | `power_query_m_filter_changed` | `data_mashup_part`, `source_sheet`, `source_table`, `source_ref`, `query_section`, `query_name`, `filter_column`, `baseline_filter_value`, `candidate_filter_value`, `fill_enabled`, `firewall_enabled`, `future_packages_allowed` | One package-root relationship-bound compact Data Mashup retains its local Excel Table source, metadata, permission controls, calculation properties, and every package member except its custom-XML part while one stored M `Table.SelectRows` literal changes. The validator reads a bounded generated envelope only; it does not execute M, refresh, materialize output, calculate, or infer query results. |
+| `scenario_manager_stored_input_value_changed` | `scenario_sheet`, `scenario_name`, `changing_cell`, `stable_input_cell`, `baseline_stored_value`, `candidate_stored_value`, `stable_stored_value`, `input_number_format_id`, `summary_ref`, `worksheet_input_value`, `worksheet_stable_input_value`, `result_cell`, `result_formula`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | One raw worksheet Scenario Manager declaration retains its selected/locked scenario metadata, second stored input, summary reference, visible worksheet cells, formula path, calculation properties, and every package member except its scenario-bearing worksheet while one stored `inputCells/@val` value changes. The validator does not show/apply a scenario, calculate a result, create a scenario summary, or infer client behavior. |
 | `chart_series_value_reference_changed` | `chart_sheet`, `chart_anchor`, `source_sheet`, `series_title_ref`, `category_ref`, `baseline_value_ref`, `candidate_value_ref` | One relationship-bound DrawingML chart retains its host, anchor, title/category references, source worksheet cells, and every package member except its chart part while raw `c:ser/c:val/c:numRef/c:f` moves between declared local value ranges. The validator does not calculate, refresh, or render a chart. |
 | `external_workbook_link_update_policy_changed` | `sheet`, `cell`, `formula`, `baseline_update_links`, `candidate_update_links` | The declared external-workbook formula remains unchanged while raw `workbookPr/@updateLinks` changes exactly from `never` to `always`; all other stored `workbookPr` attributes are unchanged. The validator does not resolve the source workbook. |
 | `array_formula_mode_changed` | `sheet`, `cell`, `formula`, `baseline_mode`, `candidate_mode`, `baseline_output_range`, `candidate_output_range` | The declared unchanged array anchor moves from `legacy_cse` to `dynamic`, with its stored formula text and output range exactly as declared. The validator reads the raw OOXML cell-metadata binding. |
@@ -182,6 +185,28 @@ three-part package, one formula document, one metadata item, and explicit
 firewall/future-package controls. It does not claim to be a general M parser,
 execute M, apply the filter, refresh a query, materialize output, calculate a
 workbook, infer returned rows, or predict any client behavior.
+
+## Scenario Manager stored alternate input
+
+Microsoft's [Scenario Manager guidance](https://support.microsoft.com/en-us/excel/switch-between-various-sets-of-values-by-using-scenarios)
+describes scenarios as saved value sets for declared changing cells, with
+formula result cells and optional scenario protection. Its Open XML
+[`inputCells` reference](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.spreadsheet.inputcells?view=openxml-3.0.1)
+records each stored input's cell reference, value, deletion state, and
+display-only number-format ID. That creates a review surface outside ordinary
+visible worksheet-cell values.
+
+WCAB's pair stores one selected, locked `WCAB downside` scenario in
+`Inputs` with two raw input records. It preserves the visible `Inputs!B2=0.1`,
+`Inputs!B3=125`, `Inputs!D2=B2*B3`, and
+`Dashboard!B4=Inputs!$D$2` formula path while only the alternate `B2` stored
+value moves from `0.08` to `0.16`. The raw validator accepts only this compact
+one-scenario/two-input declaration, checks the scenario selection, protection,
+comment/user, summary-reference, second-input, and number-format metadata,
+compares the worksheet after erasing the sole mutable `@val`, and requires that
+the Inputs worksheet part is the only changed package member. It does not show
+or apply a scenario, calculate a workbook, generate a Scenario Summary, infer
+an output, or claim a particular client will act on the declaration.
 
 ## External-workbook link update policy
 

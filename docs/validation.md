@@ -1,6 +1,6 @@
 # Validation record
 
-This record describes the WCAB 0.18.0 / schema-version-3 validation run on
+This record describes the WCAB 0.19.0 / schema-version-3 validation run on
 2026-08-03. It is reproducible from this repository; no network service or
 private workbook is required.
 
@@ -32,16 +32,16 @@ wcab validate --fixtures fixtures
 
 Results:
 
-- 33 cases: 32 paired-workbook cases and one directory portfolio case.
-- 35 observable truth facts across 28 `block` and five `review` cases.
+- 34 cases: 33 paired-workbook cases and one directory portfolio case.
+- 36 observable truth facts across 29 `block` and five `review` cases.
 - Three scoreable coverage expectations: one newly introduced `INDIRECT`
   boundary and two unchanged-formula selector changes (`INDIRECT` address text
   and `OFFSET` column displacement).
-- 102 generated fixture files: 68 workbooks, 33 truth manifests, and one JSONL
+- 105 generated fixture files: 70 workbooks, 34 truth manifests, and one JSONL
   case catalogue, all generated from source.
 - One hundred eight unit tests passed locally under Python 3.13, including
   independent regeneration and byte-for-byte fixture-tree equality.
-- The fixture validator accepted all 33 cases.
+- The fixture validator accepted all 34 cases.
 - The external-data pair has identical package members except for
   `xl/connections.xml`; both archives pass ZIP integrity checks and remain
   readable by openpyxl. Its relationship-backed source is a non-routable
@@ -80,6 +80,15 @@ Results:
   relationship and bounded generated Data Mashup envelope; it does not execute
   M, apply the filter, refresh a query, materialize output, calculate a
   workbook, infer returned rows, or claim client behavior.
+- The Scenario Manager pair has identical package members except for
+  `xl/worksheets/sheet1.xml`; both archives pass ZIP integrity checks and
+  remain readable by openpyxl. Its one selected, locked scenario retains its
+  selection/protection, comment/user, summary-reference, second-input, and
+  number-format metadata, plus visible `Inputs!B2=0.1`, `Inputs!B3=125`,
+  `Inputs!D2=B2*B3`, and `Dashboard!B4=Inputs!$D$2`. Only the raw alternate
+  `inputCells/@val` for `B2` moves from `0.08` to `0.16`. The validation run
+  did not show or apply a scenario, calculate a workbook, create a Scenario
+  Summary, infer an output, or claim client behavior.
 - The chart-series pair has identical package members except for
   `xl/charts/chart1.xml`; both archives pass ZIP integrity checks and remain
   readable by openpyxl. Its `Dashboard!D2` anchor, title/category references,
@@ -133,7 +142,7 @@ Results:
 
 ## Distribution supplement
 
-The 0.18.0 release retains the one-row-per-case `manifest.jsonl` catalogue and
+The 0.19.0 release retains the one-row-per-case `manifest.jsonl` catalogue and
 the tool-neutral observation protocol at version 2. Each catalogue row retains
 the schema-version-3 truth contract and includes byte counts and SHA-256
 digests for the workbooks it names.
@@ -141,11 +150,11 @@ digests for the workbooks it names.
 Commands:
 
 ```bash
-python -m build --outdir /tmp/wcab-v018-dist
-twine check /tmp/wcab-v018-dist/*
+python -m build --outdir /tmp/wcab-v019-dist
+twine check /tmp/wcab-v019-dist/*
 python -m venv /tmp/wcab-wheel-test
 /tmp/wcab-wheel-test/bin/python -m pip install \
-  /tmp/wcab-v018-dist/workbook_change_benchmark-0.18.0-py3-none-any.whl
+  /tmp/wcab-v019-dist/workbook_change_benchmark-0.19.0-py3-none-any.whl
 /tmp/wcab-wheel-test/bin/wcab validate --fixtures fixtures
 /tmp/wcab-wheel-test/bin/wcab manifest --fixtures fixtures --output /tmp/manifest.jsonl
 cmp fixtures/manifest.jsonl /tmp/manifest.jsonl
@@ -158,15 +167,19 @@ cmp fixtures/manifest.jsonl /tmp/manifest.jsonl
 Results:
 
 - The source distribution and universal wheel passed `twine check`.
+- The wheel SHA-256 was
+  `f33297ab7f9e45bc231c698023d12e1b7cbf22ebb3c4a561a79b912ad5cf2cce`; the
+  source distribution SHA-256 was
+  `ac8b9be93484f4ef905381f9d07282dc65be385d9af8c1f6489e4e57cb514e01`.
 - Fresh Python 3.13 wheel and source-distribution installations both reported
-  version 0.18.0 and validated all 33 fixtures; the wheel emitted
+  version 0.19.0 and validated all 34 fixtures; the wheel emitted
   byte-identical JSONL output.
-- The full 108-test suite, lint, and format checks passed locally under Python
+- The full 115-test suite, lint, and format checks passed locally under Python
   3.13.
 - The generated unsupported template scored as zero analyzed coverage, zero
   expected-fact recall, and zero coverage-disclosure recall, confirming that
   unsupported cases cannot become a pass.
-- The FormulaFence normalizer emitted 34 matched facts, one intentionally
+- The FormulaFence normalizer emitted 35 matched facts, one intentionally
   unmapped fact, three matched coverage declarations, and no invented review
   disposition.
 
@@ -181,9 +194,9 @@ wcab formulafence --fixtures fixtures --strict
 
 Results:
 
-- All 34 currently mappable diff/portfolio facts were observed.
+- All 35 currently mappable diff/portfolio facts were observed.
 - All three mappable coverage expectations were matched; no mapped fact,
-  coverage expectation, or targeted lint rule was missed across all 33 cases.
+  coverage expectation, or targeted lint rule was missed across all 34 cases.
 - The schema-version-2 structured Table scope case was observed as a
   `table_definition_changed` diff, even though its summary formula text stays
   unchanged.
@@ -234,6 +247,17 @@ Results:
   exact `North`-to-`South` M literal, and custom-XML-part-only package change.
   Neither report executed M, refreshed a query, materialized output,
   calculated a workbook, or inferred returned rows.
+- The WCAB 0.19 Scenario Manager case was observed as one exact
+  `scenario_manager_changed` record and `FF035`. FormulaFence's redacted
+  profile retained one scenario-bearing worksheet, one scenario, two stored
+  inputs, one selected/locked scenario, one summary reference, one formatted
+  input, and no malformed declaration while only
+  `scenario_definition_material_changed` changed. It did not expose the
+  scenario name, stored values, input references, comment, or user metadata.
+  WCAB independently established the `B2` `0.08`-to-`0.16` raw transition,
+  fixed metadata and visible cells/formulas, plus the Inputs-worksheet-only
+  package change. Neither report showed/applied a scenario, calculated a
+  result, or created a Scenario Summary.
 - The WCAB 0.15 chart-series case was observed as one exact
   `chart_definitions_changed` record and `FF030`. FormulaFence's redacted
   profile retained one host sheet, drawing, legacy chart, and series; three

@@ -199,6 +199,31 @@ def _power_query_m_filter_details() -> dict[str, object]:
     }
 
 
+def _scenario_manager_stored_input_details() -> dict[str, object]:
+    profile = {
+        "present": True,
+        "scenario_sheet_count": 1,
+        "scenario_count": 1,
+        "input_cell_count": 2,
+        "locked_scenario_count": 1,
+        "hidden_scenario_count": 0,
+        "scenario_with_comment_count": 1,
+        "scenario_with_user_count": 1,
+        "summary_reference_count": 1,
+        "current_scenario_selection_count": 1,
+        "shown_scenario_selection_count": 1,
+        "deleted_input_cell_count": 0,
+        "undone_input_cell_count": 0,
+        "formatted_input_cell_count": 1,
+        "unrecognized_scenario_count": 0,
+    }
+    return {
+        "before": profile,
+        "after": profile,
+        "scenario_definition_material_changed": True,
+    }
+
+
 def _replace_power_query_m_filter_literal(path: Path, *, before: bytes, after: bytes) -> None:
     """Rewrite one test fixture's embedded M formula without changing its truth."""
 
@@ -409,6 +434,30 @@ def test_committed_manifest_matches_fixture_tree() -> None:
             "fill_enabled": False,
             "firewall_enabled": True,
             "future_packages_allowed": False,
+        }
+    ]
+    scenario_manager_row = next(
+        row for row in rows if row["id"] == "structural.scenario_manager_stored_input_changed"
+    )
+    assert scenario_manager_row["facts"] == [
+        {
+            "kind": "scenario_manager_stored_input_value_changed",
+            "scenario_sheet": "Inputs",
+            "scenario_name": "WCAB downside",
+            "changing_cell": "B2",
+            "stable_input_cell": "B3",
+            "baseline_stored_value": "0.08",
+            "candidate_stored_value": "0.16",
+            "stable_stored_value": "125",
+            "input_number_format_id": 10,
+            "summary_ref": "D2",
+            "worksheet_input_value": 0.1,
+            "worksheet_stable_input_value": 125,
+            "result_cell": "D2",
+            "result_formula": "=B2*B3",
+            "dashboard_sheet": "Dashboard",
+            "dashboard_cell": "B4",
+            "dashboard_formula": "=Inputs!$D$2",
         }
     ]
     external_link_policy_row = next(
@@ -950,6 +999,90 @@ def test_power_query_m_filter_pair_changes_only_its_data_mashup_part(tmp_path: P
         for member in sorted(baseline_members)
         if baseline_members[member] != candidate_members[member]
     ] == ["customXml/item1.xml"]
+
+
+def test_validator_rejects_a_false_scenario_manager_stored_input_fact(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "structural" / "scenario_manager_stored_input_changed"
+    truth_path = case / "truth.json"
+    truth = json.loads(truth_path.read_text(encoding="utf-8"))
+    truth["facts"][0]["candidate_stored_value"] = "0.08"
+    truth_path.write_text(json.dumps(truth), encoding="utf-8")
+    assert validate_case(case)
+
+
+def test_validator_rejects_a_corrupted_scenario_manager_stored_input(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = (
+        fixture_root / "structural" / "scenario_manager_stored_input_changed" / "candidate.xlsx"
+    )
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    namespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    worksheet_member = "xl/worksheets/sheet1.xml"
+    worksheet = ElementTree.fromstring(members[worksheet_member])
+    input_cell = next(
+        cell for cell in worksheet.iter(f"{{{namespace}}}inputCells") if cell.get("r") == "B2"
+    )
+    input_cell.set("val", "0.08")
+    members[worksheet_member] = ElementTree.tostring(
+        worksheet, encoding="utf-8", xml_declaration=True
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_validator_rejects_an_unrelated_scenario_manager_metadata_change(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = (
+        fixture_root / "structural" / "scenario_manager_stored_input_changed" / "candidate.xlsx"
+    )
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    namespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    worksheet_member = "xl/worksheets/sheet1.xml"
+    worksheet = ElementTree.fromstring(members[worksheet_member])
+    scenario = next(worksheet.iter(f"{{{namespace}}}scenario"))
+    scenario.set("locked", "0")
+    members[worksheet_member] = ElementTree.tostring(
+        worksheet, encoding="utf-8", xml_declaration=True
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_scenario_manager_stored_input_pair_changes_only_its_inputs_worksheet(
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "structural" / "scenario_manager_stored_input_changed"
+    with ZipFile(case / "baseline.xlsx") as baseline, ZipFile(case / "candidate.xlsx") as candidate:
+        assert baseline.testzip() is None
+        assert candidate.testzip() is None
+        baseline_members = {
+            entry.filename: baseline.read(entry.filename) for entry in baseline.infolist()
+        }
+        candidate_members = {
+            entry.filename: candidate.read(entry.filename) for entry in candidate.infolist()
+        }
+    assert set(baseline_members) == set(candidate_members)
+    assert [
+        member
+        for member in sorted(baseline_members)
+        if baseline_members[member] != candidate_members[member]
+    ] == ["xl/worksheets/sheet1.xml"]
 
 
 def test_validator_rejects_a_false_chart_series_reference_fact(tmp_path: Path) -> None:
@@ -2384,6 +2517,92 @@ def test_formulafence_adapter_requires_the_power_query_m_filter_finding(
     assert result["status"] == "missed"
     assert result["matched"] == []
     assert result["missed"] == ["power_query_m_filter_changed"]
+
+
+def test_formulafence_adapter_maps_the_exact_scenario_manager_stored_input_change(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _scenario_manager_stored_input_details()
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "scenario_manager_changed",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF035", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "structural" / "scenario_manager_stored_input_changed"
+    )
+    assert result["status"] == "matched"
+    assert result["matched"] == ["scenario_manager_stored_input_value_changed"]
+
+
+def test_formulafence_adapter_rejects_an_inexact_scenario_manager_stored_input_change(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _scenario_manager_stored_input_details()
+        details["selection_material_changed"] = True
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "scenario_manager_changed",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF035", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "structural" / "scenario_manager_stored_input_changed"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["scenario_manager_stored_input_value_changed"]
+
+
+def test_formulafence_adapter_requires_the_scenario_manager_stored_input_finding(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "scenario_manager_changed",
+                    "location": None,
+                    "details": _scenario_manager_stored_input_details(),
+                }
+            ],
+            "findings": [],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "structural" / "scenario_manager_stored_input_changed"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["scenario_manager_stored_input_value_changed"]
 
 
 def test_formulafence_adapter_maps_the_exact_chart_series_reference_change(

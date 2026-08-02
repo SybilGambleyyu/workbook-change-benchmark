@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.19.0 — 2026-08-03
+
+- Add a deterministic raw Scenario Manager case. One selected, locked
+  `WCAB downside` scenario retains its sheet, two input references, second
+  stored input, summary reference, selection state, protection, comment/user,
+  number-format metadata, visible worksheet cells, formulas, and calculation
+  properties while its stored `Inputs!B2` alternate value moves from `0.08` to
+  `0.16`.
+- Add the exact `scenario_manager_stored_input_value_changed` fact, a narrow
+  raw-worksheet Scenario Manager validator, worksheet-part isolation check,
+  local formula-path lower bound, and corruption regressions. WCAB records a
+  stored alternate input only: it does not show or apply a scenario, calculate
+  a model, create a scenario summary, infer an output, or claim client
+  behavior.
+- Extend the optional FormulaFence adapter to require the exact redacted
+  one-scenario `scenario_manager_changed` profile and high-severity `FF035`,
+  while WCAB independently proves the stored `0.08 -> 0.16` declaration.
+
 ## 0.18.0 — 2026-08-03
 
 - Add a deterministic connection-only Power Query case over a local

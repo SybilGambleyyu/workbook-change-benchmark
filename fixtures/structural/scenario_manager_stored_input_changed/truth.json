@@ -1,0 +1,53 @@
+{
+  "coverage": [
+    "The pair changes only one raw scenarios/scenario/inputCells/@val record in the Inputs worksheet part. It does not edit visible worksheet cells, formula text, calculation properties, or the Scenario Manager selection, protection, comment, user, summary-reference, or number-format metadata.",
+    "The observed contract is one stored alternate Scenario Manager input value. WCAB does not show or apply a scenario, calculate the model, predict a result, generate a Scenario Summary, or claim a client will use the stored input.",
+    "The stable local formula path from the declared changing cell to the dashboard is a lower bound only if a client applies the scenario. The validator reads raw worksheet OOXML and formula text without executing either action."
+  ],
+  "coverage_expectations": [],
+  "facts": [
+    {
+      "baseline_stored_value": "0.08",
+      "candidate_stored_value": "0.16",
+      "changing_cell": "B2",
+      "dashboard_cell": "B4",
+      "dashboard_formula": "=Inputs!$D$2",
+      "dashboard_sheet": "Dashboard",
+      "input_number_format_id": 10,
+      "kind": "scenario_manager_stored_input_value_changed",
+      "result_cell": "D2",
+      "result_formula": "=B2*B3",
+      "scenario_name": "WCAB downside",
+      "scenario_sheet": "Inputs",
+      "stable_input_cell": "B3",
+      "stable_stored_value": "125",
+      "summary_ref": "D2",
+      "worksheet_input_value": 0.1,
+      "worksheet_stable_input_value": 125
+    }
+  ],
+  "family": "structural",
+  "id": "structural.scenario_manager_stored_input_changed",
+  "must_reach": [
+    {
+      "source": {
+        "cell": "B2",
+        "sheet": "Inputs"
+      },
+      "targets": [
+        {
+          "cell": "D2",
+          "sheet": "Inputs"
+        },
+        {
+          "cell": "B4",
+          "sheet": "Dashboard"
+        }
+      ]
+    }
+  ],
+  "review_expectation": "block",
+  "schema_version": 3,
+  "title": "A Scenario Manager downside input changes without a worksheet-cell edit",
+  "topology": "pair"
+}

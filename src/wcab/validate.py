@@ -906,6 +906,84 @@ def _raw_power_query_m_filter_state(path: Path) -> dict[str, Any] | None:
     }
 
 
+def _raw_scenario_manager_stored_input_state(path: Path, sheet_name: str) -> dict[str, Any] | None:
+    """Read WCAB's compact raw Scenario Manager declaration.
+
+    Scenario Manager records alternate input values inside a worksheet's
+    ``scenarios`` element. This narrow reader accepts only WCAB's generated
+    one-scenario/two-input shape and neither shows a scenario nor calculates a
+    workbook.
+    """
+
+    try:
+        with ZipFile(path) as archive:
+            worksheet_member = _worksheet_member_for_sheet(archive, sheet_name)
+            if worksheet_member is None:
+                return None
+            worksheet = ElementTree.fromstring(archive.read(worksheet_member))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    if worksheet.tag != f"{{{_SPREADSHEETML_NS}}}worksheet":
+        return None
+    scenarios_tag = f"{{{_SPREADSHEETML_NS}}}scenarios"
+    scenario_tag = f"{{{_SPREADSHEETML_NS}}}scenario"
+    input_cell_tag = f"{{{_SPREADSHEETML_NS}}}inputCells"
+    scenario_sets = worksheet.findall(scenarios_tag)
+    if len(scenario_sets) != 1 or len(scenario_sets[0]) != 1:
+        return None
+    scenarios = scenario_sets[0]
+    scenario = scenarios[0]
+    if scenario.tag != scenario_tag:
+        return None
+    input_cells = list(scenario)
+    if len(input_cells) != 2 or any(
+        cell.tag != input_cell_tag or len(cell) for cell in input_cells
+    ):
+        return None
+    input_state: list[tuple[str, str, tuple[tuple[str, str], ...]]] = []
+    for input_cell in input_cells:
+        reference = input_cell.get("r")
+        value = input_cell.get("val")
+        if not isinstance(reference, str) or not isinstance(value, str):
+            return None
+        input_state.append((reference, value, tuple(sorted(input_cell.attrib.items()))))
+    if len({reference for reference, _, _ in input_state}) != len(input_state):
+        return None
+    return {
+        "worksheet_member": worksheet_member,
+        "scenarios_attributes": tuple(sorted(scenarios.attrib.items())),
+        "scenario_attributes": tuple(sorted(scenario.attrib.items())),
+        "input_cells": tuple(input_state),
+    }
+
+
+def _scenario_manager_worksheet_without_stored_input_value(
+    path: Path, sheet_name: str, changing_cell: str
+) -> bytes | None:
+    """Return WCAB's Scenario Manager worksheet with one stored value erased."""
+
+    if _raw_scenario_manager_stored_input_state(path, sheet_name) is None:
+        return None
+    try:
+        with ZipFile(path) as archive:
+            worksheet_member = _worksheet_member_for_sheet(archive, sheet_name)
+            if worksheet_member is None:
+                return None
+            worksheet = ElementTree.fromstring(archive.read(worksheet_member))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    input_cell_tag = f"{{{_SPREADSHEETML_NS}}}inputCells"
+    matches = [
+        input_cell
+        for input_cell in worksheet.iter(input_cell_tag)
+        if input_cell.get("r") == changing_cell
+    ]
+    if len(matches) != 1 or "val" not in matches[0].attrib:
+        return None
+    matches[0].attrib.pop("val")
+    return ElementTree.tostring(worksheet, encoding="utf-8", xml_declaration=True)
+
+
 def _chart_anchor_cell(anchor: ElementTree.Element) -> str | None:
     """Return one zero-offset worksheet-drawing anchor as an A1 coordinate."""
 
@@ -2246,6 +2324,192 @@ def _validate_fact(
             and _xlsx_member_differences(baseline_path, candidate_path) == {data_mashup_part}
             and _calculation_properties(baseline_path) == _calculation_properties(candidate_path),
             f"{truth['id']}: expected only one compact connection-only local-table Power Query M filter literal to change with stable source, metadata, permissions, and calculation controls",
+            errors,
+        )
+        return
+
+    if kind == "scenario_manager_stored_input_value_changed":
+        scenario_sheet = fact.get("scenario_sheet")
+        scenario_name = fact.get("scenario_name")
+        changing_cell = fact.get("changing_cell")
+        stable_input_cell = fact.get("stable_input_cell")
+        baseline_stored_value = fact.get("baseline_stored_value")
+        candidate_stored_value = fact.get("candidate_stored_value")
+        stable_stored_value = fact.get("stable_stored_value")
+        input_number_format_id = fact.get("input_number_format_id")
+        summary_reference = fact.get("summary_ref")
+        result_cell = fact.get("result_cell")
+        result_formula = fact.get("result_formula")
+        dashboard_sheet = fact.get("dashboard_sheet")
+        dashboard_cell = fact.get("dashboard_cell")
+        dashboard_formula = fact.get("dashboard_formula")
+        before_state = (
+            _raw_scenario_manager_stored_input_state(baseline_path, scenario_sheet)
+            if isinstance(scenario_sheet, str)
+            else None
+        )
+        after_state = (
+            _raw_scenario_manager_stored_input_state(candidate_path, scenario_sheet)
+            if isinstance(scenario_sheet, str)
+            else None
+        )
+        before_result = (
+            _raw_cell_state(baseline_path, scenario_sheet, result_cell)
+            if isinstance(scenario_sheet, str) and isinstance(result_cell, str)
+            else None
+        )
+        after_result = (
+            _raw_cell_state(candidate_path, scenario_sheet, result_cell)
+            if isinstance(scenario_sheet, str) and isinstance(result_cell, str)
+            else None
+        )
+        before_dashboard = (
+            _raw_cell_state(baseline_path, dashboard_sheet, dashboard_cell)
+            if isinstance(dashboard_sheet, str) and isinstance(dashboard_cell, str)
+            else None
+        )
+        after_dashboard = (
+            _raw_cell_state(candidate_path, dashboard_sheet, dashboard_cell)
+            if isinstance(dashboard_sheet, str) and isinstance(dashboard_cell, str)
+            else None
+        )
+        before_input = (
+            baseline[scenario_sheet][changing_cell]
+            if isinstance(scenario_sheet, str)
+            and isinstance(changing_cell, str)
+            and scenario_sheet in baseline.sheetnames
+            else None
+        )
+        after_input = (
+            candidate[scenario_sheet][changing_cell]
+            if isinstance(scenario_sheet, str)
+            and isinstance(changing_cell, str)
+            and scenario_sheet in candidate.sheetnames
+            else None
+        )
+        before_stable_input = (
+            baseline[scenario_sheet][stable_input_cell]
+            if isinstance(scenario_sheet, str)
+            and isinstance(stable_input_cell, str)
+            and scenario_sheet in baseline.sheetnames
+            else None
+        )
+        after_stable_input = (
+            candidate[scenario_sheet][stable_input_cell]
+            if isinstance(scenario_sheet, str)
+            and isinstance(stable_input_cell, str)
+            and scenario_sheet in candidate.sheetnames
+            else None
+        )
+        try:
+            worksheet_input_value = Decimal(str(fact.get("worksheet_input_value")))
+            worksheet_stable_input_value = Decimal(str(fact.get("worksheet_stable_input_value")))
+            before_input_value = Decimal(str(before_input.value)) if before_input else None
+            after_input_value = Decimal(str(after_input.value)) if after_input else None
+            before_stable_input_value = (
+                Decimal(str(before_stable_input.value)) if before_stable_input else None
+            )
+            after_stable_input_value = (
+                Decimal(str(after_stable_input.value)) if after_stable_input else None
+            )
+        except (InvalidOperation, TypeError, ValueError):
+            worksheet_input_value = worksheet_stable_input_value = None
+            before_input_value = after_input_value = None
+            before_stable_input_value = after_stable_input_value = None
+        expected_scenarios_attributes = (
+            ("current", "0"),
+            ("show", "0"),
+            ("sqref", "D2"),
+        )
+        expected_scenario_attributes = (
+            ("comment", "Synthetic downside assumption set"),
+            ("count", "2"),
+            ("locked", "1"),
+            ("name", "WCAB downside"),
+            ("user", "WCAB"),
+        )
+        expected_baseline_inputs = (
+            (
+                "B2",
+                "0.08",
+                (("numFmtId", "10"), ("r", "B2"), ("val", "0.08")),
+            ),
+            ("B3", "125", (("r", "B3"), ("val", "125"))),
+        )
+        expected_candidate_inputs = (
+            (
+                "B2",
+                "0.16",
+                (("numFmtId", "10"), ("r", "B2"), ("val", "0.16")),
+            ),
+            ("B3", "125", (("r", "B3"), ("val", "125"))),
+        )
+        graph = _direct_graph(candidate)
+        _assert(
+            scenario_sheet == "Inputs"
+            and scenario_name == "WCAB downside"
+            and changing_cell == "B2"
+            and stable_input_cell == "B3"
+            and baseline_stored_value == "0.08"
+            and candidate_stored_value == "0.16"
+            and baseline_stored_value != candidate_stored_value
+            and stable_stored_value == "125"
+            and input_number_format_id == 10
+            and summary_reference == "D2"
+            and result_cell == "D2"
+            and result_formula == "=B2*B3"
+            and dashboard_sheet == "Dashboard"
+            and dashboard_cell == "B4"
+            and dashboard_formula == "=Inputs!$D$2"
+            and worksheet_input_value == Decimal("0.1")
+            and worksheet_stable_input_value == Decimal("125")
+            and before_state is not None
+            and after_state is not None
+            and {key: value for key, value in before_state.items() if key != "input_cells"}
+            == {key: value for key, value in after_state.items() if key != "input_cells"}
+            and before_state["worksheet_member"] == "xl/worksheets/sheet1.xml"
+            and after_state["worksheet_member"] == "xl/worksheets/sheet1.xml"
+            and before_state["scenarios_attributes"] == expected_scenarios_attributes
+            and after_state["scenarios_attributes"] == expected_scenarios_attributes
+            and before_state["scenario_attributes"] == expected_scenario_attributes
+            and after_state["scenario_attributes"] == expected_scenario_attributes
+            and before_state["input_cells"] == expected_baseline_inputs
+            and after_state["input_cells"] == expected_candidate_inputs
+            and before_input is not None
+            and after_input is not None
+            and before_stable_input is not None
+            and after_stable_input is not None
+            and _cell_kind(before_input) == "value"
+            and _cell_kind(after_input) == "value"
+            and _cell_kind(before_stable_input) == "value"
+            and _cell_kind(after_stable_input) == "value"
+            and before_input_value == worksheet_input_value
+            and after_input_value == worksheet_input_value
+            and before_stable_input_value == worksheet_stable_input_value
+            and after_stable_input_value == worksheet_stable_input_value
+            and before_result is not None
+            and after_result is not None
+            and before_result == after_result
+            and before_result[3] == result_formula
+            and before_dashboard is not None
+            and after_dashboard is not None
+            and before_dashboard == after_dashboard
+            and before_dashboard[3] == dashboard_formula
+            and _scenario_manager_worksheet_without_stored_input_value(
+                baseline_path, scenario_sheet, changing_cell
+            )
+            == _scenario_manager_worksheet_without_stored_input_value(
+                candidate_path, scenario_sheet, changing_cell
+            )
+            and _xlsx_member_differences(baseline_path, candidate_path)
+            == {before_state["worksheet_member"]}
+            and _calculation_properties(baseline_path) == _calculation_properties(candidate_path)
+            and {
+                (scenario_sheet, result_cell),
+                (dashboard_sheet, dashboard_cell),
+            }
+            <= _reachable(graph, (scenario_sheet, changing_cell)),
+            f"{truth['id']}: expected one stored Scenario Manager input value to change with stable worksheet cells, metadata, formulas, and package boundary",
             errors,
         )
         return

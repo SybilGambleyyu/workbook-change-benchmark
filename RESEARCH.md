@@ -247,6 +247,37 @@ bounded envelope. It does not claim general Power Query support, execute M,
 apply a filter, refresh a query, materialize a result, calculate a workbook,
 infer returned rows, or predict client behavior.
 
+## Scenario Manager alternate inputs without a worksheet edit
+
+Microsoft's [Scenario Manager guidance](https://support.microsoft.com/en-us/excel/switch-between-various-sets-of-values-by-using-scenarios)
+defines a Scenario as a saved set of values that can be substituted into a
+worksheet, distinguishes changing cells from formula result cells, and supports
+scenario protection. It also explains that a scenario can hold up to 32
+changing-cell values. The Open XML
+[`inputCells` reference](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.spreadsheet.inputcells?view=openxml-3.0.1)
+identifies the stored cell reference, cached value, deletion state, and
+display-only number format within a scenario. This puts material alternate
+assumptions in a raw worksheet control declaration rather than in the visible
+grid that an ordinary cell diff usually compares.
+
+Data Tables are also an important What-If surface: Microsoft documents their
+one- and two-variable boundary and repeated recalculation behavior. However,
+the next WCAB case selects Scenario Manager because it isolates the more opaque
+stored-assumption boundary: a single scenario input can change while all
+ordinary worksheet values, formulas, and calculation settings remain unchanged.
+The fixture is deliberately one selected, locked scenario with two inputs so
+the changed value can be audited without expanding the case into scenario
+application or numerical evaluation.
+
+WCAB 0.19 keeps visible `Inputs!B2=0.1`, `Inputs!B3=125`,
+`Inputs!D2=B2*B3`, and `Dashboard!B4=Inputs!$D$2` fixed while a raw Scenario
+Manager `inputCells/@val` record for `B2` moves from `0.08` to `0.16`. The
+scenario's selection, protection, comment/user, summary reference, second
+input, and number-format metadata also remain fixed. The validator reads only
+the generated raw OOXML and checks the local formula path as a lower bound if a
+client applies the scenario. It does not show or apply a scenario, calculate a
+model, create a scenario summary, infer a result, or claim client behavior.
+
 ## Chart series sources without a worksheet edit
 
 Microsoft's [chart-series guidance](https://support.microsoft.com/en-US/Excel/rename-a-data-series)
