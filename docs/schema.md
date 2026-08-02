@@ -18,7 +18,9 @@ formula-result change without a formula or input edit. WCAB 0.12 adds a raw
 workbook serial-date-system control change with unchanged cell content, WCAB
 0.13 adds an active worksheet AutoFilter criterion change with unchanged cell
 content and formulas, and WCAB 0.14 adds a relationship-backed PivotTable cache
-refresh-on-open control change with unchanged stored cells. Version 2 remains
+refresh-on-open control change with unchanged stored cells. WCAB 0.15 adds a
+relationship-backed DrawingML chart-series source-reference change with
+unchanged worksheet cells. Version 2 remains
 available in the immutable v0.2.0 and v0.3.0 releases.
 
 ```json
@@ -64,6 +66,7 @@ Facts are observed directly from the fixture files by `wcab validate`.
 | `formula_cached_result_changed` | `sheet`, `cell`, `formula`, `input_sheet`, `input_cell`, `input_value`, `result_type`, `baseline_cached_result`, `candidate_cached_result` | One raw numeric formula-cell `<v>` value changes while its raw `<f>` expression, direct input, calculation properties, and every other package member remain unchanged. The validator reads OOXML only; it does not calculate, validate, or interpret the saved result. |
 | `external_data_connection_refresh_on_load_changed` | `connection_id`, `baseline_refresh_on_load`, `candidate_refresh_on_load` | The relationship-backed connection with this workbook-local ID explicitly changes `refreshOnLoad` from `false` to `true`. The validator reads raw OOXML only. |
 | `pivot_cache_refresh_on_load_changed` | `cache_id`, `source_type`, `source_sheet`, `source_ref`, `pivot_sheet`, `pivot_ref`, `pivot_output_cell`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula`, `baseline_refresh_on_load`, `candidate_refresh_on_load` | One relationship-bound local worksheet PivotCache changes raw `refreshOnLoad` from `false` to `true`; its source binding, PivotTable location, stored report/dashboard cells, calculation properties, and every package member except its cache definition remain unchanged. The validator neither refreshes nor renders a PivotTable. |
+| `chart_series_value_reference_changed` | `chart_sheet`, `chart_anchor`, `source_sheet`, `series_title_ref`, `category_ref`, `baseline_value_ref`, `candidate_value_ref` | One relationship-bound DrawingML chart retains its host, anchor, title/category references, source worksheet cells, and every package member except its chart part while raw `c:ser/c:val/c:numRef/c:f` moves between declared local value ranges. The validator does not calculate, refresh, or render a chart. |
 | `external_workbook_link_update_policy_changed` | `sheet`, `cell`, `formula`, `baseline_update_links`, `candidate_update_links` | The declared external-workbook formula remains unchanged while raw `workbookPr/@updateLinks` changes exactly from `never` to `always`; all other stored `workbookPr` attributes are unchanged. The validator does not resolve the source workbook. |
 | `array_formula_mode_changed` | `sheet`, `cell`, `formula`, `baseline_mode`, `candidate_mode`, `baseline_output_range`, `candidate_output_range` | The declared unchanged array anchor moves from `legacy_cse` to `dynamic`, with its stored formula text and output range exactly as declared. The validator reads the raw OOXML cell-metadata binding. |
 | `static_cycle_introduced` | `cells` | Every declared direct A1 cell reaches itself in the local static dependency graph. |
@@ -166,6 +169,26 @@ direct dependency edge, and requires the report worksheet to be the only
 changed package member. It does not execute Excel's filter logic, calculate
 the subtotal, infer a visible row set, or claim a display, copy, chart, or
 print result.
+
+## DrawingML chart-series source references
+
+Microsoft's [series-editing guidance](https://support.microsoft.com/en-US/Excel/rename-a-data-series)
+allows a user to change a chart's series values without changing the worksheet
+data. The Open XML [`NumberReference` definition](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.drawing.charts.numberreference?view=openxml-3.0.1)
+contains the stored formula reference used by a numeric chart series. That
+creates a report-review surface outside ordinary cell diffs.
+
+WCAB's chart pair starts with one `Dashboard!D2` chart bound through the
+worksheet drawing relationship to one DrawingML chart part. Its title and
+category references remain `Source!B1` and `Source!$A$2:$A$4`; only the one
+numeric series value reference moves from `Source!$B$2:$B$4` to
+`Source!$C$2:$C$4`. Both source columns, all worksheet cells, the drawing
+anchor, calculation properties, and every package member outside
+`xl/charts/chart1.xml` remain fixed. The validator follows only that generated
+worksheet-to-drawing-to-chart relationship chain, compares the chart XML after
+erasing the one declared reference, and never evaluates a chart formula,
+calculates cells, refreshes data, renders a chart, infers a visual difference,
+or claims client behavior.
 
 ## Iterative calculation
 

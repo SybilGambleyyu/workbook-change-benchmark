@@ -40,6 +40,7 @@ _FACT_TO_CHANGE: dict[str, tuple[str, str | None]] = {
     "workbook_date_system_changed": ("workbook_date_system_changed", None),
     "formula_cached_result_changed": ("formula_cached_result_changed", None),
     "array_formula_mode_changed": ("array_formula_mode_changed", "location"),
+    "chart_series_value_reference_changed": ("chart_definitions_changed", None),
     "external_data_connection_refresh_on_load_changed": (
         "external_data_connections_changed",
         None,
@@ -457,6 +458,87 @@ def _pivot_cache_refresh_finding_observed(finding: dict[str, Any], fact: dict[st
     )
 
 
+def _chart_series_value_reference_details_observed(details: Any, fact: dict[str, Any]) -> bool:
+    """Match FormulaFence's redacted single-chart definition transition.
+
+    FormulaFence intentionally does not expose chart formulas or visual output.
+    WCAB therefore requires its exact one-chart structural profile and FF030,
+    then independently establishes the title/category/value references through
+    raw package validation.
+    """
+
+    required_fact_fields = (
+        "chart_sheet",
+        "chart_anchor",
+        "source_sheet",
+        "series_title_ref",
+        "category_ref",
+        "baseline_value_ref",
+        "candidate_value_ref",
+    )
+    if (
+        any(not isinstance(fact.get(field), str) for field in required_fact_fields)
+        or fact.get("baseline_value_ref") == fact.get("candidate_value_ref")
+        or not isinstance(details, dict)
+    ):
+        return False
+    expected_profile = {
+        "present": True,
+        "chart_host_sheet_count": 1,
+        "chart_drawing_part_count": 1,
+        "chart_reference_count": 1,
+        "chart_part_count": 1,
+        "chart_ex_reference_count": 0,
+        "chart_ex_part_count": 0,
+        "chart_ex_series_count": 0,
+        "chart_ex_title_count": 0,
+        "chart_ex_data_reference_count": 0,
+        "chart_user_shape_part_count": 0,
+        "chart_user_shape_count": 0,
+        "chart_type_count": 1,
+        "series_count": 1,
+        "title_count": 1,
+        "data_reference_count": 3,
+        "numeric_data_reference_count": 2,
+        "string_data_reference_count": 1,
+        "literal_data_point_count": 0,
+        "cached_data_point_count": 0,
+        "pivot_source_count": 0,
+        "external_data_reference_count": 0,
+        "user_shape_reference_count": 0,
+        "related_relationship_count": 1,
+        "external_relationship_count": 0,
+        "internal_related_part_count": 0,
+        "fingerprinted_related_part_count": 0,
+        "uninspected_related_part_count": 0,
+        "unrecognized_part_count": 0,
+    }
+    return (
+        details.get("before") == expected_profile
+        and details.get("after") == expected_profile
+        and details.get("chart_definition_material_changed") is True
+        and set(details) == {"before", "after", "chart_definition_material_changed"}
+    )
+
+
+def _chart_series_value_reference_observed(change: dict[str, Any], fact: dict[str, Any]) -> bool:
+    """Match FormulaFence's dedicated chart-definition change record."""
+
+    return change.get("kind") == "chart_definitions_changed" and (
+        _chart_series_value_reference_details_observed(change.get("details"), fact)
+    )
+
+
+def _chart_series_value_reference_finding_observed(
+    finding: dict[str, Any], fact: dict[str, Any]
+) -> bool:
+    """Require FormulaFence's matching high-severity chart finding."""
+
+    return finding.get("rule_id") == "FF030" and _chart_series_value_reference_details_observed(
+        finding.get("details"), fact
+    )
+
+
 def _formula_cached_result_details_observed(details: Any, fact: dict[str, Any]) -> bool:
     """Match FormulaFence's intentionally redacted saved-result details.
 
@@ -700,6 +782,16 @@ def evaluate_diff_case(case_dir: str | Path, *, executable: str = "formulafence"
                 if isinstance(change, dict)
             ) and any(
                 _pivot_cache_refresh_finding_observed(finding, fact)
+                for finding in findings
+                if isinstance(finding, dict)
+            )
+        if kind == "chart_series_value_reference_changed":
+            observed = any(
+                _chart_series_value_reference_observed(change, fact)
+                for change in changes
+                if isinstance(change, dict)
+            ) and any(
+                _chart_series_value_reference_finding_observed(finding, fact)
                 for finding in findings
                 if isinstance(finding, dict)
             )

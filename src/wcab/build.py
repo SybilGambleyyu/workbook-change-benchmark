@@ -18,6 +18,7 @@ from xml.etree import ElementTree
 from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 from openpyxl import Workbook
+from openpyxl.chart import BarChart, Reference
 from openpyxl.formatting.rule import CellIsRule
 from openpyxl.styles import PatternFill, Protection
 from openpyxl.workbook.defined_name import DefinedName
@@ -65,6 +66,14 @@ _PIVOT_CACHE_SOURCE_REF = "A1:B5"
 _PIVOT_REPORT_SHEET = "Report"
 _PIVOT_REPORT_REF = "A1:B2"
 _PIVOT_CACHE_DASHBOARD_FORMULA = "=Report!$B$2"
+_CHART_SERIES_SOURCE_SHEET = "Source"
+_CHART_SERIES_DASHBOARD_SHEET = "Dashboard"
+_CHART_SERIES_ANCHOR = "D2"
+_CHART_SERIES_TITLE_REFERENCE = "'Source'!B1"
+_CHART_SERIES_CATEGORY_REFERENCE = "'Source'!$A$2:$A$4"
+_CHART_SERIES_BASELINE_VALUE_REFERENCE = "'Source'!$B$2:$B$4"
+_CHART_SERIES_CANDIDATE_VALUE_REFERENCE = "'Source'!$C$2:$C$4"
+_DRAWINGML_CHART_NS = "http://schemas.openxmlformats.org/drawingml/2006/chart"
 
 
 def _configure_workbook(workbook: Workbook, *, title: str) -> None:
@@ -487,6 +496,34 @@ def _pivot_cache_refresh_workbook() -> Workbook:
     dashboard = workbook.create_sheet("Dashboard")
     dashboard["A4"] = "Reported pivot amount"
     dashboard["B4"] = _PIVOT_CACHE_DASHBOARD_FORMULA
+    return workbook
+
+
+def _chart_series_reference_workbook() -> Workbook:
+    """Build a dashboard chart with two stable local value columns.
+
+    The candidate's raw chart-series value reference is switched after saving.
+    The source cells, chart anchor, title reference, category reference, and
+    all other package members remain stable. WCAB records the stored chart
+    binding, not a rendered chart or a calculated visual result.
+    """
+
+    workbook = Workbook()
+    _configure_workbook(workbook, title="WCAB chart series reference fixture")
+    source = workbook.active
+    source.title = _CHART_SERIES_SOURCE_SHEET
+    source.append(["Quarter", "Quarterly revenue", "Quarterly revenue"])
+    source.append(["Q1", 100, 140])
+    source.append(["Q2", 120, 160])
+    source.append(["Q3", 140, 180])
+
+    dashboard = workbook.create_sheet(_CHART_SERIES_DASHBOARD_SHEET)
+    dashboard["A1"] = "Quarterly revenue chart"
+    chart = BarChart()
+    chart.title = "Quarterly revenue"
+    chart.add_data(Reference(source, min_col=2, min_row=1, max_row=4), titles_from_data=True)
+    chart.set_categories(Reference(source, min_col=1, min_row=2, max_row=4))
+    dashboard.add_chart(chart, _CHART_SERIES_ANCHOR)
     return workbook
 
 
@@ -1116,6 +1153,47 @@ def _add_pivot_cache_refresh_control(path: Path, *, refresh_on_load: bool) -> No
                 {"PartName": part_name, "ContentType": content_type},
             )
         members["[Content_Types].xml"] = serialize(content_types)
+
+    _rewrite_xlsx_parts(path, mutate)
+
+
+def _set_chart_series_value_reference(path: Path, *, value_reference: str) -> None:
+    """Set the sole generated chart's stored numeric-series reference.
+
+    The mutation is deliberately limited to the one ``c:ser/c:val/c:numRef/c:f``
+    text node. Rewriting it after openpyxl saves the package keeps this fixture
+    about a DrawingML chart binding rather than a worksheet edit or a rendered
+    chart cache.
+    """
+
+    if value_reference not in {
+        _CHART_SERIES_BASELINE_VALUE_REFERENCE,
+        _CHART_SERIES_CANDIDATE_VALUE_REFERENCE,
+    }:
+        raise ValueError(f"unsupported chart-series value reference {value_reference!r}")
+
+    def mutate(members: dict[str, bytes]) -> None:
+        chart_members = sorted(
+            name
+            for name in members
+            if name.startswith("xl/charts/") and name.endswith(".xml") and "/_rels/" not in name
+        )
+        if len(chart_members) != 1:
+            raise ValueError("chart-series fixture must contain exactly one chart part")
+        chart_member = chart_members[0]
+        chart = ElementTree.fromstring(members[chart_member])
+        series = chart.findall(f".//{{{_DRAWINGML_CHART_NS}}}ser")
+        if len(series) != 1:
+            raise ValueError("chart-series fixture must contain exactly one series")
+        formulas = series[0].findall(
+            f"{{{_DRAWINGML_CHART_NS}}}val/"
+            f"{{{_DRAWINGML_CHART_NS}}}numRef/"
+            f"{{{_DRAWINGML_CHART_NS}}}f"
+        )
+        if len(formulas) != 1:
+            raise ValueError("chart-series fixture must contain exactly one numeric value formula")
+        formulas[0].text = value_reference
+        members[chart_member] = ElementTree.tostring(chart, encoding="utf-8", xml_declaration=True)
 
     _rewrite_xlsx_parts(path, mutate)
 
@@ -1842,6 +1920,49 @@ def _build_governance_external_workbook_link_update_policy(root: Path) -> None:
     )
 
 
+def _build_structural_chart_series_reference(root: Path) -> None:
+    """Build a dashboard chart whose local value-series binding changes."""
+
+    directory = root / "structural" / "chart_series_reference_changed"
+    directory.mkdir(parents=True, exist_ok=True)
+    baseline = directory / "baseline.xlsx"
+    candidate = directory / "candidate.xlsx"
+    _save_workbook(_chart_series_reference_workbook(), baseline)
+    _save_workbook(_chart_series_reference_workbook(), candidate)
+    _set_chart_series_value_reference(
+        baseline, value_reference=_CHART_SERIES_BASELINE_VALUE_REFERENCE
+    )
+    _set_chart_series_value_reference(
+        candidate, value_reference=_CHART_SERIES_CANDIDATE_VALUE_REFERENCE
+    )
+    _write_json(
+        directory / "truth.json",
+        _truth(
+            case_id="structural.chart_series_reference_changed",
+            title="A dashboard chart switches to a different local value series",
+            family="structural",
+            review_expectation="block",
+            facts=[
+                {
+                    "kind": "chart_series_value_reference_changed",
+                    "chart_sheet": _CHART_SERIES_DASHBOARD_SHEET,
+                    "chart_anchor": _CHART_SERIES_ANCHOR,
+                    "source_sheet": _CHART_SERIES_SOURCE_SHEET,
+                    "series_title_ref": _CHART_SERIES_TITLE_REFERENCE,
+                    "category_ref": _CHART_SERIES_CATEGORY_REFERENCE,
+                    "baseline_value_ref": _CHART_SERIES_BASELINE_VALUE_REFERENCE,
+                    "candidate_value_ref": _CHART_SERIES_CANDIDATE_VALUE_REFERENCE,
+                }
+            ],
+            coverage=[
+                "The pair changes only the raw DrawingML c:ser/c:val/c:numRef/c:f value-reference text in one chart part. It does not edit worksheet cells, chart anchor, category/title references, or calculation properties.",
+                "A chart-series source reference is stored report-binding evidence. WCAB does not open Excel, calculate values, refresh chart data, render a chart, infer a visual difference, or claim any client will use the stored reference.",
+                "The validator follows the local worksheet-to-drawing-to-chart relationship chain and compares raw chart XML after removing the declared value reference. It does not resolve arbitrary chart formulas or add chart references to the formula dependency graph.",
+            ],
+        ),
+    )
+
+
 def _build_structural_array_formula_mode(root: Path) -> None:
     """Build a legacy-CSE to dynamic-array transition without formula text churn."""
 
@@ -2153,6 +2274,7 @@ _BUILDERS: tuple[Callable[[Path], None], ...] = (
     _build_governance_external_data_refresh,
     _build_governance_pivot_cache_refresh,
     _build_governance_external_workbook_link_update_policy,
+    _build_structural_chart_series_reference,
     _build_structural_array_formula_mode,
     _build_structural_three_d_scope,
     _build_structural_formula_rewrite,
@@ -2184,6 +2306,7 @@ CASE_IDS = (
     "governance.external_data_refresh_on_open",
     "governance.pivot_cache_refresh_on_open",
     "governance.external_workbook_link_update_on_open",
+    "structural.chart_series_reference_changed",
     "structural.array_formula_mode_changed",
     "structural.three_d_scope_expansion",
     "structural.formula_rewrite_after_column_insert",

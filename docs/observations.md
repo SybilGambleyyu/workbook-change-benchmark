@@ -188,8 +188,17 @@ and all controls except `refresh_on_load`, which moves from `false` to `true`.
 WCAB's raw validator—not the adapter—then establishes the `Source!A1:B5`
 binding, `Report!A1:B2` PivotTable location, stable stored report/dashboard
 cells, direct dashboard edge, and cache-definition-only package change.
-Neither report refreshes or renders a PivotTable. For the external-workbook
-link policy case, it requires the exact `external_data_refresh_settings_changed`
+Neither report refreshes or renders a PivotTable. For the chart-series
+case, it requires one exact `chart_definitions_changed` record and matching
+`FF030`: FormulaFence's redacted profile must retain one host sheet, one
+drawing, one legacy chart, one series, three data references, no chart cache,
+and no related payloads while only `chart_definition_material_changed` is set.
+FormulaFence does not expose a chart source formula or visual result. WCAB's
+raw validator—not the adapter—then proves the Dashboard-to-drawing-to-chart
+binding, `D2` anchor, stable title/category references, exact local
+value-reference transition, and chart-part-only package change. Neither report
+calculates or renders the chart. For the external-workbook
+policy case, it requires the exact `external_data_refresh_settings_changed`
 details: `update_links` moves from `never` to `always`, while the three other
 workbook-wide refresh controls retain their defaults. For the array-mode case,
 it requires `array_formula_mode_changed` at the exact anchor with the declared

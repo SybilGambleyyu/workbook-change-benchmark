@@ -1,6 +1,6 @@
 # Validation record
 
-This record describes the WCAB 0.14.0 / schema-version-3 validation run on
+This record describes the WCAB 0.15.0 / schema-version-3 validation run on
 2026-08-03. It is reproducible from this repository; no network service or
 private workbook is required.
 
@@ -32,16 +32,16 @@ wcab validate --fixtures fixtures
 
 Results:
 
-- 29 cases: 28 paired-workbook cases and one directory portfolio case.
-- 31 observable truth facts across 24 `block` and five `review` cases.
+- 30 cases: 29 paired-workbook cases and one directory portfolio case.
+- 32 observable truth facts across 25 `block` and five `review` cases.
 - Three scoreable coverage expectations: one newly introduced `INDIRECT`
   boundary and two unchanged-formula selector changes (`INDIRECT` address text
   and `OFFSET` column displacement).
-- 90 generated fixture files: 60 workbooks, 29 truth manifests, and one JSONL
+- 93 generated fixture files: 62 workbooks, 30 truth manifests, and one JSONL
   case catalogue, all generated from source.
-- Eighty unit tests passed locally under Python 3.13, including
+- Eighty-seven unit tests passed locally under Python 3.13, including
   independent regeneration and byte-for-byte fixture-tree equality.
-- The fixture validator accepted all 29 cases.
+- The fixture validator accepted all 30 cases.
 - The external-data pair has identical package members except for
   `xl/connections.xml`; both archives pass ZIP integrity checks and remain
   readable by openpyxl. Its relationship-backed source is a non-routable
@@ -53,6 +53,13 @@ Results:
   `Dashboard!B4` formula are unchanged while raw `refreshOnLoad` changes from
   false to true. The validation run did not open Excel, refresh a cache,
   calculate or render a PivotTable, or infer a report result.
+- The chart-series pair has identical package members except for
+  `xl/charts/chart1.xml`; both archives pass ZIP integrity checks and remain
+  readable by openpyxl. Its `Dashboard!D2` anchor, title/category references,
+  source cells, and all worksheet parts remain unchanged while raw
+  `c:ser/c:val/c:numRef/c:f` moves from `Source!$B$2:$B$4` to
+  `Source!$C$2:$C$4`. The validation run did not open Excel, calculate source
+  cells, refresh chart data, render a chart, or infer a visual difference.
 - The external-workbook-link policy pair has identical package members except
   for `xl/workbook.xml`; both archives pass ZIP integrity checks and remain
   readable by openpyxl. Its unchanged `LinkedModel!B2` formula names the
@@ -99,7 +106,7 @@ Results:
 
 ## Distribution supplement
 
-The 0.14.0 release retains the one-row-per-case `manifest.jsonl` catalogue and
+The 0.15.0 release retains the one-row-per-case `manifest.jsonl` catalogue and
 the tool-neutral observation protocol at version 2. Each catalogue row retains
 the schema-version-3 truth contract and includes byte counts and SHA-256
 digests for the workbooks it names.
@@ -107,11 +114,11 @@ digests for the workbooks it names.
 Commands:
 
 ```bash
-python -m build --outdir /tmp/wcab-v014-dist
-twine check /tmp/wcab-v014-dist/*
+python -m build --outdir /tmp/wcab-v015-dist
+twine check /tmp/wcab-v015-dist/*
 python -m venv /tmp/wcab-wheel-test
 /tmp/wcab-wheel-test/bin/python -m pip install \
-  /tmp/wcab-v014-dist/workbook_change_benchmark-0.14.0-py3-none-any.whl
+  /tmp/wcab-v015-dist/workbook_change_benchmark-0.15.0-py3-none-any.whl
 /tmp/wcab-wheel-test/bin/wcab validate --fixtures fixtures
 /tmp/wcab-wheel-test/bin/wcab manifest --fixtures fixtures --output /tmp/manifest.jsonl
 cmp fixtures/manifest.jsonl /tmp/manifest.jsonl
@@ -125,14 +132,14 @@ Results:
 
 - The source distribution and universal wheel passed `twine check`.
 - Fresh Python 3.13 wheel and source-distribution installations both reported
-  version 0.14.0 and validated all 29 fixtures; the wheel emitted
+  version 0.15.0 and validated all 30 fixtures; the wheel emitted
   byte-identical JSONL output.
-- The full eighty-test suite, lint, and format checks passed locally under
+- The full eighty-seven-test suite, lint, and format checks passed locally under
   Python 3.13 and in hosted release CI under Python 3.10 and 3.13.
 - The generated unsupported template scored as zero analyzed coverage, zero
   expected-fact recall, and zero coverage-disclosure recall, confirming that
   unsupported cases cannot become a pass.
-- The FormulaFence normalizer emitted 30 matched facts, one intentionally
+- The FormulaFence normalizer emitted 31 matched facts, one intentionally
   unmapped fact, three matched coverage declarations, and no invented review
   disposition.
 
@@ -147,9 +154,9 @@ wcab formulafence --fixtures fixtures --strict
 
 Results:
 
-- All 30 currently mappable diff/portfolio facts were observed.
+- All 31 currently mappable diff/portfolio facts were observed.
 - All three mappable coverage expectations were matched; no mapped fact,
-  coverage expectation, or targeted lint rule was missed across all 29 cases.
+  coverage expectation, or targeted lint rule was missed across all 30 cases.
 - The schema-version-2 structured Table scope case was observed as a
   `table_definition_changed` diff, even though its summary formula text stays
   unchanged.
@@ -171,6 +178,15 @@ Results:
   emitted no parser warning. WCAB's independent raw validation established the
   source and PivotTable binding, stable stored cells, and cache-definition-only
   package change. Neither report refreshed or rendered a PivotTable.
+- The WCAB 0.15 chart-series case was observed as one exact
+  `chart_definitions_changed` record and `FF030`. FormulaFence's redacted
+  profile retained one host sheet, drawing, legacy chart, and series; three
+  data references; no chart cache; and no related payloads, while only its
+  chart-definition material changed. FormulaFence did not expose the source
+  formula or a visual result. WCAB independently established the local
+  relationship chain, `D2` anchor, title/category references, exact value
+  reference transition, and chart-part-only package change. Neither report
+  calculated or rendered a chart.
 - The WCAB 0.8 external-workbook-link policy case was observed as one exact
   `external_data_refresh_settings_changed` transition in `FF023`: only
   `update_links` moved from `never` to `always`; `allow_refresh_query`,

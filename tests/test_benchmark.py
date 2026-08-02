@@ -67,6 +67,45 @@ def _pivot_cache_refresh_details() -> dict[str, object]:
     return {"before": [before], "after": [{**before, "refresh_on_load": True}]}
 
 
+def _chart_series_reference_details() -> dict[str, object]:
+    profile = {
+        "present": True,
+        "chart_host_sheet_count": 1,
+        "chart_drawing_part_count": 1,
+        "chart_reference_count": 1,
+        "chart_part_count": 1,
+        "chart_ex_reference_count": 0,
+        "chart_ex_part_count": 0,
+        "chart_ex_series_count": 0,
+        "chart_ex_title_count": 0,
+        "chart_ex_data_reference_count": 0,
+        "chart_user_shape_part_count": 0,
+        "chart_user_shape_count": 0,
+        "chart_type_count": 1,
+        "series_count": 1,
+        "title_count": 1,
+        "data_reference_count": 3,
+        "numeric_data_reference_count": 2,
+        "string_data_reference_count": 1,
+        "literal_data_point_count": 0,
+        "cached_data_point_count": 0,
+        "pivot_source_count": 0,
+        "external_data_reference_count": 0,
+        "user_shape_reference_count": 0,
+        "related_relationship_count": 1,
+        "external_relationship_count": 0,
+        "internal_related_part_count": 0,
+        "fingerprinted_related_part_count": 0,
+        "uninspected_related_part_count": 0,
+        "unrecognized_part_count": 0,
+    }
+    return {
+        "before": profile,
+        "after": profile,
+        "chart_definition_material_changed": True,
+    }
+
+
 def test_committed_fixtures_validate() -> None:
     assert validate_all(PROJECT_ROOT / "fixtures") == {}
 
@@ -250,6 +289,21 @@ def test_committed_manifest_matches_fixture_tree() -> None:
             "result_type": "numeric",
             "baseline_cached_result": 20,
             "candidate_cached_result": 25,
+        }
+    ]
+    chart_series_row = next(
+        row for row in rows if row["id"] == "structural.chart_series_reference_changed"
+    )
+    assert chart_series_row["facts"] == [
+        {
+            "kind": "chart_series_value_reference_changed",
+            "chart_sheet": "Dashboard",
+            "chart_anchor": "D2",
+            "source_sheet": "Source",
+            "series_title_ref": "'Source'!B1",
+            "category_ref": "'Source'!$A$2:$A$4",
+            "baseline_value_ref": "'Source'!$B$2:$B$4",
+            "candidate_value_ref": "'Source'!$C$2:$C$4",
         }
     ]
     array_row = next(row for row in rows if row["id"] == "structural.array_formula_mode_changed")
@@ -467,6 +521,86 @@ def test_pivot_cache_refresh_pair_changes_only_its_cache_definition(tmp_path: Pa
         for member in sorted(baseline_members)
         if baseline_members[member] != candidate_members[member]
     ] == ["xl/pivotCache/pivotCacheDefinition1.xml"]
+
+
+def test_validator_rejects_a_false_chart_series_reference_fact(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "structural" / "chart_series_reference_changed"
+    truth_path = case / "truth.json"
+    truth = json.loads(truth_path.read_text(encoding="utf-8"))
+    truth["facts"][0]["candidate_value_ref"] = "'Source'!$B$2:$B$4"
+    truth_path.write_text(json.dumps(truth), encoding="utf-8")
+    assert validate_case(case)
+
+
+def test_validator_rejects_a_corrupted_chart_series_value_reference(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = fixture_root / "structural" / "chart_series_reference_changed" / "candidate.xlsx"
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    namespace = "http://schemas.openxmlformats.org/drawingml/2006/chart"
+    chart_member = "xl/charts/chart1.xml"
+    chart = ElementTree.fromstring(members[chart_member])
+    formula = chart.find(
+        f".//{{{namespace}}}ser/{{{namespace}}}val/{{{namespace}}}numRef/{{{namespace}}}f"
+    )
+    assert formula is not None
+    formula.text = "'Source'!$B$2:$B$4"
+    members[chart_member] = ElementTree.tostring(chart, encoding="utf-8", xml_declaration=True)
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_validator_rejects_a_corrupted_chart_relationship_binding(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = fixture_root / "structural" / "chart_series_reference_changed" / "candidate.xlsx"
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    relationships_member = "xl/drawings/_rels/drawing1.xml.rels"
+    relationships = ElementTree.fromstring(members[relationships_member])
+    relationship = next(
+        relationship for relationship in relationships if relationship.get("Id") == "rId1"
+    )
+    relationship.set(
+        "Type", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"
+    )
+    members[relationships_member] = ElementTree.tostring(
+        relationships, encoding="utf-8", xml_declaration=True
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_chart_series_reference_pair_changes_only_its_chart_part(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "structural" / "chart_series_reference_changed"
+    with ZipFile(case / "baseline.xlsx") as baseline, ZipFile(case / "candidate.xlsx") as candidate:
+        assert baseline.testzip() is None
+        assert candidate.testzip() is None
+        baseline_members = {
+            entry.filename: baseline.read(entry.filename) for entry in baseline.infolist()
+        }
+        candidate_members = {
+            entry.filename: candidate.read(entry.filename) for entry in candidate.infolist()
+        }
+    assert set(baseline_members) == set(candidate_members)
+    assert [
+        member
+        for member in sorted(baseline_members)
+        if baseline_members[member] != candidate_members[member]
+    ] == ["xl/charts/chart1.xml"]
 
 
 def test_validator_rejects_a_false_external_workbook_link_policy_fact(tmp_path: Path) -> None:
@@ -1563,6 +1697,92 @@ def test_formulafence_adapter_requires_the_pivot_cache_refresh_finding(
     assert result["status"] == "missed"
     assert result["matched"] == []
     assert result["missed"] == ["pivot_cache_refresh_on_load_changed"]
+
+
+def test_formulafence_adapter_maps_the_exact_chart_series_reference_change(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _chart_series_reference_details()
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "chart_definitions_changed",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF030", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "structural" / "chart_series_reference_changed"
+    )
+    assert result["status"] == "matched"
+    assert result["matched"] == ["chart_series_value_reference_changed"]
+
+
+def test_formulafence_adapter_rejects_an_inexact_chart_series_reference_change(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _chart_series_reference_details()
+        details["cached_series_material_changed"] = True
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "chart_definitions_changed",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF030", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "structural" / "chart_series_reference_changed"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["chart_series_value_reference_changed"]
+
+
+def test_formulafence_adapter_requires_the_chart_series_reference_finding(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "chart_definitions_changed",
+                    "location": None,
+                    "details": _chart_series_reference_details(),
+                }
+            ],
+            "findings": [],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "structural" / "chart_series_reference_changed"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["chart_series_value_reference_changed"]
 
 
 def test_formulafence_adapter_maps_the_exact_formula_cached_result_change(

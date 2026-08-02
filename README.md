@@ -34,7 +34,7 @@ gates, static analyzers, and agent workflows that propose workbook edits.
 
 ## Scope and non-goals
 
-Version `0.14` covers formula-to-value replacements, formula reference drift,
+Version `0.15` covers formula-to-value replacements, formula reference drift,
 value changes with downstream effects, external formula references, named
 ranges, data validation, conditional formatting, sheet visibility, direct cell
 protection, calculation settings, static cycles, portfolio dependencies,
@@ -66,6 +66,12 @@ stored `Report!A1:B2` display cells, and `Dashboard!B4=Report!$B$2` consumer
 remain unchanged. It records only the stored open-time request: it does not
 open Excel, refresh the cache, calculate or render the PivotTable, or claim a
 changed report result.
+It also covers a Dashboard DrawingML chart whose raw numeric-series reference
+switches from `Source!$B$2:$B$4` to `Source!$C$2:$C$4` while all source cells,
+the chart anchor, its title/category references, and every package member
+outside the chart part remain unchanged. It records a stored report binding
+only: it does not open Excel, calculate values, refresh chart data, render a
+chart, infer a visual difference, or claim client behavior.
 
 The benchmark does **not** evaluate formula execution or claim that a
 candidate's numerical results are correct.  A case's `review_expectation` is a
@@ -183,6 +189,12 @@ source cells or rendered PivotTable output; WCAB's raw validator independently
 proves the cache/PivotTable relationship binding, stable stored cells, direct
 dashboard edge, and cache-definition-only package change. Neither layer
 refreshes or renders the PivotTable.
+For the chart-series case, it requires FormulaFence's exact redacted one-chart
+profile, `chart_definition_material_changed`, and `FF030`; FormulaFence does
+not expose the source formula or a visual result. WCAB's raw validator instead
+proves the worksheet-to-drawing-to-chart binding, stable anchor/title/category
+references, exact value-reference transition, and chart-part-only package
+change. Neither layer calculates or renders the chart.
 It separately requires the exact isolated external-workbook policy transition
 from `never` to `always` in `FF023` evidence. For the array-mode case, it
 requires the exact legacy-CSE-to-dynamic transition and output range in

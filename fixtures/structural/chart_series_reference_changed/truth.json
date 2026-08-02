@@ -1,0 +1,27 @@
+{
+  "coverage": [
+    "The pair changes only the raw DrawingML c:ser/c:val/c:numRef/c:f value-reference text in one chart part. It does not edit worksheet cells, chart anchor, category/title references, or calculation properties.",
+    "A chart-series source reference is stored report-binding evidence. WCAB does not open Excel, calculate values, refresh chart data, render a chart, infer a visual difference, or claim any client will use the stored reference.",
+    "The validator follows the local worksheet-to-drawing-to-chart relationship chain and compares raw chart XML after removing the declared value reference. It does not resolve arbitrary chart formulas or add chart references to the formula dependency graph."
+  ],
+  "coverage_expectations": [],
+  "facts": [
+    {
+      "baseline_value_ref": "'Source'!$B$2:$B$4",
+      "candidate_value_ref": "'Source'!$C$2:$C$4",
+      "category_ref": "'Source'!$A$2:$A$4",
+      "chart_anchor": "D2",
+      "chart_sheet": "Dashboard",
+      "kind": "chart_series_value_reference_changed",
+      "series_title_ref": "'Source'!B1",
+      "source_sheet": "Source"
+    }
+  ],
+  "family": "structural",
+  "id": "structural.chart_series_reference_changed",
+  "must_reach": [],
+  "review_expectation": "block",
+  "schema_version": 3,
+  "title": "A dashboard chart switches to a different local value series",
+  "topology": "pair"
+}

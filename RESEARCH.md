@@ -187,6 +187,26 @@ cells, and package-member isolation. It does not open Excel, refresh data,
 calculate or render the PivotTable, infer a new report result, or claim that a
 client honors the setting.
 
+## Chart series sources without a worksheet edit
+
+Microsoft's [chart-series guidance](https://support.microsoft.com/en-US/Excel/rename-a-data-series)
+states that a user can change a series' values in the Select Data dialog without
+changing the worksheet data. The Open XML
+[`NumberReference` definition](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.drawing.charts.numberreference?view=openxml-3.0.1)
+captures the numeric-series reference in the chart part. That leaves a material
+review surface that cell and formula diffs can miss: a dashboard chart can point
+at another local range while every worksheet cell remains identical.
+
+WCAB 0.15 isolates that stored binding in an original single-chart package. A
+chart anchored at `Dashboard!D2` retains its host relationship, title reference,
+category reference, source cells, and all non-chart package members. Only its
+`c:ser/c:val/c:numRef/c:f` formula moves from `Source!$B$2:$B$4` to
+`Source!$C$2:$C$4`. The validator follows the local worksheet-to-drawing-to-
+chart relationship chain and compares raw chart XML after removing the declared
+formula text. It does not calculate a source, refresh chart data, render a
+chart, infer a visible difference, or claim that an Excel client honors the
+stored source reference.
+
 ## Array-formula semantics
 
 Microsoft's [dynamic-array versus legacy-CSE guidance](https://support.microsoft.com/en-US/Excel/dynamic-array-formulas-vs-legacy-cse-array-formulas)

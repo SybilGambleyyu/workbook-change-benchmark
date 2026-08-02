@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.15.0 — 2026-08-03
+
+- Add a deterministic relationship-backed DrawingML chart case. Its one chart
+  at `Dashboard!D2` retains its anchor, title/category references, source
+  worksheet cells, and every package member except `xl/charts/chart1.xml`,
+  while raw `c:ser/c:val/c:numRef/c:f` switches from
+  `Source!$B$2:$B$4` to `Source!$C$2:$C$4`.
+- Add the exact `chart_series_value_reference_changed` fact, raw worksheet to
+  drawing to chart relationship validator, chart-XML isolation check, and
+  corruption regressions. WCAB records the stored source binding only: it does
+  not open Excel, calculate values, refresh chart data, render a chart, infer a
+  visual difference, or claim client behavior.
+- Extend the optional FormulaFence adapter to require its exact redacted
+  one-chart `chart_definitions_changed` profile and high-severity `FF030`,
+  while WCAB independently proves the chart source-reference transition.
+
 ## 0.14.0 — 2026-08-03
 
 - Add a deterministic relationship-backed PivotTable cache case. Its local

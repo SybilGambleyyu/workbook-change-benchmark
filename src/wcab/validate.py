@@ -26,6 +26,10 @@ _SPREADSHEETML_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 _PACKAGE_RELATIONSHIPS_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
 _DOCUMENT_RELATIONSHIPS_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 _DYNAMIC_ARRAY_NS = "http://schemas.microsoft.com/office/spreadsheetml/2017/dynamicarray"
+_DRAWINGML_CHART_NS = "http://schemas.openxmlformats.org/drawingml/2006/chart"
+_DRAWINGML_SPREADSHEET_DRAWING_NS = (
+    "http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"
+)
 
 
 class FixtureValidationError(ValueError):
@@ -432,6 +436,147 @@ def _pivot_cache_definition_without_refresh_on_load(path: Path, pivot_sheet: str
         return None
     definition.attrib.pop("refreshOnLoad", None)
     return ElementTree.tostring(definition, encoding="utf-8", xml_declaration=True)
+
+
+def _chart_anchor_cell(anchor: ElementTree.Element) -> str | None:
+    """Return one zero-offset worksheet-drawing anchor as an A1 coordinate."""
+
+    from_tag = f"{{{_DRAWINGML_SPREADSHEET_DRAWING_NS}}}from"
+    anchor_from = anchor.find(from_tag)
+    if anchor_from is None:
+        return None
+    values: dict[str, int] = {}
+    for name in ("col", "colOff", "row", "rowOff"):
+        element = anchor_from.find(f"{{{_DRAWINGML_SPREADSHEET_DRAWING_NS}}}{name}")
+        try:
+            values[name] = int(element.text) if element is not None and element.text else -1
+        except ValueError:
+            return None
+    if values["col"] < 0 or values["row"] < 0 or values["colOff"] != 0 or values["rowOff"] != 0:
+        return None
+    column = values["col"] + 1
+    label = ""
+    while column:
+        column, remainder = divmod(column - 1, 26)
+        label = chr(ord("A") + remainder) + label
+    return f"{label}{values['row'] + 1}"
+
+
+def _raw_chart_series_value_reference_state(path: Path, chart_sheet: str) -> dict[str, Any] | None:
+    """Read WCAB's one worksheet-drawing chart and its stored references.
+
+    This follows the generated worksheet -> drawing -> chart relationship chain
+    only. It does not evaluate a chart formula, calculate source cells, or
+    render a chart.
+    """
+
+    try:
+        with ZipFile(path) as archive:
+            worksheet_member = _worksheet_member_for_sheet(archive, chart_sheet)
+            if worksheet_member is None:
+                return None
+            worksheet = ElementTree.fromstring(archive.read(worksheet_member))
+            drawing_references = worksheet.findall(f"{{{_SPREADSHEETML_NS}}}drawing")
+            if len(drawing_references) != 1:
+                return None
+            drawing_relationship_id = drawing_references[0].get(
+                f"{{{_DOCUMENT_RELATIONSHIPS_NS}}}id"
+            )
+            if not isinstance(drawing_relationship_id, str):
+                return None
+            worksheet_directory, worksheet_filename = worksheet_member.rsplit("/", maxsplit=1)
+            worksheet_relationships = ElementTree.fromstring(
+                archive.read(f"{worksheet_directory}/_rels/{worksheet_filename}.rels")
+            )
+            drawing_member = _relationship_part_member(
+                worksheet_relationships,
+                drawing_relationship_id,
+                worksheet_member,
+                relationship_type=f"{_DOCUMENT_RELATIONSHIPS_NS}/drawing",
+            )
+            if drawing_member is None:
+                return None
+            drawing = ElementTree.fromstring(archive.read(drawing_member))
+            anchors = drawing.findall(f"{{{_DRAWINGML_SPREADSHEET_DRAWING_NS}}}oneCellAnchor")
+            if len(anchors) != 1:
+                return None
+            anchor = _chart_anchor_cell(anchors[0])
+            if anchor is None:
+                return None
+            chart_references = list(drawing.iter(f"{{{_DRAWINGML_CHART_NS}}}chart"))
+            if len(chart_references) != 1:
+                return None
+            chart_relationship_id = chart_references[0].get(f"{{{_DOCUMENT_RELATIONSHIPS_NS}}}id")
+            if not isinstance(chart_relationship_id, str):
+                return None
+            drawing_directory, drawing_filename = drawing_member.rsplit("/", maxsplit=1)
+            drawing_relationships = ElementTree.fromstring(
+                archive.read(f"{drawing_directory}/_rels/{drawing_filename}.rels")
+            )
+            chart_member = _relationship_part_member(
+                drawing_relationships,
+                chart_relationship_id,
+                drawing_member,
+                relationship_type=f"{_DOCUMENT_RELATIONSHIPS_NS}/chart",
+            )
+            if chart_member is None:
+                return None
+            chart = ElementTree.fromstring(archive.read(chart_member))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+
+    if chart.tag != f"{{{_DRAWINGML_CHART_NS}}}chartSpace":
+        return None
+    series = chart.findall(f".//{{{_DRAWINGML_CHART_NS}}}ser")
+    if len(series) != 1:
+        return None
+    title_references = series[0].findall(
+        f"{{{_DRAWINGML_CHART_NS}}}tx/{{{_DRAWINGML_CHART_NS}}}strRef/{{{_DRAWINGML_CHART_NS}}}f"
+    )
+    category_references = series[0].findall(
+        f"{{{_DRAWINGML_CHART_NS}}}cat/{{{_DRAWINGML_CHART_NS}}}numRef/{{{_DRAWINGML_CHART_NS}}}f"
+    )
+    value_references = series[0].findall(
+        f"{{{_DRAWINGML_CHART_NS}}}val/{{{_DRAWINGML_CHART_NS}}}numRef/{{{_DRAWINGML_CHART_NS}}}f"
+    )
+    if (
+        len(title_references) != 1
+        or len(category_references) != 1
+        or len(value_references) != 1
+        or not isinstance(title_references[0].text, str)
+        or not isinstance(category_references[0].text, str)
+        or not isinstance(value_references[0].text, str)
+    ):
+        return None
+    return {
+        "worksheet_member": worksheet_member,
+        "drawing_member": drawing_member,
+        "chart_member": chart_member,
+        "anchor": anchor,
+        "series_title_reference": title_references[0].text,
+        "category_reference": category_references[0].text,
+        "value_reference": value_references[0].text,
+    }
+
+
+def _chart_without_value_reference(path: Path, chart_member: str) -> bytes | None:
+    """Return one generated chart XML tree with its sole value reference erased."""
+
+    try:
+        with ZipFile(path) as archive:
+            chart = ElementTree.fromstring(archive.read(chart_member))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    series = chart.findall(f".//{{{_DRAWINGML_CHART_NS}}}ser")
+    if len(series) != 1:
+        return None
+    value_references = series[0].findall(
+        f"{{{_DRAWINGML_CHART_NS}}}val/{{{_DRAWINGML_CHART_NS}}}numRef/{{{_DRAWINGML_CHART_NS}}}f"
+    )
+    if len(value_references) != 1:
+        return None
+    value_references[0].text = None
+    return ElementTree.tostring(chart, encoding="utf-8", xml_declaration=True)
 
 
 def _formula_cached_result_state(
@@ -1437,6 +1582,69 @@ def _validate_fact(
             and _calculation_properties(baseline_path) == _calculation_properties(candidate_path)
             and (sheet_name, coordinate) in graph.get((input_sheet, input_cell), set()),
             f"{truth['id']}: expected only raw numeric formula cache {sheet_name}!{coordinate} to change with formula, input, and controls unchanged",
+            errors,
+        )
+        return
+
+    if kind == "chart_series_value_reference_changed":
+        chart_sheet = fact.get("chart_sheet")
+        chart_anchor = fact.get("chart_anchor")
+        source_sheet = fact.get("source_sheet")
+        series_title_reference = fact.get("series_title_ref")
+        category_reference = fact.get("category_ref")
+        baseline_value_reference = fact.get("baseline_value_ref")
+        candidate_value_reference = fact.get("candidate_value_ref")
+        before_state = (
+            _raw_chart_series_value_reference_state(baseline_path, chart_sheet)
+            if isinstance(chart_sheet, str)
+            else None
+        )
+        after_state = (
+            _raw_chart_series_value_reference_state(candidate_path, chart_sheet)
+            if isinstance(chart_sheet, str)
+            else None
+        )
+        _assert(
+            isinstance(chart_sheet, str)
+            and isinstance(chart_anchor, str)
+            and isinstance(source_sheet, str)
+            and isinstance(series_title_reference, str)
+            and isinstance(category_reference, str)
+            and isinstance(baseline_value_reference, str)
+            and isinstance(candidate_value_reference, str)
+            and baseline_value_reference != candidate_value_reference
+            and chart_sheet in baseline.sheetnames
+            and chart_sheet in candidate.sheetnames
+            and source_sheet in baseline.sheetnames
+            and source_sheet in candidate.sheetnames
+            and before_state is not None
+            and after_state is not None
+            and before_state["worksheet_member"] == after_state["worksheet_member"]
+            and before_state["drawing_member"] == after_state["drawing_member"]
+            and before_state["chart_member"] == after_state["chart_member"]
+            and before_state["anchor"] == chart_anchor
+            and after_state["anchor"] == chart_anchor
+            and before_state["series_title_reference"] == series_title_reference
+            and after_state["series_title_reference"] == series_title_reference
+            and before_state["category_reference"] == category_reference
+            and after_state["category_reference"] == category_reference
+            and before_state["value_reference"] == baseline_value_reference
+            and after_state["value_reference"] == candidate_value_reference
+            and all(
+                reference.startswith(f"'{source_sheet}'!")
+                for reference in (
+                    series_title_reference,
+                    category_reference,
+                    baseline_value_reference,
+                    candidate_value_reference,
+                )
+            )
+            and _chart_without_value_reference(baseline_path, before_state["chart_member"])
+            == _chart_without_value_reference(candidate_path, after_state["chart_member"])
+            and _xlsx_member_differences(baseline_path, candidate_path)
+            == {before_state["chart_member"]}
+            and _calculation_properties(baseline_path) == _calculation_properties(candidate_path),
+            f"{truth['id']}: expected one relationship-bound chart value-series reference to change with stable worksheets and chart bindings",
             errors,
         )
         return
