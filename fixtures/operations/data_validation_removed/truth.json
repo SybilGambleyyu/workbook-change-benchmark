@@ -14,7 +14,7 @@
   "id": "operations.data_validation_removed",
   "must_reach": [],
   "review_expectation": "block",
-  "schema_version": 1,
+  "schema_version": 2,
   "title": "Input validation is removed from an operational tracker",
   "topology": "pair"
 }

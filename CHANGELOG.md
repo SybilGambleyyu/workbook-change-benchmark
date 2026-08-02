@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.0 — 2026-08-02
+
+- Upgrade the fixture contract to schema version 2 and add a deterministic
+  Excel Table scope-expansion case with an unchanged structured-reference
+  formula.
+- Validate the Table definition and structured-reference boundary directly,
+  and map the case to FormulaFence's table-definition diff evidence.
+
 ## 0.1.1 — 2026-08-02
 
 - Add a deterministic JSONL case catalogue with exact workbook byte counts and

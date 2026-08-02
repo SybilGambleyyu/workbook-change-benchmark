@@ -33,6 +33,7 @@ _FACT_TO_CHANGE: dict[str, tuple[str, str | None]] = {
     "manual_calculation_incomplete": ("calculation_settings_changed", None),
     "static_cycle_introduced": ("formula_changed", None),
     "three_d_scope_changed": ("three_d_reference_scope_changed", "formula_location"),
+    "structured_table_scope_changed": ("table_definition_changed", None),
 }
 
 _LINT_EXPECTATIONS = {

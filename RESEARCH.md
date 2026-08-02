@@ -41,3 +41,14 @@ WCAB's result is intentionally narrower than a claim of Excel semantic
 equivalence.  It provides checkable change facts and static dependency lower
 bounds.  A tool that cannot handle a case must report a coverage gap; it cannot
 turn a missing observation into an "allow" result.
+
+## Structured-reference scope expansion
+
+Microsoft documents that a structured reference combines a Table and column
+name, and that the reference adjusts when data is added to or removed from the
+Table. Its [structured-reference guidance](https://support.microsoft.com/en-us/excel/using-structured-references-with-excel-tables)
+also shows formulas outside a Table that refer to Table data. This creates a
+change-review case that ordinary formula text comparison misses: the stored
+formula can remain unchanged while the Table's stored range grows. WCAB schema
+version 2 therefore adds a generated Table-expansion case that checks those
+observable facts without evaluating a formula or asserting a result value.

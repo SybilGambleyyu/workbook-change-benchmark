@@ -275,6 +275,37 @@ def _validate_fact(
         )
         return
 
+    if kind == "structured_table_scope_changed":
+        table_sheet = fact.get("table_sheet")
+        table_name = fact.get("table")
+        formula_sheet = fact.get("formula_sheet")
+        formula_cell = fact.get("formula_cell")
+        if (
+            table_sheet not in baseline.sheetnames
+            or table_sheet not in candidate.sheetnames
+            or formula_sheet not in baseline.sheetnames
+            or formula_sheet not in candidate.sheetnames
+        ):
+            errors.append(f"{truth['id']}: declared table or formula sheet is absent")
+            return
+        try:
+            before_table = baseline[table_sheet].tables[table_name]
+            after_table = candidate[table_sheet].tables[table_name]
+        except KeyError:
+            errors.append(f"{truth['id']}: declared Excel Table {table_name!r} is absent")
+            return
+        before_formula = baseline[formula_sheet][formula_cell].value
+        after_formula = candidate[formula_sheet][formula_cell].value
+        _assert(
+            before_table.ref == fact.get("baseline_ref")
+            and after_table.ref == fact.get("candidate_ref")
+            and before_formula == after_formula
+            and f"{table_name}[" in str(after_formula),
+            f"{truth['id']}: expected structured-reference formula to retain text while table scope changes",
+            errors,
+        )
+        return
+
     if kind == "portfolio_value_changed":
         sheet_name = fact.get("sheet")
         coordinate = fact.get("cell")

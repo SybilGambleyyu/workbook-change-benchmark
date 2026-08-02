@@ -21,10 +21,11 @@ from openpyxl.formatting.rule import CellIsRule
 from openpyxl.styles import PatternFill, Protection
 from openpyxl.workbook.defined_name import DefinedName
 from openpyxl.worksheet.datavalidation import DataValidation
+from openpyxl.worksheet.table import Table, TableStyleInfo
 
 from .manifest import write_manifest
 
-FIXTURE_SCHEMA_VERSION = 1
+FIXTURE_SCHEMA_VERSION = 2
 _FIXED_TIMESTAMP = datetime(2024, 1, 1, tzinfo=timezone.utc)
 _CORE_MODIFIED = re.compile(rb"(<dcterms:modified\b[^>]*>)[^<]*(</dcterms:modified>)")
 WorkbookFactory = Callable[[], Workbook]
@@ -264,6 +265,28 @@ def _refactor_workbook(*, rewritten: bool = False) -> Workbook:
     summary = workbook.create_sheet("Summary")
     summary["A1"] = "Output"
     summary["B2"] = f"=Model!{output_cell}"
+    return workbook
+
+
+def _structured_table_workbook() -> Workbook:
+    """Build a table-backed model with a stable structured-reference summary."""
+
+    workbook = Workbook()
+    _configure_workbook(workbook, title="WCAB structured table scope fixture")
+    ledger = workbook.active
+    ledger.title = "Ledger"
+    ledger.append(["Region", "Units", "Price", "Amount"])
+    for row_number, (region, units, price) in enumerate(
+        (("North", 10, 8), ("South", 12, 9), ("West", 7, 11)), start=2
+    ):
+        ledger.append([region, units, price, f"=B{row_number}*C{row_number}"])
+    table = Table(displayName="SalesLedger", ref="A1:D4")
+    table.tableStyleInfo = TableStyleInfo(name="TableStyleMedium2", showRowStripes=True)
+    ledger.add_table(table)
+
+    summary = workbook.create_sheet("Summary")
+    summary["A1"] = "Structured table total"
+    summary["B2"] = "=SUM(SalesLedger[Amount])"
     return workbook
 
 
@@ -643,6 +666,41 @@ def _build_structural_formula_rewrite(root: Path) -> None:
     )
 
 
+def _build_structural_table_scope(root: Path) -> None:
+    def mutate(workbook: Workbook) -> None:
+        ledger = workbook["Ledger"]
+        ledger.append(["East", 15, 10, "=B5*C5"])
+        ledger.tables["SalesLedger"].ref = "A1:D5"
+
+    truth = _truth(
+        case_id="structural.structured_table_scope_expansion",
+        title="An Excel Table grows while a dependent structured reference stays unchanged",
+        family="structural",
+        review_expectation="block",
+        facts=[
+            {
+                "kind": "structured_table_scope_changed",
+                "table_sheet": "Ledger",
+                "table": "SalesLedger",
+                "baseline_ref": "A1:D4",
+                "candidate_ref": "A1:D5",
+                "formula_sheet": "Summary",
+                "formula_cell": "B2",
+            }
+        ],
+        coverage=[
+            "The summary formula text intentionally remains unchanged; the observable risk is the stored Excel Table range.",
+            "The contract does not calculate the structured reference, apply filters, or infer table-total semantics.",
+        ],
+    )
+    _write_pair(
+        root / "structural" / "structured_table_scope_expansion",
+        _structured_table_workbook,
+        mutate,
+        truth,
+    )
+
+
 def _build_portfolio_external_driver(root: Path) -> None:
     directory = root / "portfolio" / "external_driver_value_change"
     baseline = directory / "baseline"
@@ -701,6 +759,7 @@ _BUILDERS: tuple[Callable[[Path], None], ...] = (
     _build_governance_static_cycle,
     _build_structural_three_d_scope,
     _build_structural_formula_rewrite,
+    _build_structural_table_scope,
     _build_portfolio_external_driver,
 )
 
@@ -720,6 +779,7 @@ CASE_IDS = (
     "governance.static_cycle_introduced",
     "structural.three_d_scope_expansion",
     "structural.formula_rewrite_after_column_insert",
+    "structural.structured_table_scope_expansion",
     "portfolio.external_driver_value_change",
 )
 

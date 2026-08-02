@@ -13,7 +13,7 @@
   "id": "operations.copied_formula_interruption",
   "must_reach": [],
   "review_expectation": "block",
-  "schema_version": 1,
+  "schema_version": 2,
   "title": "One copied margin formula is replaced by a manual number",
   "topology": "pair"
 }

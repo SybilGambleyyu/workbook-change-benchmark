@@ -13,7 +13,7 @@
   "id": "governance.formula_cell_unlocked",
   "must_reach": [],
   "review_expectation": "block",
-  "schema_version": 1,
+  "schema_version": 2,
   "title": "A protected calculated cell is explicitly unlocked",
   "topology": "pair"
 }

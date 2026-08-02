@@ -14,7 +14,7 @@
   "id": "governance.hidden_sheet_revealed",
   "must_reach": [],
   "review_expectation": "review",
-  "schema_version": 1,
+  "schema_version": 2,
   "title": "A hidden review-control sheet is made visible",
   "topology": "pair"
 }

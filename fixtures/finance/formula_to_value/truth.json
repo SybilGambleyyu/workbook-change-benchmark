@@ -38,7 +38,7 @@
     }
   ],
   "review_expectation": "block",
-  "schema_version": 1,
+  "schema_version": 2,
   "title": "Revenue formula is replaced with a hard-coded value",
   "topology": "pair"
 }

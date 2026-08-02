@@ -1,0 +1,24 @@
+{
+  "coverage": [
+    "The summary formula text intentionally remains unchanged; the observable risk is the stored Excel Table range.",
+    "The contract does not calculate the structured reference, apply filters, or infer table-total semantics."
+  ],
+  "facts": [
+    {
+      "baseline_ref": "A1:D4",
+      "candidate_ref": "A1:D5",
+      "formula_cell": "B2",
+      "formula_sheet": "Summary",
+      "kind": "structured_table_scope_changed",
+      "table": "SalesLedger",
+      "table_sheet": "Ledger"
+    }
+  ],
+  "family": "structural",
+  "id": "structural.structured_table_scope_expansion",
+  "must_reach": [],
+  "review_expectation": "block",
+  "schema_version": 2,
+  "title": "An Excel Table grows while a dependent structured reference stays unchanged",
+  "topology": "pair"
+}

@@ -11,7 +11,7 @@
   "id": "governance.manual_calculation_incomplete",
   "must_reach": [],
   "review_expectation": "block",
-  "schema_version": 1,
+  "schema_version": 2,
   "title": "A formula workbook records incomplete manual calculation",
   "topology": "pair"
 }

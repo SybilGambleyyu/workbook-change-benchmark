@@ -21,7 +21,7 @@
   "id": "portfolio.external_driver_value_change",
   "must_reach": [],
   "review_expectation": "review",
-  "schema_version": 1,
+  "schema_version": 2,
   "title": "An upstream workbook driver changes while a downstream workbook consumes it",
   "topology": "portfolio"
 }

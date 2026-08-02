@@ -21,7 +21,7 @@
   "id": "structural.formula_rewrite_after_column_insert",
   "must_reach": [],
   "review_expectation": "review",
-  "schema_version": 1,
+  "schema_version": 2,
   "title": "A column insertion rewrites formulas while retaining the declared inputs",
   "topology": "pair"
 }

@@ -1,8 +1,12 @@
-# WCAB truth schema, version 1
+# WCAB truth schema, version 2
 
 Every case has one `truth.json`. It is public metadata for an original,
 generated fixture; it never relies on a private workbook or an external data
 source.
+
+Version 2 adds `structured_table_scope_changed`, which captures the stored
+Excel Table range changing while a dependent structured-reference formula keeps
+the same text. Version 1 remains available in the immutable v0.1.1 release.
 
 ```json
 {
@@ -44,6 +48,7 @@ Facts are observed directly from the fixture files by `wcab validate`.
 | `structural_formula_rewrite` | `baseline`, `candidate` | Declared before/after formula locations and text exist. This is an annotation, not a general proof of equivalence. |
 | `portfolio_value_changed` | `workbook`, `sheet`, `cell` | A literal value differs between paired portfolio members. |
 | `portfolio_external_reference` | `workbook`, `sheet`, `cell`, `target_workbook` | The local portfolio model contains the declared external workbook reference. |
+| `structured_table_scope_changed` | `table_sheet`, `table`, `baseline_ref`, `candidate_ref`, `formula_sheet`, `formula_cell` | A stored Excel Table range changes while the declared formula remains textually unchanged and retains a reference to that table. |
 
 ## Static impact lower bounds
 

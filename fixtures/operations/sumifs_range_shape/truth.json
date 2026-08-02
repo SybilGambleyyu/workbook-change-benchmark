@@ -13,7 +13,7 @@
   "id": "operations.sumifs_range_shape",
   "must_reach": [],
   "review_expectation": "block",
-  "schema_version": 1,
+  "schema_version": 2,
   "title": "A conditional aggregate has mismatched static ranges",
   "topology": "pair"
 }

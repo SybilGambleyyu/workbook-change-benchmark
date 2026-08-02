@@ -33,11 +33,12 @@ gates, static analyzers, and agent workflows that propose workbook edits.
 
 ## Scope and non-goals
 
-Version `0.1` covers formula-to-value replacements, formula reference drift,
+Version `0.2` covers formula-to-value replacements, formula reference drift,
 value changes with downstream effects, external formula references, named
 ranges, data validation, conditional formatting, sheet visibility, direct cell
 protection, calculation settings, static cycles, portfolio dependencies,
-formula refactors, and 3-D-reference scope changes.
+formula refactors, 3-D-reference scope changes, and Excel Table scope changes
+that leave a structured-reference formula textually unchanged.
 
 The benchmark does **not** evaluate formula execution or claim that a
 candidate's numerical results are correct.  A case's `review_expectation` is a
@@ -81,7 +82,7 @@ where `manifest.jsonl` is available at the dataset root for programmatic use.
 
 ## Truth contract
 
-Each `truth.json` is schema version 1 and contains:
+Each `truth.json` is schema version 2 and contains:
 
 - `facts`: observable before/after facts, such as a formula becoming a value.
 - `must_reach`: formula cells that are statically reachable from a changed

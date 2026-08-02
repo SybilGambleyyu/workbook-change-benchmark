@@ -14,7 +14,7 @@
   "id": "operations.conditional_formatting_removed",
   "must_reach": [],
   "review_expectation": "review",
-  "schema_version": 1,
+  "schema_version": 2,
   "title": "A material exception highlight is removed",
   "topology": "pair"
 }

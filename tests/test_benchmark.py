@@ -72,6 +72,17 @@ def test_validator_rejects_a_false_fact(tmp_path: Path) -> None:
     assert validate_case(case)
 
 
+def test_validator_rejects_a_false_structured_table_scope(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "structural" / "structured_table_scope_expansion"
+    truth_path = case / "truth.json"
+    truth = json.loads(truth_path.read_text(encoding="utf-8"))
+    truth["facts"][0]["candidate_ref"] = "A1:D6"
+    truth_path.write_text(json.dumps(truth), encoding="utf-8")
+    assert validate_case(case)
+
+
 def test_formulafence_adapter_maps_a_pair_fact(monkeypatch, tmp_path: Path) -> None:
     fixture_root = tmp_path / "fixtures"
     build_all(fixture_root)
@@ -86,6 +97,26 @@ def test_formulafence_adapter_maps_a_pair_fact(monkeypatch, tmp_path: Path) -> N
     result = formulafence.evaluate_diff_case(fixture_root / "finance" / "formula_to_value")
     assert result["status"] == "matched"
     assert result["matched"] == ["formula_to_value"]
+
+
+def test_formulafence_adapter_maps_a_structured_table_scope_fact(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        return {
+            "summary": {"change_count": 1},
+            "changes": [{"kind": "table_definition_changed", "location": None}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "structural" / "structured_table_scope_expansion"
+    )
+    assert result["status"] == "matched"
+    assert result["matched"] == ["structured_table_scope_changed"]
 
 
 def test_formulafence_adapter_maps_a_portfolio_impact(monkeypatch, tmp_path: Path) -> None:
