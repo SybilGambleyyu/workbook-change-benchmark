@@ -1,0 +1,40 @@
+{
+  "coverage": [
+    "The direct self-reference is intentional and remains unchanged. The fixture records calculation controls; it does not calculate the circular formula or claim a converged, cached, or business-correct result.",
+    "The validator checks the explicit iterate flag plus the shared iteration count and delta. It does not predict the number of recalculations, convergence, numerical precision, or Excel-client behavior.",
+    "The pair differs only in workbook calculation metadata; no worksheet value, formula text, or dependency edge is edited."
+  ],
+  "coverage_expectations": [],
+  "facts": [
+    {
+      "baseline_iterate": false,
+      "candidate_iterate": true,
+      "cell": "B2",
+      "formula": "=(B2+Inputs!$B$2)/2",
+      "iteration_count": 100,
+      "iteration_delta": 0.001,
+      "kind": "iterative_calculation_enabled",
+      "sheet": "Model"
+    }
+  ],
+  "family": "governance",
+  "id": "governance.iterative_calculation_enabled",
+  "must_reach": [
+    {
+      "source": {
+        "cell": "B2",
+        "sheet": "Model"
+      },
+      "targets": [
+        {
+          "cell": "B4",
+          "sheet": "Dashboard"
+        }
+      ]
+    }
+  ],
+  "review_expectation": "block",
+  "schema_version": 3,
+  "title": "An unchanged direct circular formula enables iterative calculation",
+  "topology": "pair"
+}

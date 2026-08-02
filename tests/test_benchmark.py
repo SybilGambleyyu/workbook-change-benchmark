@@ -98,6 +98,21 @@ def test_committed_manifest_matches_fixture_tree() -> None:
             "candidate_update_links": "always",
         }
     ]
+    iterative_calculation_row = next(
+        row for row in rows if row["id"] == "governance.iterative_calculation_enabled"
+    )
+    assert iterative_calculation_row["facts"] == [
+        {
+            "kind": "iterative_calculation_enabled",
+            "sheet": "Model",
+            "cell": "B2",
+            "formula": "=(B2+Inputs!$B$2)/2",
+            "baseline_iterate": False,
+            "candidate_iterate": True,
+            "iteration_count": 100,
+            "iteration_delta": 0.001,
+        }
+    ]
     array_row = next(row for row in rows if row["id"] == "structural.array_formula_mode_changed")
     assert array_row["facts"] == [
         {
@@ -211,6 +226,72 @@ def test_external_workbook_link_policy_pair_changes_only_workbook_xml(tmp_path: 
     fixture_root = tmp_path / "fixtures"
     build_all(fixture_root)
     case = fixture_root / "governance" / "external_workbook_link_update_on_open"
+    with ZipFile(case / "baseline.xlsx") as baseline, ZipFile(case / "candidate.xlsx") as candidate:
+        baseline_members = {
+            entry.filename: baseline.read(entry.filename) for entry in baseline.infolist()
+        }
+        candidate_members = {
+            entry.filename: candidate.read(entry.filename) for entry in candidate.infolist()
+        }
+    assert set(baseline_members) == set(candidate_members)
+    assert [
+        member
+        for member in sorted(baseline_members)
+        if baseline_members[member] != candidate_members[member]
+    ] == ["xl/workbook.xml"]
+
+
+def test_validator_rejects_a_false_iterative_calculation_fact(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "governance" / "iterative_calculation_enabled"
+    truth_path = case / "truth.json"
+    truth = json.loads(truth_path.read_text(encoding="utf-8"))
+    truth["facts"][0]["iteration_count"] = 99
+    truth_path.write_text(json.dumps(truth), encoding="utf-8")
+    assert validate_case(case)
+
+
+def test_validator_rejects_a_corrupted_iterative_calculation_control(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = fixture_root / "governance" / "iterative_calculation_enabled" / "candidate.xlsx"
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    members["xl/workbook.xml"] = members["xl/workbook.xml"].replace(
+        b'iterate="1"', b'iterate="0"', 1
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_validator_rejects_an_unrelated_iterative_calculation_control_change(
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = fixture_root / "governance" / "iterative_calculation_enabled" / "candidate.xlsx"
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    members["xl/workbook.xml"] = members["xl/workbook.xml"].replace(
+        b'forceFullCalc="0"', b'forceFullCalc="1"', 1
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_iterative_calculation_pair_changes_only_workbook_xml(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "governance" / "iterative_calculation_enabled"
     with ZipFile(case / "baseline.xlsx") as baseline, ZipFile(case / "candidate.xlsx") as candidate:
         baseline_members = {
             entry.filename: baseline.read(entry.filename) for entry in baseline.infolist()
@@ -489,6 +570,89 @@ def test_formulafence_adapter_rejects_an_inexact_external_workbook_link_policy(
     assert result["status"] == "missed"
     assert result["matched"] == []
     assert result["missed"] == ["external_workbook_link_update_policy_changed"]
+
+
+def test_formulafence_adapter_maps_the_exact_iterative_calculation_transition(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "calculation_settings_changed",
+                    "location": None,
+                    "details": {
+                        "before": {
+                            "forceFullCalc": False,
+                            "fullCalcOnLoad": False,
+                            "iterate": False,
+                            "iterateCount": 100,
+                            "iterateDelta": 0.001,
+                        },
+                        "after": {
+                            "forceFullCalc": False,
+                            "fullCalcOnLoad": False,
+                            "iterate": True,
+                            "iterateCount": 100,
+                            "iterateDelta": 0.001,
+                        },
+                    },
+                }
+            ],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "iterative_calculation_enabled"
+    )
+    assert result["status"] == "matched"
+    assert result["matched"] == ["iterative_calculation_enabled"]
+
+
+def test_formulafence_adapter_rejects_an_inexact_iterative_calculation_transition(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "calculation_settings_changed",
+                    "location": None,
+                    "details": {
+                        "before": {
+                            "forceFullCalc": False,
+                            "fullCalcOnLoad": False,
+                            "iterate": False,
+                            "iterateCount": 100,
+                            "iterateDelta": 0.001,
+                        },
+                        "after": {
+                            "forceFullCalc": False,
+                            "fullCalcOnLoad": False,
+                            "iterate": True,
+                            "iterateCount": 100,
+                            "iterateDelta": 0.01,
+                        },
+                    },
+                }
+            ],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "iterative_calculation_enabled"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["iterative_calculation_enabled"]
 
 
 def test_formulafence_adapter_maps_the_exact_array_formula_mode_transition(

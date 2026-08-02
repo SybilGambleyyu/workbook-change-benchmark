@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.9.0 — 2026-08-02
+
+- Add a deterministic iterative-calculation case. Its direct self-referencing
+  formula and local downstream reference stay unchanged while `calcPr/@iterate`
+  changes from `false` to `true` with an explicit 100-iteration / 0.001-delta
+  bound.
+- Add the exact `iterative_calculation_enabled` fact, raw-OOXML validator, and
+  corruption regression coverage. WCAB records the stored calculation control;
+  it does not calculate the circular model or claim convergence, a cached value,
+  or numerical correctness.
+- Extend the optional FormulaFence adapter to require the exact isolated
+  `FF009` calculation-settings transition rather than accepting an arbitrary
+  calculation-setting difference.
+
 ## 0.8.0 — 2026-08-02
 
 - Add a deterministic external-workbook link startup-policy case. Its synthetic

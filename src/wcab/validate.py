@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 from collections import deque
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree
@@ -120,6 +121,39 @@ def _workbook_properties(path: Path) -> dict[str, str] | None:
         return None
     properties = workbook.find(f"{{{_SPREADSHEETML_NS}}}workbookPr")
     return None if properties is None else dict(properties.attrib)
+
+
+def _calculation_properties(path: Path) -> dict[str, str] | None:
+    """Read stored ``calcPr`` attributes without evaluating workbook formulas."""
+
+    try:
+        with ZipFile(path) as archive:
+            workbook = ElementTree.fromstring(archive.read("xl/workbook.xml"))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    properties = workbook.find(f"{{{_SPREADSHEETML_NS}}}calcPr")
+    return None if properties is None else dict(properties.attrib)
+
+
+def _ooxml_boolean(value: str | None) -> bool | None:
+    """Parse the strict boolean values used by WCAB's raw OOXML contracts."""
+
+    return {"0": False, "1": True, "false": False, "true": True}.get(value)
+
+
+def _calculation_iteration_state(path: Path) -> tuple[bool, int, Decimal] | None:
+    """Read WCAB's explicit stored iteration switch and shared bounds."""
+
+    properties = _calculation_properties(path)
+    if properties is None:
+        return None
+    iterate = _ooxml_boolean(properties.get("iterate"))
+    try:
+        count = int(properties["iterateCount"])
+        delta = Decimal(properties["iterateDelta"])
+    except (KeyError, InvalidOperation, ValueError):
+        return None
+    return None if iterate is None else (iterate, count, delta)
 
 
 def _relationship_target(
@@ -468,6 +502,75 @@ def _validate_fact(
             candidate.calculation.calcMode == "manual"
             and candidate.calculation.calcCompleted is False,
             f"{truth['id']}: expected manual, incomplete calculation metadata",
+            errors,
+        )
+        return
+
+    if kind == "iterative_calculation_enabled":
+        sheet_name = fact.get("sheet")
+        coordinate = fact.get("cell")
+        formula = fact.get("formula")
+        before_state = _calculation_iteration_state(baseline_path)
+        after_state = _calculation_iteration_state(candidate_path)
+        before_properties = _calculation_properties(baseline_path)
+        after_properties = _calculation_properties(candidate_path)
+        before_formula = (
+            baseline[sheet_name][coordinate]
+            if isinstance(sheet_name, str)
+            and isinstance(coordinate, str)
+            and sheet_name in baseline.sheetnames
+            else None
+        )
+        after_formula = (
+            candidate[sheet_name][coordinate]
+            if isinstance(sheet_name, str)
+            and isinstance(coordinate, str)
+            and sheet_name in candidate.sheetnames
+            else None
+        )
+        expected_count = fact.get("iteration_count")
+        expected_delta = fact.get("iteration_delta")
+        try:
+            declared_delta = Decimal(str(expected_delta))
+        except InvalidOperation:
+            declared_delta = None
+        ignored_properties = {"iterate", "iterateCount", "iterateDelta"}
+        before_non_iteration_properties = (
+            {
+                key: value
+                for key, value in before_properties.items()
+                if key not in ignored_properties
+            }
+            if before_properties is not None
+            else None
+        )
+        after_non_iteration_properties = (
+            {key: value for key, value in after_properties.items() if key not in ignored_properties}
+            if after_properties is not None
+            else None
+        )
+        source = (sheet_name, coordinate)
+        graph = _direct_graph(candidate)
+        _assert(
+            isinstance(sheet_name, str)
+            and isinstance(coordinate, str)
+            and isinstance(formula, str)
+            and isinstance(expected_count, int)
+            and not isinstance(expected_count, bool)
+            and declared_delta is not None
+            and fact.get("baseline_iterate") is False
+            and fact.get("candidate_iterate") is True
+            and before_formula is not None
+            and after_formula is not None
+            and _cell_kind(before_formula) == "formula"
+            and _cell_kind(after_formula) == "formula"
+            and before_formula.value == formula
+            and after_formula.value == formula
+            and source in graph.get(source, set())
+            and before_state == (False, expected_count, declared_delta)
+            and after_state == (True, expected_count, declared_delta)
+            and before_non_iteration_properties == after_non_iteration_properties,
+            f"{truth['id']}: expected unchanged direct circular formula and calcPr iterate false -> true with declared bounds only",
             errors,
         )
         return

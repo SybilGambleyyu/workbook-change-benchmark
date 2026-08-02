@@ -186,7 +186,10 @@ details: `update_links` moves from `never` to `always`, while the three other
 workbook-wide refresh controls retain their defaults. For the array-mode case,
 it requires `array_formula_mode_changed` at the exact anchor with the declared
 legacy-CSE and dynamic modes plus the declared output range; a generic array
-change is not enough. The adapter leaves `review` as `null`: FormulaFence
+change is not enough. For the iterative-calculation case, it requires the
+exact `calculation_settings_changed` details: `iterate` moves from `false` to
+`true`, while the explicit 100 / 0.001 bounds and other stored calculation
+controls remain unchanged. The adapter leaves `review` as `null`: FormulaFence
 surfaces evidence but does not impose WCAB's reference policy as a universal
 approval decision. Any intentionally unmapped fact or coverage expectation
 becomes an adapter note and remains missing from its respective recall metric.

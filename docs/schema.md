@@ -11,7 +11,9 @@ selector, WCAB 0.6 adds a relationship-backed external-data refresh-on-open
 fact, WCAB 0.7 adds an unchanged anchor formula that moves from fixed
 legacy-CSE to dynamic-array semantics, and WCAB 0.8 adds an unchanged
 external-workbook formula whose stored open-time link-update policy changes.
-Version 2 remains available in the immutable v0.2.0 and v0.3.0 releases.
+WCAB 0.9 adds an unchanged direct circular formula whose stored iterative
+calculation setting changes. Version 2 remains available in the immutable
+v0.2.0 and v0.3.0 releases.
 
 ```json
 {
@@ -49,6 +51,7 @@ Facts are observed directly from the fixture files by `wcab validate`.
 | `sheet_visibility_changed` | `sheet`, `baseline_state`, `candidate_state` | The stored sheet state changes. |
 | `formula_cell_unlocked` | `sheet`, `cell` | A formula cell is explicitly unlocked while its sheet remains protected. |
 | `manual_calculation_incomplete` | none | Candidate calculation metadata is `manual` and records incomplete calculation. |
+| `iterative_calculation_enabled` | `sheet`, `cell`, `formula`, `baseline_iterate`, `candidate_iterate`, `iteration_count`, `iteration_delta` | The declared direct self-referencing formula remains unchanged while raw `calcPr/@iterate` changes exactly from `false` to `true`; the explicit count and delta remain the declared values, and all non-iteration calculation attributes are unchanged. The validator does not calculate the model. |
 | `external_data_connection_refresh_on_load_changed` | `connection_id`, `baseline_refresh_on_load`, `candidate_refresh_on_load` | The relationship-backed connection with this workbook-local ID explicitly changes `refreshOnLoad` from `false` to `true`. The validator reads raw OOXML only. |
 | `external_workbook_link_update_policy_changed` | `sheet`, `cell`, `formula`, `baseline_update_links`, `candidate_update_links` | The declared external-workbook formula remains unchanged while raw `workbookPr/@updateLinks` changes exactly from `never` to `always`; all other stored `workbookPr` attributes are unchanged. The validator does not resolve the source workbook. |
 | `array_formula_mode_changed` | `sheet`, `cell`, `formula`, `baseline_mode`, `candidate_mode`, `baseline_output_range`, `candidate_output_range` | The declared unchanged array anchor moves from `legacy_cse` to `dynamic`, with its stored formula text and output range exactly as declared. The validator reads the raw OOXML cell-metadata binding. |
@@ -96,6 +99,24 @@ requires the exact policy values, matching formula text, and equal non-policy
 `workbookPr` attributes. It does not open, resolve, authenticate to, trust,
 refresh, or calculate the external source, and it does not claim an updated
 cached result or a successful workbook recalculation.
+
+## Iterative calculation
+
+Open XML stores calculation controls in
+[`calcPr`](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.spreadsheet.calculationproperties?view=openxml-3.0.1),
+including `iterate`, `iterateCount`, and `iterateDelta`. Microsoft documents
+that iterative calculation can intentionally allow circular references and
+that its maximum-iteration and maximum-change settings bound the repeated
+calculation process in its
+[circular-reference guidance](https://support.microsoft.com/en-US/Excel/remove-or-allow-a-circular-reference-in-excel).
+
+WCAB's iterative case keeps `Model!B2`'s direct self-reference and its local
+`Dashboard!B4` consumer unchanged. The raw validator requires explicit
+baseline `iterate=false`, candidate `iterate=true`, shared declared count and
+delta, equal non-iteration `calcPr` attributes, and the unchanged direct
+self-reference. It does not calculate either workbook, establish convergence,
+count recalculations, predict a terminal value, or assert Excel-client
+compatibility.
 
 ## Array-formula mode
 

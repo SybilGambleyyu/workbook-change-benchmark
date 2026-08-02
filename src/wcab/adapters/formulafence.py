@@ -34,6 +34,7 @@ _FACT_TO_CHANGE: dict[str, tuple[str, str | None]] = {
     "sheet_visibility_changed": ("sheet_visibility_changed", None),
     "formula_cell_unlocked": ("cell_protection_assignments_changed", None),
     "manual_calculation_incomplete": ("calculation_settings_changed", None),
+    "iterative_calculation_enabled": ("calculation_settings_changed", None),
     "array_formula_mode_changed": ("array_formula_mode_changed", "location"),
     "external_data_connection_refresh_on_load_changed": (
         "external_data_connections_changed",
@@ -250,6 +251,36 @@ def _external_workbook_link_update_policy_observed(
     return details.get("before") == expected_before and details.get("after") == expected_after
 
 
+def _iterative_calculation_enabled_observed(change: dict[str, Any], fact: dict[str, Any]) -> bool:
+    """Require FormulaFence's exact iteration switch and unchanged bounds."""
+
+    if change.get("kind") != "calculation_settings_changed":
+        return False
+    count = fact.get("iteration_count")
+    delta = fact.get("iteration_delta")
+    if (
+        fact.get("baseline_iterate") is not False
+        or fact.get("candidate_iterate") is not True
+        or not isinstance(count, int)
+        or isinstance(count, bool)
+        or not isinstance(delta, (int, float))
+        or isinstance(delta, bool)
+    ):
+        return False
+    details = change.get("details")
+    if not isinstance(details, dict):
+        return False
+    expected_before = {
+        "forceFullCalc": False,
+        "fullCalcOnLoad": False,
+        "iterate": False,
+        "iterateCount": count,
+        "iterateDelta": delta,
+    }
+    expected_after = {**expected_before, "iterate": True}
+    return details.get("before") == expected_before and details.get("after") == expected_after
+
+
 def _array_formula_mode_observed(change: dict[str, Any], fact: dict[str, Any]) -> bool:
     """Require FormulaFence to identify this exact CSE-to-dynamic transition."""
 
@@ -394,6 +425,12 @@ def evaluate_diff_case(case_dir: str | Path, *, executable: str = "formulafence"
         if kind == "external_workbook_link_update_policy_changed":
             observed = any(
                 _external_workbook_link_update_policy_observed(change, fact)
+                for change in changes
+                if isinstance(change, dict)
+            )
+        if kind == "iterative_calculation_enabled":
+            observed = any(
+                _iterative_calculation_enabled_observed(change, fact)
                 for change in changes
                 if isinstance(change, dict)
             )

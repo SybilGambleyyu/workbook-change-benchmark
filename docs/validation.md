@@ -1,6 +1,6 @@
 # Validation record
 
-This record describes the WCAB 0.8.0 / schema-version-3 validation run on
+This record describes the WCAB 0.9.0 / schema-version-3 validation run on
 2026-08-02. It is reproducible from this repository; no network service or
 private workbook is required.
 
@@ -32,16 +32,16 @@ wcab validate --fixtures fixtures
 
 Results:
 
-- 23 cases: 22 paired-workbook cases and one directory portfolio case.
-- 25 observable truth facts across 18 `block` and five `review` cases.
+- 24 cases: 23 paired-workbook cases and one directory portfolio case.
+- 26 observable truth facts across 19 `block` and five `review` cases.
 - Three scoreable coverage expectations: one newly introduced `INDIRECT`
   boundary and two unchanged-formula selector changes (`INDIRECT` address text
   and `OFFSET` column displacement).
-- 72 generated fixture files: 48 workbooks, 23 truth manifests, and one JSONL
+- 75 generated fixture files: 50 workbooks, 24 truth manifests, and one JSONL
   case catalogue, all generated from source.
-- Thirty-seven unit tests passed under both Python versions, including
+- Forty-three unit tests passed under both Python versions, including
   independent regeneration and byte-for-byte fixture-tree equality.
-- The fixture validator accepted all 23 cases.
+- The fixture validator accepted all 24 cases.
 - The external-data pair has identical package members except for
   `xl/connections.xml`; both archives pass ZIP integrity checks and remain
   readable by openpyxl. Its relationship-backed source is a non-routable
@@ -51,6 +51,11 @@ Results:
   readable by openpyxl. Its unchanged `LinkedModel!B2` formula names the
   absent synthetic `WCABSource.xlsx`, while `workbookPr/@updateLinks` changes
   exactly from `never` to `always`.
+- The iterative-calculation pair has identical package members except for
+  `xl/workbook.xml`; both archives pass ZIP integrity checks and remain readable
+  by openpyxl. Its unchanged `Model!B2` direct self-reference records the same
+  explicit 100 / 0.001 bounds in both workbooks while `calcPr/@iterate` changes
+  exactly from false to true.
 - The array-mode pair preserves the `Model!B1` `=LEN(Inputs!A1:A3)` anchor and
   its stored `B1:B3` range. The candidate adds `xl/metadata.xml`, one
   `sheetMetadata` relationship, one content-type override, and `cm=1` on the
@@ -60,7 +65,7 @@ Results:
 
 ## Distribution supplement
 
-The 0.8.0 release retains the one-row-per-case `manifest.jsonl` catalogue and
+The 0.9.0 release retains the one-row-per-case `manifest.jsonl` catalogue and
 the tool-neutral observation protocol at version 2. Each catalogue row retains
 the schema-version-3 truth contract and includes byte counts and SHA-256
 digests for the workbooks it names.
@@ -68,11 +73,11 @@ digests for the workbooks it names.
 Commands:
 
 ```bash
-python -m build --outdir /tmp/wcab-v08-dist
-twine check /tmp/wcab-v08-dist/*
+python -m build --outdir /tmp/wcab-v09-dist
+twine check /tmp/wcab-v09-dist/*
 python -m venv /tmp/wcab-wheel-test
 /tmp/wcab-wheel-test/bin/python -m pip install \
-  /tmp/wcab-v08-dist/workbook_change_benchmark-0.8.0-py3-none-any.whl
+  /tmp/wcab-v09-dist/workbook_change_benchmark-0.9.0-py3-none-any.whl
 /tmp/wcab-wheel-test/bin/wcab validate --fixtures fixtures
 /tmp/wcab-wheel-test/bin/wcab manifest --fixtures fixtures --output /tmp/manifest.jsonl
 cmp fixtures/manifest.jsonl /tmp/manifest.jsonl
@@ -85,14 +90,14 @@ cmp fixtures/manifest.jsonl /tmp/manifest.jsonl
 Results:
 
 - The source distribution and universal wheel passed `twine check`.
-- A fresh Python 3.12 wheel installation validated all 23 fixtures and emitted
+- A fresh Python 3.12 wheel installation validated all 24 fixtures and emitted
   byte-identical JSONL output.
-- The full thirty-seven-test suite, lint, and format checks passed under the
+- The full forty-three-test suite, lint, and format checks passed under the
   supported local Python versions (3.12 and 3.13).
 - The generated unsupported template scored as zero analyzed coverage, zero
   expected-fact recall, and zero coverage-disclosure recall, confirming that
   unsupported cases cannot become a pass.
-- The FormulaFence normalizer emitted 24 matched facts, one intentionally
+- The FormulaFence normalizer emitted 25 matched facts, one intentionally
   unmapped fact, three matched coverage declarations, and no invented review
   disposition.
 
@@ -107,9 +112,9 @@ wcab formulafence --fixtures fixtures --strict
 
 Results:
 
-- All 24 currently mappable diff/portfolio facts were observed.
+- All 25 currently mappable diff/portfolio facts were observed.
 - All three mappable coverage expectations were matched; no mapped fact,
-  coverage expectation, or targeted lint rule was missed across all 23 cases.
+  coverage expectation, or targeted lint rule was missed across all 24 cases.
 - The schema-version-2 structured Table scope case was observed as a
   `table_definition_changed` diff, even though its summary formula text stays
   unchanged.
@@ -130,6 +135,12 @@ Results:
   `refresh_all_connections`, and `save_external_link_values` retained their
   defaults. The report did not expose the synthetic external formula or open
   its absent source workbook.
+- The WCAB 0.9 iterative-calculation case was observed as one exact
+  `calculation_settings_changed` transition in `FF009`: only `iterate` moved
+  from false to true; `iterateCount=100`, `iterateDelta=0.001`, and the other
+  stored controls stayed unchanged. FormulaFence's direct-self-reference lint
+  surfaced `Model!B2` only while iteration was disabled; neither report claims
+  a calculated or converged value.
 - The WCAB 0.7 array-mode case was observed as the exact `Model!B1`
   `legacy_cse`-to-`dynamic` transition with the same stored `B1:B3` range and
   `FF018`. It reported the declared `Dashboard!B2` static impact, emitted no

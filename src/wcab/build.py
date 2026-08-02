@@ -39,6 +39,9 @@ _DOCUMENT_RELATIONSHIPS_NS = "http://schemas.openxmlformats.org/officeDocument/2
 _CONTENT_TYPES_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
 _DYNAMIC_ARRAY_NS = "http://schemas.microsoft.com/office/spreadsheetml/2017/dynamicarray"
 _EXTERNAL_WORKBOOK_LINK_FORMULA = "='[WCABSource.xlsx]Inputs'!$B$2"
+_ITERATIVE_CALCULATION_FORMULA = "=(B2+Inputs!$B$2)/2"
+_ITERATION_COUNT = 100
+_ITERATION_DELTA = 0.001
 
 
 def _configure_workbook(workbook: Workbook, *, title: str) -> None:
@@ -425,6 +428,36 @@ def _external_workbook_link_policy_workbook() -> Workbook:
     dashboard = workbook.create_sheet("Dashboard")
     dashboard["A1"] = "Board output"
     dashboard["B4"] = "=LinkedModel!$B$2"
+    return workbook
+
+
+def _iterative_calculation_workbook() -> Workbook:
+    """Build an unchanged, intentionally circular model with explicit bounds.
+
+    The baseline records that iteration is disabled; the candidate changes only
+    that stored calculation control. The direct self-reference is deliberate
+    evidence of why the control matters, not a request for WCAB to calculate
+    the model or assert a converged value.
+    """
+
+    workbook = Workbook()
+    _configure_workbook(workbook, title="WCAB iterative calculation fixture")
+    inputs = workbook.active
+    inputs.title = "Inputs"
+    inputs["A1"] = "Convergence target"
+    inputs["B2"] = 10
+
+    model = workbook.create_sheet("Model")
+    model["A1"] = "Iterative circular model"
+    model["B2"] = _ITERATIVE_CALCULATION_FORMULA
+
+    dashboard = workbook.create_sheet("Dashboard")
+    dashboard["A1"] = "Board output"
+    dashboard["B4"] = "=Model!$B$2"
+
+    workbook.calculation.iterate = False
+    workbook.calculation.iterateCount = _ITERATION_COUNT
+    workbook.calculation.iterateDelta = _ITERATION_DELTA
     return workbook
 
 
@@ -897,6 +930,47 @@ def _build_governance_manual_calculation(root: Path) -> None:
     )
 
 
+def _build_governance_iterative_calculation(root: Path) -> None:
+    def mutate(workbook: Workbook) -> None:
+        workbook.calculation.iterate = True
+
+    truth = _truth(
+        case_id="governance.iterative_calculation_enabled",
+        title="An unchanged direct circular formula enables iterative calculation",
+        family="governance",
+        review_expectation="block",
+        facts=[
+            {
+                "kind": "iterative_calculation_enabled",
+                "sheet": "Model",
+                "cell": "B2",
+                "formula": _ITERATIVE_CALCULATION_FORMULA,
+                "baseline_iterate": False,
+                "candidate_iterate": True,
+                "iteration_count": _ITERATION_COUNT,
+                "iteration_delta": _ITERATION_DELTA,
+            }
+        ],
+        must_reach=[
+            {
+                "source": {"sheet": "Model", "cell": "B2"},
+                "targets": [{"sheet": "Dashboard", "cell": "B4"}],
+            }
+        ],
+        coverage=[
+            "The direct self-reference is intentional and remains unchanged. The fixture records calculation controls; it does not calculate the circular formula or claim a converged, cached, or business-correct result.",
+            "The validator checks the explicit iterate flag plus the shared iteration count and delta. It does not predict the number of recalculations, convergence, numerical precision, or Excel-client behavior.",
+            "The pair differs only in workbook calculation metadata; no worksheet value, formula text, or dependency edge is edited.",
+        ],
+    )
+    _write_pair(
+        root / "governance" / "iterative_calculation_enabled",
+        _iterative_calculation_workbook,
+        mutate,
+        truth,
+    )
+
+
 def _build_governance_static_cycle(root: Path) -> None:
     def mutate(workbook: Workbook) -> None:
         workbook["Controls"]["D10"] = "=D11+1"
@@ -1304,6 +1378,7 @@ _BUILDERS: tuple[Callable[[Path], None], ...] = (
     _build_governance_visibility,
     _build_governance_protection,
     _build_governance_manual_calculation,
+    _build_governance_iterative_calculation,
     _build_governance_static_cycle,
     _build_governance_external_data_refresh,
     _build_governance_external_workbook_link_update_policy,
@@ -1329,6 +1404,7 @@ CASE_IDS = (
     "governance.hidden_sheet_revealed",
     "governance.formula_cell_unlocked",
     "governance.manual_calculation_incomplete",
+    "governance.iterative_calculation_enabled",
     "governance.static_cycle_introduced",
     "governance.external_data_refresh_on_open",
     "governance.external_workbook_link_update_on_open",

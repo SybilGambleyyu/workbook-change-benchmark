@@ -34,7 +34,7 @@ gates, static analyzers, and agent workflows that propose workbook edits.
 
 ## Scope and non-goals
 
-Version `0.8` covers formula-to-value replacements, formula reference drift,
+Version `0.9` covers formula-to-value replacements, formula reference drift,
 value changes with downstream effects, external formula references, named
 ranges, data validation, conditional formatting, sheet visibility, direct cell
 protection, calculation settings, static cycles, portfolio dependencies,
@@ -45,7 +45,8 @@ unchanged `INDIRECT` and `OFFSET` formulas whose address or displacement driver
 changes, an external-data connection whose refresh-on-open behavior changes
 without any worksheet-cell edit, and an external-workbook link policy that
 switches from never to always updating when the workbook opens. It also covers
-an unchanged array formula switching from a fixed legacy CSE output range to
+an unchanged direct circular formula that enables iterative calculation, and an
+unchanged array formula switching from a fixed legacy CSE output range to
 dynamic-array semantics.
 
 The benchmark does **not** evaluate formula execution or claim that a
@@ -160,9 +161,10 @@ connection-level refresh-on-open transition in FormulaFence's `FF023` evidence.
 It separately requires the exact isolated external-workbook policy transition
 from `never` to `always` in `FF023` evidence. For the array-mode case, it
 requires the exact legacy-CSE-to-dynamic transition and output range in
-FormulaFence's `FF018` evidence. It keeps unmapped facts explicit; it does not
-treat the benign structural-rewrite annotation as a generic semantic-equivalence
-claim.
+FormulaFence's `FF018` evidence. For the iterative-calculation case, it
+requires the exact `FF009` switch from iteration disabled to enabled with the
+declared bounds. It keeps unmapped facts explicit; it does not treat the benign
+structural-rewrite annotation as a generic semantic-equivalence claim.
 
 ## Reproducibility
 

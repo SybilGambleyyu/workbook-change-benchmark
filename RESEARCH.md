@@ -71,6 +71,26 @@ the validator reads local OOXML and formula text only. It does not resolve the
 link, test source availability or trust, retrieve a value, or claim that Excel
 successfully recalculates the workbook.
 
+## Iterative calculation and intentional circular models
+
+Microsoft's [circular-reference guidance](https://support.microsoft.com/en-US/Excel/remove-or-allow-a-circular-reference-in-excel)
+explains that iterative calculation can intentionally allow circular references
+in financial or engineering models, and that maximum iterations and maximum
+change bound that repeated calculation. Its [calculation guidance](https://support.microsoft.com/en-US/Excel/change-formula-recalculation-iteration-or-precision-in-excel)
+likewise distinguishes a direct or indirect self-reference from a workbook
+where iteration has been enabled to calculate it. The Open XML
+[`calcPr` specification](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.spreadsheet.calculationproperties?view=openxml-3.0.1)
+defines the stored calculation-properties element and its `iterate`,
+`iterateCount`, and `iterateDelta` attributes.
+
+WCAB 0.9 uses one small original direct self-reference whose formula text,
+input, and downstream local consumer do not change. The candidate changes only
+the stored `iterate` flag from false to true while retaining explicit 100 and
+0.001 bounds. The fixture records a calculation-control change—not a numerical
+outcome. The validator does not calculate the circular model, assume that it
+converges, predict how many iterations occur, or assert a cached or
+business-correct result.
+
 ## Array-formula semantics
 
 Microsoft's [dynamic-array versus legacy-CSE guidance](https://support.microsoft.com/en-US/Excel/dynamic-array-formulas-vs-legacy-cse-array-formulas)
