@@ -1554,6 +1554,79 @@ def _worksheet_without_auto_filter_criteria(path: Path, sheet_name: str) -> byte
     return ElementTree.tostring(worksheet, encoding="utf-8", xml_declaration=True)
 
 
+def _raw_ignored_error_formula_range_state(path: Path, sheet_name: str) -> dict[str, Any] | None:
+    """Read WCAB's compact worksheet-local ignored-error declaration.
+
+    The generated pair uses at most one standard SpreadsheetML ``ignoredErrors``
+    container and one ``ignoredError`` child. This reader establishes only that
+    stored metadata; it neither evaluates the formula nor decides whether an
+    Excel client would show, suppress, or justify an error indicator.
+    """
+
+    try:
+        with ZipFile(path) as archive:
+            worksheet_member = _worksheet_member_for_sheet(archive, sheet_name)
+            if worksheet_member is None:
+                return None
+            worksheet = ElementTree.fromstring(archive.read(worksheet_member))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    if worksheet.tag != f"{{{_SPREADSHEETML_NS}}}worksheet":
+        return None
+    ignored_errors_tag = f"{{{_SPREADSHEETML_NS}}}ignoredErrors"
+    ignored_error_tag = f"{{{_SPREADSHEETML_NS}}}ignoredError"
+    containers = worksheet.findall(ignored_errors_tag)
+    if len(containers) == 0:
+        return {
+            "worksheet_member": worksheet_member,
+            "present": False,
+            "container_attributes": None,
+            "container_child_count": 0,
+            "container_text": None,
+            "rule_attributes": None,
+            "rule_child_count": 0,
+            "rule_text": None,
+        }
+    if len(containers) != 1:
+        return None
+    container = containers[0]
+    rules = list(container)
+    if len(rules) != 1 or rules[0].tag != ignored_error_tag:
+        return None
+    rule = rules[0]
+    return {
+        "worksheet_member": worksheet_member,
+        "present": True,
+        "container_attributes": tuple(sorted(container.attrib.items())),
+        "container_child_count": len(container),
+        "container_text": container.text,
+        "rule_attributes": tuple(sorted(rule.attrib.items())),
+        "rule_child_count": len(rule),
+        "rule_text": rule.text,
+    }
+
+
+def _worksheet_without_ignored_error_controls(path: Path, sheet_name: str) -> bytes | None:
+    """Return the generated worksheet with its one ignored-errors node removed."""
+
+    if _raw_ignored_error_formula_range_state(path, sheet_name) is None:
+        return None
+    try:
+        with ZipFile(path) as archive:
+            worksheet_member = _worksheet_member_for_sheet(archive, sheet_name)
+            if worksheet_member is None:
+                return None
+            worksheet = ElementTree.fromstring(archive.read(worksheet_member))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    controls = worksheet.findall(f"{{{_SPREADSHEETML_NS}}}ignoredErrors")
+    if len(controls) > 1:
+        return None
+    if controls:
+        worksheet.remove(controls[0])
+    return ElementTree.tostring(worksheet, encoding="utf-8", xml_declaration=True)
+
+
 def _raw_cell_number_format(path: Path, sheet_name: str, coordinate: str) -> str | None:
     """Resolve the generated cell's custom number format from raw styles XML."""
 
@@ -2203,6 +2276,104 @@ def _validate_fact(
             and _xlsx_member_differences(baseline_path, candidate_path) == {"xl/styles.xml"}
             and _calculation_properties(baseline_path) == _calculation_properties(candidate_path),
             f"{truth['id']}: expected only one custom number-format code transition with stable target cells, formulas, styles, calculation properties, and package boundary",
+            errors,
+        )
+        return
+
+    if kind == "ignored_error_rule_added":
+        sheet_name = fact.get("sheet")
+        target_range = fact.get("target_range")
+        downstream_formula_cell = fact.get("downstream_formula_cell")
+        before_state = (
+            _raw_ignored_error_formula_range_state(baseline_path, sheet_name)
+            if isinstance(sheet_name, str)
+            else None
+        )
+        after_state = (
+            _raw_ignored_error_formula_range_state(candidate_path, sheet_name)
+            if isinstance(sheet_name, str)
+            else None
+        )
+        baseline_sheet = (
+            baseline[sheet_name]
+            if isinstance(sheet_name, str) and sheet_name in baseline.sheetnames
+            else None
+        )
+        candidate_sheet = (
+            candidate[sheet_name]
+            if isinstance(sheet_name, str) and sheet_name in candidate.sheetnames
+            else None
+        )
+        raw_cells = ("B2", "B3", "B4", "B5", "C5")
+        before_cells = {
+            coordinate: _raw_cell_state(baseline_path, sheet_name, coordinate)
+            for coordinate in raw_cells
+        }
+        after_cells = {
+            coordinate: _raw_cell_state(candidate_path, sheet_name, coordinate)
+            for coordinate in raw_cells
+        }
+        expected_before_state = {
+            "worksheet_member": "xl/worksheets/sheet1.xml",
+            "present": False,
+            "container_attributes": None,
+            "container_child_count": 0,
+            "container_text": None,
+            "rule_attributes": None,
+            "rule_child_count": 0,
+            "rule_text": None,
+        }
+        expected_after_state = {
+            "worksheet_member": "xl/worksheets/sheet1.xml",
+            "present": True,
+            "container_attributes": (),
+            "container_child_count": 1,
+            "container_text": None,
+            "rule_attributes": (("formulaRange", "1"), ("sqref", "B5")),
+            "rule_child_count": 0,
+            "rule_text": None,
+        }
+        _assert(
+            sheet_name == "Operations"
+            and target_range == "B5"
+            and fact.get("warning_flag") == "formulaRange"
+            and fact.get("formula") == "=SUM(B2:B3)"
+            and fact.get("adjacent_populated_cell") == "B4"
+            and fact.get("adjacent_populated_value") == 30
+            and downstream_formula_cell == "C5"
+            and fact.get("downstream_formula") == "=B5"
+            and before_state == expected_before_state
+            and after_state == expected_after_state
+            and all(state is not None for state in before_cells.values())
+            and before_cells == after_cells
+            and before_cells["B2"] is not None
+            and before_cells["B2"][3:] == (None, "10")
+            and before_cells["B3"] is not None
+            and before_cells["B3"][3:] == (None, "20")
+            and before_cells["B4"] is not None
+            and before_cells["B4"][3:] == (None, "30")
+            and before_cells["B5"] is not None
+            and before_cells["B5"][3] == "=SUM(B2:B3)"
+            and before_cells["C5"] is not None
+            and before_cells["C5"][3] == "=B5"
+            and baseline_sheet is not None
+            and candidate_sheet is not None
+            and baseline_sheet["B2"].value == 10
+            and candidate_sheet["B2"].value == 10
+            and baseline_sheet["B3"].value == 20
+            and candidate_sheet["B3"].value == 20
+            and baseline_sheet["B4"].value == 30
+            and candidate_sheet["B4"].value == 30
+            and baseline_sheet[target_range].value == "=SUM(B2:B3)"
+            and candidate_sheet[target_range].value == "=SUM(B2:B3)"
+            and baseline_sheet[downstream_formula_cell].value == "=B5"
+            and candidate_sheet[downstream_formula_cell].value == "=B5"
+            and _worksheet_without_ignored_error_controls(baseline_path, sheet_name)
+            == _worksheet_without_ignored_error_controls(candidate_path, sheet_name)
+            and _xlsx_member_differences(baseline_path, candidate_path)
+            == {"xl/worksheets/sheet1.xml"}
+            and _calculation_properties(baseline_path) == _calculation_properties(candidate_path),
+            f"{truth['id']}: expected only one formula-range ignored-error rule addition with stable cells, formulas, calculation properties, and package boundary",
             errors,
         )
         return

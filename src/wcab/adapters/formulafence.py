@@ -34,6 +34,7 @@ _FACT_TO_CHANGE: dict[str, tuple[str, str | None]] = {
     "conditional_formatting_count_changed": ("conditional_formatting_changed", None),
     "conditional_formatting_threshold_changed": ("conditional_formatting_changed", None),
     "cell_number_format_changed": ("number_format_controls_changed", None),
+    "ignored_error_rule_added": ("ignored_error_controls_changed", None),
     "auto_filter_criteria_changed": ("filter_visibility_controls_changed", None),
     "sheet_visibility_changed": ("sheet_visibility_changed", None),
     "formula_cell_unlocked": ("cell_protection_assignments_changed", None),
@@ -1003,6 +1004,81 @@ def _number_format_visibility_finding_observed(
     )
 
 
+def _ignored_error_formula_range_suppression_details_observed(
+    details: Any, fact: dict[str, Any]
+) -> bool:
+    """Require FormulaFence's exact redacted ignored-error evidence.
+
+    FormulaFence intentionally publishes only aggregate warning categories and
+    counts, never the suppressed target range or formula. WCAB independently
+    validates its generated raw declaration and worksheet boundary; this
+    adapter requires the matching one-rule formula-range transition and FF037.
+    """
+
+    if (
+        fact.get("sheet") != "Operations"
+        or fact.get("target_range") != "B5"
+        or fact.get("warning_flag") != "formulaRange"
+        or fact.get("formula") != "=SUM(B2:B3)"
+        or fact.get("adjacent_populated_cell") != "B4"
+        or fact.get("adjacent_populated_value") != 30
+        or fact.get("downstream_formula_cell") != "C5"
+        or fact.get("downstream_formula") != "=B5"
+        or not isinstance(details, dict)
+        or set(details) != {"before", "after", "ignored_error_definition_material_changed"}
+        or details.get("ignored_error_definition_material_changed") is not True
+    ):
+        return False
+    before = {
+        "present": False,
+        "worksheet_count": 0,
+        "standard_container_count": 0,
+        "extension_container_count": 0,
+        "ignored_error_rule_count": 0,
+        "target_range_count": 0,
+        "evaluation_error_count": 0,
+        "inconsistent_formula_count": 0,
+        "formula_range_omission_count": 0,
+        "unlocked_formula_count": 0,
+        "empty_cell_reference_count": 0,
+        "list_data_validation_count": 0,
+        "calculated_column_count": 0,
+        "number_stored_as_text_count": 0,
+        "two_digit_text_year_count": 0,
+        "unrecognized_ignored_error_count": 0,
+    }
+    after = {
+        **before,
+        "present": True,
+        "worksheet_count": 1,
+        "standard_container_count": 1,
+        "ignored_error_rule_count": 1,
+        "target_range_count": 1,
+        "formula_range_omission_count": 1,
+    }
+    return details.get("before") == before and details.get("after") == after
+
+
+def _ignored_error_formula_range_suppression_observed(
+    change: dict[str, Any], fact: dict[str, Any]
+) -> bool:
+    """Match FormulaFence's stored ignored-error control change record."""
+
+    return change.get("kind") == "ignored_error_controls_changed" and (
+        _ignored_error_formula_range_suppression_details_observed(change.get("details"), fact)
+    )
+
+
+def _ignored_error_formula_range_suppression_finding_observed(
+    finding: dict[str, Any], fact: dict[str, Any]
+) -> bool:
+    """Require FormulaFence's matching high-severity ignored-error finding."""
+
+    return finding.get("rule_id") == "FF037" and (
+        _ignored_error_formula_range_suppression_details_observed(finding.get("details"), fact)
+    )
+
+
 def _what_if_data_table_input_reference_details_observed(
     details: Any, fact: dict[str, Any]
 ) -> bool:
@@ -1414,6 +1490,16 @@ def evaluate_diff_case(case_dir: str | Path, *, executable: str = "formulafence"
                 if isinstance(change, dict)
             ) and any(
                 _number_format_visibility_finding_observed(finding, fact)
+                for finding in findings
+                if isinstance(finding, dict)
+            )
+        if kind == "ignored_error_rule_added":
+            observed = any(
+                _ignored_error_formula_range_suppression_observed(change, fact)
+                for change in changes
+                if isinstance(change, dict)
+            ) and any(
+                _ignored_error_formula_range_suppression_finding_observed(finding, fact)
                 for finding in findings
                 if isinstance(finding, dict)
             )

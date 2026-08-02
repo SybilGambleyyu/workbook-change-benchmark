@@ -336,6 +336,40 @@ def _number_format_visibility_details() -> dict[str, object]:
     }
 
 
+def _ignored_error_formula_range_suppression_details() -> dict[str, object]:
+    before = {
+        "present": False,
+        "worksheet_count": 0,
+        "standard_container_count": 0,
+        "extension_container_count": 0,
+        "ignored_error_rule_count": 0,
+        "target_range_count": 0,
+        "evaluation_error_count": 0,
+        "inconsistent_formula_count": 0,
+        "formula_range_omission_count": 0,
+        "unlocked_formula_count": 0,
+        "empty_cell_reference_count": 0,
+        "list_data_validation_count": 0,
+        "calculated_column_count": 0,
+        "number_stored_as_text_count": 0,
+        "two_digit_text_year_count": 0,
+        "unrecognized_ignored_error_count": 0,
+    }
+    return {
+        "before": before,
+        "after": {
+            **before,
+            "present": True,
+            "worksheet_count": 1,
+            "standard_container_count": 1,
+            "ignored_error_rule_count": 1,
+            "target_range_count": 1,
+            "formula_range_omission_count": 1,
+        },
+        "ignored_error_definition_material_changed": True,
+    }
+
+
 def _replace_power_query_m_filter_literal(path: Path, *, before: bytes, after: bytes) -> None:
     """Rewrite one test fixture's embedded M formula without changing its truth."""
 
@@ -515,6 +549,22 @@ def test_committed_manifest_matches_fixture_tree() -> None:
             "candidate_format": ";;;",
             "formula_cell": "B3",
             "formula": "=B2",
+        }
+    ]
+    ignored_error_suppression_row = next(
+        row for row in rows if row["id"] == "operations.ignored_error_formula_range_suppressed"
+    )
+    assert ignored_error_suppression_row["facts"] == [
+        {
+            "kind": "ignored_error_rule_added",
+            "sheet": "Operations",
+            "target_range": "B5",
+            "warning_flag": "formulaRange",
+            "formula": "=SUM(B2:B3)",
+            "adjacent_populated_cell": "B4",
+            "adjacent_populated_value": 30,
+            "downstream_formula_cell": "C5",
+            "downstream_formula": "=B5",
         }
     ]
     external_data_row = next(
@@ -1450,6 +1500,88 @@ def test_number_format_visibility_pair_changes_only_styles(tmp_path: Path) -> No
         for member in sorted(baseline_members)
         if baseline_members[member] != candidate_members[member]
     ] == ["xl/styles.xml"]
+
+
+def test_validator_rejects_a_false_ignored_error_suppression_fact(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "operations" / "ignored_error_formula_range_suppressed"
+    truth_path = case / "truth.json"
+    truth = json.loads(truth_path.read_text(encoding="utf-8"))
+    truth["facts"][0]["warning_flag"] = "formula"
+    truth_path.write_text(json.dumps(truth), encoding="utf-8")
+    assert validate_case(case)
+
+
+def test_validator_rejects_a_corrupted_ignored_error_suppression(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = (
+        fixture_root / "operations" / "ignored_error_formula_range_suppressed" / "candidate.xlsx"
+    )
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    namespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    worksheet_member = "xl/worksheets/sheet1.xml"
+    worksheet = ElementTree.fromstring(members[worksheet_member])
+    rule = next(worksheet.iter(f"{{{namespace}}}ignoredError"))
+    rule.set("formulaRange", "0")
+    members[worksheet_member] = ElementTree.tostring(
+        worksheet, encoding="utf-8", xml_declaration=True
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_validator_rejects_an_unrelated_ignored_error_control_change(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = (
+        fixture_root / "operations" / "ignored_error_formula_range_suppressed" / "candidate.xlsx"
+    )
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    namespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    worksheet_member = "xl/worksheets/sheet1.xml"
+    worksheet = ElementTree.fromstring(members[worksheet_member])
+    rule = next(worksheet.iter(f"{{{namespace}}}ignoredError"))
+    rule.set("emptyCellReference", "1")
+    members[worksheet_member] = ElementTree.tostring(
+        worksheet, encoding="utf-8", xml_declaration=True
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_ignored_error_suppression_pair_changes_only_its_operations_worksheet(
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "operations" / "ignored_error_formula_range_suppressed"
+    with ZipFile(case / "baseline.xlsx") as baseline, ZipFile(case / "candidate.xlsx") as candidate:
+        assert baseline.testzip() is None
+        assert candidate.testzip() is None
+        baseline_members = {
+            entry.filename: baseline.read(entry.filename) for entry in baseline.infolist()
+        }
+        candidate_members = {
+            entry.filename: candidate.read(entry.filename) for entry in candidate.infolist()
+        }
+    assert set(baseline_members) == set(candidate_members)
+    assert [
+        member
+        for member in sorted(baseline_members)
+        if baseline_members[member] != candidate_members[member]
+    ] == ["xl/worksheets/sheet1.xml"]
 
 
 def test_validator_rejects_a_false_scenario_manager_stored_input_fact(tmp_path: Path) -> None:
@@ -3010,6 +3142,92 @@ def test_formulafence_adapter_requires_the_number_format_visibility_finding(
     assert result["status"] == "missed"
     assert result["matched"] == []
     assert result["missed"] == ["cell_number_format_changed"]
+
+
+def test_formulafence_adapter_maps_the_exact_ignored_error_suppression(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _ignored_error_formula_range_suppression_details()
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "ignored_error_controls_changed",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF037", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "operations" / "ignored_error_formula_range_suppressed"
+    )
+    assert result["status"] == "matched"
+    assert result["matched"] == ["ignored_error_rule_added"]
+
+
+def test_formulafence_adapter_rejects_an_inexact_ignored_error_suppression(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _ignored_error_formula_range_suppression_details()
+        details["after"]["formula_range_omission_count"] = 2
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "ignored_error_controls_changed",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF037", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "operations" / "ignored_error_formula_range_suppressed"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["ignored_error_rule_added"]
+
+
+def test_formulafence_adapter_requires_the_ignored_error_suppression_finding(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "ignored_error_controls_changed",
+                    "location": None,
+                    "details": _ignored_error_formula_range_suppression_details(),
+                }
+            ],
+            "findings": [],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "operations" / "ignored_error_formula_range_suppressed"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["ignored_error_rule_added"]
 
 
 def test_formulafence_adapter_maps_the_exact_pivot_cache_refresh_change(

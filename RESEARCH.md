@@ -376,6 +376,29 @@ validator follows the direct cell style to that one custom number-format
 record, compares styles XML after erasing only its code, and never renders,
 locale-resolves, calculates, or claims what an Excel client displays.
 
+## Error-checking suppressions can hide a review prompt without a formula edit
+
+Microsoft's [formula-error guidance](https://support.microsoft.com/en-us/excel/detect-formula-errors-in-excel)
+states that an ignored error does not appear in subsequent error checks until
+the user resets ignored errors. The same guidance documents the rule for
+formulas that omit cells in a region: an adjacent, nonblank cell outside the
+referenced range can produce an error indicator. Microsoft's Office 2010
+[MS-XLSX `ignoredErrors` specification](https://learn.microsoft.com/en-us/openspecs/office_standards/ms-xlsx/0d164d85-23bf-4d43-87c5-9fcde148aabe)
+documents the stored extension form for per-range ignored-error declarations.
+Together, those sources identify an editable warning surface separate from an
+ordinary formula, result, or workbook-wide preference.
+
+The useful benchmark boundary is intentionally smaller than a claim that a
+particular Excel client will display a triangle or that a formula is wrong.
+WCAB 0.24 keeps `Operations!B2=10`, `B3=20`, `B4=30`,
+`B5=SUM(B2:B3)`, and `C5=B5` fixed. Only one standard
+`ignoredErrors/ignoredError` record with `sqref="B5"` and
+`formulaRange="1"` is added. The validator removes that one declaration when
+comparing worksheet XML and requires the Operations worksheet to be the sole
+changed package member. It does not evaluate the formula, predict an Excel
+warning or indicator, decide whether suppression is justified, change
+application-level error checking, calculate, or claim client behavior.
+
 ## Chart series sources without a worksheet edit
 
 Microsoft's [chart-series guidance](https://support.microsoft.com/en-US/Excel/rename-a-data-series)

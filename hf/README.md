@@ -22,7 +22,7 @@ configs:
 # Workbook Change Assurance Benchmark (WCAB)
 
 WCAB is an open, deterministic benchmark for tools that review changes to
-Excel workbooks. Each of its 38 synthetic cases supplies a baseline workbook,
+Excel workbooks. Each of its 39 synthetic cases supplies a baseline workbook,
 a candidate workbook, explicit observable change facts, a reference review
 disposition, documented coverage boundaries, and—in relevant cases—a
 machine-matchable coverage expectation.
@@ -63,7 +63,9 @@ formulas remain fixed, a `cellIs` conditional-formatting rule whose stored
 exception threshold moves while its target, priority, operator, differential
 fill, and worksheet values remain fixed, a custom number-format declaration
 whose code moves while its target style, raw value, and formula context remain
-fixed, and a Dashboard DrawingML chart
+fixed, a stored Excel error-checking declaration whose formula-range suppression
+is added while its ordinary cells and formula context remain fixed, and a
+Dashboard DrawingML chart
 whose stored numeric-series reference changes while its source cells, anchor,
 and other chart references remain fixed), an unchanged external-workbook formula
 whose `never`-to-`always` open-time update policy changes, an unchanged

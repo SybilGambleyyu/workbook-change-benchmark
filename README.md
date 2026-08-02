@@ -34,7 +34,7 @@ gates, static analyzers, and agent workflows that propose workbook edits.
 
 ## Scope and non-goals
 
-Version `0.23` covers formula-to-value replacements, formula reference drift,
+Version `0.24` covers formula-to-value replacements, formula reference drift,
 value changes with downstream effects, external formula references, named
 ranges, data validation, conditional formatting, sheet visibility, direct cell
 protection, calculation settings, static cycles, portfolio dependencies,
@@ -121,6 +121,14 @@ properties, and every package member except `styles.xml` remain unchanged.
 It records stored display metadata only: it does not render a number format,
 resolve locale or column-width behavior, decide what a client displays,
 calculate a workbook, or claim Excel-client behavior.
+It also covers one stored `Operations!B5` Excel error-checking suppression:
+the `=SUM(B2:B3)` formula, adjacent populated `B4` cell, downstream `C5=B5`
+formula, calculation properties, and all ordinary cells remain unchanged while
+a raw `ignoredErrors/ignoredError` `formulaRange=1` declaration is added for
+`B5`. It records that stored warning-suppression request only: it does not
+determine whether Excel would show a warning, evaluate a formula, decide
+whether the warning is justified, render an indicator, change application-level
+error-checking options, calculate a workbook, or claim Excel-client behavior.
 It also covers a Dashboard DrawingML chart whose raw numeric-series reference
 switches from `Source!$B$2:$B$4` to `Source!$C$2:$C$4` while all source cells,
 the chart anchor, its title/category references, and every package member
@@ -311,6 +319,13 @@ reports, so WCAB's raw validator independently proves the declared
 `0.0%;[Red](0.0%);-`-to-`;;;` code transition, stable target/style/value and
 formula context, and styles-only package change. Neither layer renders a
 format, calculates a workbook, or claims client behavior.
+For the stored ignored-error case, it requires FormulaFence's exact redacted
+`ignored_error_controls_changed` transition and `FF037`. FormulaFence exposes
+only aggregate warning-category counts, so WCAB's raw validator independently
+proves the generated `Operations!B5` target, `formulaRange=1` flag, stable
+formula context, and worksheet-only package change. Neither layer determines
+whether Excel would show a warning, evaluates a formula, renders an indicator,
+or claims client behavior.
 For the chart-series case, it requires FormulaFence's exact redacted one-chart
 profile, `chart_definition_material_changed`, and `FF030`; FormulaFence does
 not expose the source formula or a visual result. WCAB's raw validator instead

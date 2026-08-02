@@ -168,6 +168,14 @@ _NUMBER_FORMAT_VISIBILITY_CANDIDATE_FORMAT = ";;;"
 _NUMBER_FORMAT_VISIBILITY_CUSTOM_ID = 164
 _NUMBER_FORMAT_VISIBILITY_FORMULA_CELL = "B3"
 _NUMBER_FORMAT_VISIBILITY_FORMULA = "=B2"
+_IGNORED_ERROR_SUPPRESSION_SHEET = "Operations"
+_IGNORED_ERROR_SUPPRESSION_TARGET_RANGE = "B5"
+_IGNORED_ERROR_SUPPRESSION_FLAG = "formulaRange"
+_IGNORED_ERROR_SUPPRESSION_FORMULA = "=SUM(B2:B3)"
+_IGNORED_ERROR_SUPPRESSION_ADJACENT_CELL = "B4"
+_IGNORED_ERROR_SUPPRESSION_ADJACENT_VALUE = 30
+_IGNORED_ERROR_SUPPRESSION_DOWNSTREAM_CELL = "C5"
+_IGNORED_ERROR_SUPPRESSION_DOWNSTREAM_FORMULA = "=B5"
 _CHART_SERIES_SOURCE_SHEET = "Source"
 _CHART_SERIES_DASHBOARD_SHEET = "Dashboard"
 _CHART_SERIES_ANCHOR = "D2"
@@ -483,6 +491,31 @@ def _number_format_visibility_workbook() -> Workbook:
     ].number_format = _NUMBER_FORMAT_VISIBILITY_BASELINE_FORMAT
     operations["A3"] = "Raw model value"
     operations[_NUMBER_FORMAT_VISIBILITY_FORMULA_CELL] = _NUMBER_FORMAT_VISIBILITY_FORMULA
+    return workbook
+
+
+def _ignored_error_suppression_workbook() -> Workbook:
+    """Build a stable omitted-range review surface with a downstream formula.
+
+    The candidate later receives a raw SpreadsheetML ``ignoredError`` record.
+    Every ordinary cell and formula stays fixed, so the pair observes a stored
+    decision to suppress one Excel error-checking warning without asserting
+    whether a spreadsheet client would display that warning.
+    """
+
+    workbook = Workbook()
+    _configure_workbook(workbook, title="WCAB ignored-error suppression fixture")
+    operations = workbook.active
+    operations.title = _IGNORED_ERROR_SUPPRESSION_SHEET
+    operations.append(["Period", "Amount", "Reported total"])
+    for row, amount in enumerate((10, 20, _IGNORED_ERROR_SUPPRESSION_ADJACENT_VALUE), start=2):
+        operations.cell(row, 1, f"Period {row - 1}")
+        operations.cell(row, 2, amount)
+    operations["A5"] = "Reported total"
+    operations[_IGNORED_ERROR_SUPPRESSION_TARGET_RANGE] = _IGNORED_ERROR_SUPPRESSION_FORMULA
+    operations[_IGNORED_ERROR_SUPPRESSION_DOWNSTREAM_CELL] = (
+        _IGNORED_ERROR_SUPPRESSION_DOWNSTREAM_FORMULA
+    )
     return workbook
 
 
@@ -1842,6 +1875,67 @@ def _set_number_format_visibility_format(path: Path, *, format_code: str) -> Non
     _rewrite_xlsx_parts(path, mutate)
 
 
+def _add_ignored_error_formula_range_suppression(path: Path) -> None:
+    """Add WCAB's one stored formula-range warning suppression.
+
+    ``ignoredErrors/ignoredError`` records a per-range decision to suppress a
+    category of Excel error checking. The raw mutation occurs after openpyxl
+    creates stable cells and formulas, making the sole candidate boundary the
+    generated Operations worksheet declaration rather than a rendered warning.
+    """
+
+    def mutate(members: dict[str, bytes]) -> None:
+        worksheet_member = "xl/worksheets/sheet1.xml"
+        worksheet = ElementTree.fromstring(members[worksheet_member])
+        ignored_errors_tag = f"{{{_SPREADSHEETML_NS}}}ignoredErrors"
+        ignored_error_tag = f"{{{_SPREADSHEETML_NS}}}ignoredError"
+        sheet_data_tag = f"{{{_SPREADSHEETML_NS}}}sheetData"
+        cell_tag = f"{{{_SPREADSHEETML_NS}}}c"
+        formula_tag = f"{{{_SPREADSHEETML_NS}}}f"
+        value_tag = f"{{{_SPREADSHEETML_NS}}}v"
+        if worksheet.findall(ignored_errors_tag):
+            raise ValueError("ignored-error fixture unexpectedly already has controls")
+        target_cells = [
+            cell
+            for cell in worksheet.iter(cell_tag)
+            if cell.get("r") == _IGNORED_ERROR_SUPPRESSION_TARGET_RANGE
+        ]
+        if len(target_cells) != 1:
+            raise ValueError("ignored-error fixture lacks one target formula cell")
+        target_children = list(target_cells[0])
+        formulas = target_cells[0].findall(formula_tag)
+        if (
+            len(formulas) != 1
+            or len(target_children) not in {1, 2}
+            or target_children[0].tag != formula_tag
+            or (len(target_children) == 2 and target_children[1].tag != value_tag)
+            or formulas[0].attrib
+            or len(formulas[0])
+            or formulas[0].text != _IGNORED_ERROR_SUPPRESSION_FORMULA.removeprefix("=")
+        ):
+            raise ValueError("ignored-error fixture has an unexpected target formula")
+        sheet_data_indexes = [
+            index for index, child in enumerate(worksheet) if child.tag == sheet_data_tag
+        ]
+        if len(sheet_data_indexes) != 1:
+            raise ValueError("ignored-error fixture lacks one sheetData element")
+        controls = ElementTree.Element(ignored_errors_tag)
+        ElementTree.SubElement(
+            controls,
+            ignored_error_tag,
+            {
+                "sqref": _IGNORED_ERROR_SUPPRESSION_TARGET_RANGE,
+                _IGNORED_ERROR_SUPPRESSION_FLAG: "1",
+            },
+        )
+        worksheet.insert(sheet_data_indexes[0] + 1, controls)
+        members[worksheet_member] = ElementTree.tostring(
+            worksheet, encoding="utf-8", xml_declaration=True
+        )
+
+    _rewrite_xlsx_parts(path, mutate)
+
+
 def _add_pivot_slicer_selection(path: Path, *, selected_item_index: int) -> None:
     """Attach one local PivotTable slicer with one explicitly selected cache item.
 
@@ -2503,6 +2597,44 @@ def _build_operations_number_format_visibility(root: Path) -> None:
             coverage=[
                 "The pair changes only one custom numFmt formatCode declaration in styles.xml. It does not edit the target cell's style index or stored numeric text, the neighboring formula, calculation properties, or any other package member.",
                 "The observed contract is stored display metadata. WCAB does not render a number format, resolve locale or column-width behavior, decide what a client displays, calculate the workbook, or claim Excel-client behavior.",
+            ],
+        ),
+    )
+
+
+def _build_operations_ignored_error_suppression(root: Path) -> None:
+    """Build a stored error-warning suppression without an ordinary cell edit."""
+
+    directory = root / "operations" / "ignored_error_formula_range_suppressed"
+    directory.mkdir(parents=True, exist_ok=True)
+    baseline = directory / "baseline.xlsx"
+    candidate = directory / "candidate.xlsx"
+    _save_workbook(_ignored_error_suppression_workbook(), baseline)
+    _save_workbook(_ignored_error_suppression_workbook(), candidate)
+    _add_ignored_error_formula_range_suppression(candidate)
+    _write_json(
+        directory / "truth.json",
+        _truth(
+            case_id="operations.ignored_error_formula_range_suppressed",
+            title="An omitted-range error-checking warning is marked ignored",
+            family="operations",
+            review_expectation="review",
+            facts=[
+                {
+                    "kind": "ignored_error_rule_added",
+                    "sheet": _IGNORED_ERROR_SUPPRESSION_SHEET,
+                    "target_range": _IGNORED_ERROR_SUPPRESSION_TARGET_RANGE,
+                    "warning_flag": _IGNORED_ERROR_SUPPRESSION_FLAG,
+                    "formula": _IGNORED_ERROR_SUPPRESSION_FORMULA,
+                    "adjacent_populated_cell": _IGNORED_ERROR_SUPPRESSION_ADJACENT_CELL,
+                    "adjacent_populated_value": _IGNORED_ERROR_SUPPRESSION_ADJACENT_VALUE,
+                    "downstream_formula_cell": _IGNORED_ERROR_SUPPRESSION_DOWNSTREAM_CELL,
+                    "downstream_formula": _IGNORED_ERROR_SUPPRESSION_DOWNSTREAM_FORMULA,
+                }
+            ],
+            coverage=[
+                "The pair adds one standard ignoredErrors/ignoredError record with formulaRange=1 for Operations!B5. It does not edit the worksheet's ordinary cells or formulas, calculation properties, or any other package member.",
+                "The observed contract is a stored request to suppress one class of Excel error checking. WCAB does not determine whether a client would otherwise show a warning, evaluate the formula, decide whether a formula omission is justified, render an indicator, change application-level error-checking options, calculate the workbook, or claim Excel-client behavior.",
             ],
         ),
     )
@@ -3632,6 +3764,7 @@ _BUILDERS: tuple[Callable[[Path], None], ...] = (
     _build_operations_conditional_formatting,
     _build_operations_conditional_formatting_threshold,
     _build_operations_number_format_visibility,
+    _build_operations_ignored_error_suppression,
     _build_operations_auto_filter_criteria,
     _build_governance_visibility,
     _build_governance_protection,
@@ -3672,6 +3805,7 @@ CASE_IDS = (
     "operations.conditional_formatting_removed",
     "operations.conditional_formatting_threshold_changed",
     "operations.number_format_value_hidden",
+    "operations.ignored_error_formula_range_suppressed",
     "operations.auto_filter_criteria_changed",
     "governance.hidden_sheet_revealed",
     "governance.formula_cell_unlocked",

@@ -36,7 +36,9 @@ change with unchanged target range, priority, operator, differential fill,
 metric values, and calculation properties. WCAB 0.23 adds a custom
 number-format transition with unchanged target style index, raw numeric value,
 formula context, calculation properties, and every package member except
-`styles.xml`.
+`styles.xml`. WCAB 0.24 adds a worksheet-local ignored-error rule with
+unchanged ordinary cells, formula context, calculation properties, and every
+package member except its worksheet XML.
 Version 2 remains
 available in the immutable v0.2.0 and v0.3.0 releases.
 
@@ -76,6 +78,7 @@ Facts are observed directly from the fixture files by `wcab validate`.
 | `conditional_formatting_count_changed` | `sheet`, `baseline_count`, `candidate_count` | Conditional-formatting range count differs as declared. |
 | `conditional_formatting_threshold_changed` | `sheet`, `target_range`, `priority`, `rule_type`, `operator`, `baseline_formula`, `candidate_formula`, `metric_values`, `fill_rgb` | One stored `cellIs` conditional-formatting rule retains its target range, priority, operator, differential fill, worksheet values, calculation properties, and every package member except its worksheet while raw `formula` moves between declared thresholds. The validator does not evaluate the rule, determine which cells a client formats, calculate a workbook, or claim client behavior. |
 | `cell_number_format_changed` | `sheet`, `cell`, `value`, `custom_number_format_id`, `baseline_format`, `candidate_format`, `formula_cell`, `formula` | One direct-cell custom number-format declaration moves between declared codes while the target style index, raw numeric text, neighboring formula, calculation properties, and every package member except `xl/styles.xml` remain unchanged. The validator does not render a format, resolve locale or column-width behavior, calculate a workbook, or claim client behavior. |
+| `ignored_error_rule_added` | `sheet`, `target_range`, `warning_flag`, `formula`, `adjacent_populated_cell`, `adjacent_populated_value`, `downstream_formula_cell`, `downstream_formula` | One standard worksheet `ignoredErrors/ignoredError` declaration is added with the declared target and enabled warning flag while ordinary cells, formulas, calculation properties, and every package member except its worksheet remain unchanged. The validator does not determine whether a client would show a warning, evaluate a formula, judge a warning's justification, render an indicator, or claim client behavior. |
 | `auto_filter_criteria_changed` | `sheet`, `filter_ref`, `filter_column_id`, `baseline_filter_value`, `candidate_filter_value`, `subtotal_cell`, `subtotal_formula`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | One raw worksheet AutoFilter list criterion changes while its filter shell, formulas, direct dependency edge, and every package member except the report worksheet remain unchanged. The validator does not apply the filter or calculate a result. |
 | `sheet_visibility_changed` | `sheet`, `baseline_state`, `candidate_state` | The stored sheet state changes. |
 | `formula_cell_unlocked` | `sheet`, `cell` | A formula cell is explicitly unlocked while its sheet remains protected. |
@@ -153,6 +156,25 @@ The validator follows the direct cell style to one custom `numFmt` with ID
 display metadata only: it does not render a format, resolve locale or
 column-width behavior, decide what a client displays, calculate a workbook, or
 claim Excel-client behavior.
+
+## Ignored error-checking rule
+
+Microsoft's [formula-error guidance](https://support.microsoft.com/en-us/excel/detect-formula-errors-in-excel)
+explains that a selected ignored error no longer appears in later error checks
+until errors are reset, and documents the formula-range-omission checking rule.
+The Office 2010 [MS-XLSX `ignoredErrors` specification](https://learn.microsoft.com/en-us/openspecs/office_standards/ms-xlsx/0d164d85-23bf-4d43-87c5-9fcde148aabe)
+records the related extension form. A stored per-range suppression is therefore
+a review surface even when no ordinary formula or cell changes.
+
+WCAB's pair keeps `Operations!B2=10`, `B3=20`, `B4=30`,
+`B5=SUM(B2:B3)`, and `C5=B5` unchanged. The candidate adds exactly one
+standard `ignoredErrors/ignoredError` child with `sqref="B5"` and
+`formulaRange="1"`. The validator accepts only that compact raw shape,
+compares the Operations worksheet after removing the declaration, and requires
+that worksheet to be the only changed package member. It does not determine
+whether Excel would show a warning, evaluate the formula, infer a displayed
+indicator, decide whether the warning is warranted, change application-level
+settings, calculate a workbook, or claim Excel-client behavior.
 
 ## Static impact lower bounds
 

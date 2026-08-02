@@ -1,0 +1,27 @@
+{
+  "coverage": [
+    "The pair adds one standard ignoredErrors/ignoredError record with formulaRange=1 for Operations!B5. It does not edit the worksheet's ordinary cells or formulas, calculation properties, or any other package member.",
+    "The observed contract is a stored request to suppress one class of Excel error checking. WCAB does not determine whether a client would otherwise show a warning, evaluate the formula, decide whether a formula omission is justified, render an indicator, change application-level error-checking options, calculate the workbook, or claim Excel-client behavior."
+  ],
+  "coverage_expectations": [],
+  "facts": [
+    {
+      "adjacent_populated_cell": "B4",
+      "adjacent_populated_value": 30,
+      "downstream_formula": "=B5",
+      "downstream_formula_cell": "C5",
+      "formula": "=SUM(B2:B3)",
+      "kind": "ignored_error_rule_added",
+      "sheet": "Operations",
+      "target_range": "B5",
+      "warning_flag": "formulaRange"
+    }
+  ],
+  "family": "operations",
+  "id": "operations.ignored_error_formula_range_suppressed",
+  "must_reach": [],
+  "review_expectation": "review",
+  "schema_version": 3,
+  "title": "An omitted-range error-checking warning is marked ignored",
+  "topology": "pair"
+}

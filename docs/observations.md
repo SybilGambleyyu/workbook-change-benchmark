@@ -267,7 +267,17 @@ deliberately does not expose a code or target. WCAB's raw validator—not the
 adapter—then establishes the declared `0.0%;[Red](0.0%);-`-to-`;;;` code
 transition, target/style/value/formula context, and styles-only package change.
 Neither report renders a format, calculates a workbook, or claims client
-behavior. For the chart-series case, it requires
+behavior. For the stored ignored-error case, it requires one exact
+`ignored_error_controls_changed` record and matching `FF037`: FormulaFence's
+redacted profile must move from no controls to one standard container, one
+target range, and one `formula_range_omission` category with no unrecognized
+controls, while only `ignored_error_definition_material_changed` is set.
+FormulaFence deliberately does not expose the target range or formula. WCAB's
+raw validator—not the adapter—then establishes the generated `Operations!B5`
+target, `formulaRange=1` flag, stable cells/formulas, and worksheet-only
+package change. Neither report determines whether Excel would show a warning,
+evaluates a formula, renders an indicator, or claims client behavior. For the
+chart-series case, it requires
 one exact `chart_definitions_changed` record and matching
 `FF030`: FormulaFence's redacted profile must retain one host sheet, one
 drawing, one legacy chart, one series, three data references, no chart cache,

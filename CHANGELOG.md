@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.24.0 — 2026-08-03
+
+- Add a deterministic stored Excel error-checking suppression case. Its
+  `Operations!B5=SUM(B2:B3)` formula, adjacent populated `B4` cell, downstream
+  `C5=B5` formula, and calculation properties remain unchanged while one raw
+  `ignoredErrors/ignoredError` `formulaRange=1` declaration is added for `B5`.
+- Add the exact `ignored_error_rule_added` fact, a narrow raw worksheet
+  validator, worksheet-only package isolation check, and corruption regressions.
+  WCAB records a stored request to suppress an error-checking category only: it
+  does not determine whether Excel would show a warning, evaluate a formula,
+  decide whether a warning is justified, render an indicator, calculate a
+  workbook, or claim Excel-client behavior.
+- Extend the optional FormulaFence adapter to require the exact one-rule,
+  redacted `ignored_error_controls_changed` transition and high-severity
+  `FF037`, while WCAB independently proves the target, flag, formula context,
+  and package boundary.
+
 ## 0.23.0 — 2026-08-03
 
 - Add a deterministic custom number-format case. Its one `Operations!B2`
