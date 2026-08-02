@@ -20,7 +20,9 @@ workbook serial-date-system control change with unchanged cell content, WCAB
 content and formulas, and WCAB 0.14 adds a relationship-backed PivotTable cache
 refresh-on-open control change with unchanged stored cells. WCAB 0.15 adds a
 relationship-backed DrawingML chart-series source-reference change with
-unchanged worksheet cells. Version 2 remains
+unchanged worksheet cells. WCAB 0.16 adds a relationship-backed PivotTable
+value-field aggregation change with unchanged source/cache/report cells.
+Version 2 remains
 available in the immutable v0.2.0 and v0.3.0 releases.
 
 ```json
@@ -66,6 +68,7 @@ Facts are observed directly from the fixture files by `wcab validate`.
 | `formula_cached_result_changed` | `sheet`, `cell`, `formula`, `input_sheet`, `input_cell`, `input_value`, `result_type`, `baseline_cached_result`, `candidate_cached_result` | One raw numeric formula-cell `<v>` value changes while its raw `<f>` expression, direct input, calculation properties, and every other package member remain unchanged. The validator reads OOXML only; it does not calculate, validate, or interpret the saved result. |
 | `external_data_connection_refresh_on_load_changed` | `connection_id`, `baseline_refresh_on_load`, `candidate_refresh_on_load` | The relationship-backed connection with this workbook-local ID explicitly changes `refreshOnLoad` from `false` to `true`. The validator reads raw OOXML only. |
 | `pivot_cache_refresh_on_load_changed` | `cache_id`, `source_type`, `source_sheet`, `source_ref`, `pivot_sheet`, `pivot_ref`, `pivot_output_cell`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula`, `baseline_refresh_on_load`, `candidate_refresh_on_load` | One relationship-bound local worksheet PivotCache changes raw `refreshOnLoad` from `false` to `true`; its source binding, PivotTable location, stored report/dashboard cells, calculation properties, and every package member except its cache definition remain unchanged. The validator neither refreshes nor renders a PivotTable. |
+| `pivot_data_field_aggregation_changed` | `cache_id`, `source_type`, `source_sheet`, `source_ref`, `pivot_sheet`, `pivot_ref`, `pivot_output_cell`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula`, `data_field_source_index`, `baseline_subtotal`, `candidate_subtotal` | One relationship-bound local worksheet PivotTable retains its source/cache bindings, stored report/dashboard cells, refresh control, and calculation properties while raw `dataFields/dataField/@subtotal` moves between the declared aggregate functions. Every package member except its PivotTable definition remains unchanged. The validator does not refresh, calculate, render, or infer a displayed result. |
 | `chart_series_value_reference_changed` | `chart_sheet`, `chart_anchor`, `source_sheet`, `series_title_ref`, `category_ref`, `baseline_value_ref`, `candidate_value_ref` | One relationship-bound DrawingML chart retains its host, anchor, title/category references, source worksheet cells, and every package member except its chart part while raw `c:ser/c:val/c:numRef/c:f` moves between declared local value ranges. The validator does not calculate, refresh, or render a chart. |
 | `external_workbook_link_update_policy_changed` | `sheet`, `cell`, `formula`, `baseline_update_links`, `candidate_update_links` | The declared external-workbook formula remains unchanged while raw `workbookPr/@updateLinks` changes exactly from `never` to `always`; all other stored `workbookPr` attributes are unchanged. The validator does not resolve the source workbook. |
 | `array_formula_mode_changed` | `sheet`, `cell`, `formula`, `baseline_mode`, `candidate_mode`, `baseline_output_range`, `candidate_output_range` | The declared unchanged array anchor moves from `legacy_cse` to `dynamic`, with its stored formula text and output range exactly as declared. The validator reads the raw OOXML cell-metadata binding. |
@@ -114,6 +117,24 @@ relationship graph, verifies the cache definition changes solely at
 fixed. It does not open a workbook in Excel, refresh a cache, calculate or
 render the PivotTable, infer a visible result, or claim whether any client will
 honor the request.
+
+## PivotTable value aggregation
+
+Excel's [PivotTable layout guidance](https://support.microsoft.com/en-US/Excel/design-the-layout-and-format-of-a-pivottable)
+documents placing fields in the Values area and changing their settings. In
+SpreadsheetML, [`dataField/@subtotal`](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.spreadsheet.datafield.subtotal?view=openxml-3.0.1)
+stores the value field's data-consolidate function. That declaration is
+review-material even if neither source cells nor stored report cells change.
+
+WCAB's aggregation fixture retains the same one-local-cache graph:
+`Source!A1:B5` binds to a PivotTable at `Report!A1:B2`, whose stored `B2`
+display cell is directly referenced by `Dashboard!B4`. Baseline and candidate
+retain every cache record, source binding, relationship, cell, formula, and
+calculation property; the only raw difference is its sole
+`dataFields/dataField/@subtotal` from `sum` to `average`. The validator follows
+that local graph and compares the PivotTable XML after removing exactly that
+attribute. It does not open Excel, refresh, calculate, render, infer a changed
+displayed value, or claim client behavior.
 
 ## External-workbook link update policy
 

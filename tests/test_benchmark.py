@@ -106,6 +106,41 @@ def _chart_series_reference_details() -> dict[str, object]:
     }
 
 
+def _pivot_data_field_aggregation_details() -> dict[str, object]:
+    profile = {
+        "present": True,
+        "pivot_table_sheet_count": 1,
+        "pivot_table_part_count": 1,
+        "pivot_cache_definition_part_count": 1,
+        "pivot_cache_records_part_count": 1,
+        "pivot_cache_binding_count": 1,
+        "layout_location_count": 1,
+        "pivot_field_count": 2,
+        "row_field_count": 1,
+        "column_field_count": 0,
+        "page_field_count": 0,
+        "data_field_count": 1,
+        "filter_count": 0,
+        "row_item_count": 0,
+        "column_item_count": 0,
+        "cache_field_count": 2,
+        "shared_item_count": 6,
+        "calculated_item_count": 0,
+        "calculated_member_count": 0,
+        "cache_record_count": 4,
+        "related_relationship_count": 2,
+        "external_relationship_count": 0,
+        "fingerprinted_cache_record_part_count": 1,
+        "uninspected_cache_record_part_count": 0,
+        "unrecognized_part_count": 0,
+    }
+    return {
+        "before": profile,
+        "after": profile,
+        "pivot_table_layout_material_changed": True,
+    }
+
+
 def test_committed_fixtures_validate() -> None:
     assert validate_all(PROJECT_ROOT / "fixtures") == {}
 
@@ -206,6 +241,27 @@ def test_committed_manifest_matches_fixture_tree() -> None:
             "dashboard_formula": "=Report!$B$2",
             "baseline_refresh_on_load": False,
             "candidate_refresh_on_load": True,
+        }
+    ]
+    pivot_aggregation_row = next(
+        row for row in rows if row["id"] == "structural.pivot_data_field_aggregation_changed"
+    )
+    assert pivot_aggregation_row["facts"] == [
+        {
+            "kind": "pivot_data_field_aggregation_changed",
+            "cache_id": 1,
+            "source_type": "worksheet",
+            "source_sheet": "Source",
+            "source_ref": "A1:B5",
+            "pivot_sheet": "Report",
+            "pivot_ref": "A1:B2",
+            "pivot_output_cell": "B2",
+            "dashboard_sheet": "Dashboard",
+            "dashboard_cell": "B4",
+            "dashboard_formula": "=Report!$B$2",
+            "data_field_source_index": 1,
+            "baseline_subtotal": "sum",
+            "candidate_subtotal": "average",
         }
     ]
     external_link_policy_row = next(
@@ -521,6 +577,88 @@ def test_pivot_cache_refresh_pair_changes_only_its_cache_definition(tmp_path: Pa
         for member in sorted(baseline_members)
         if baseline_members[member] != candidate_members[member]
     ] == ["xl/pivotCache/pivotCacheDefinition1.xml"]
+
+
+def test_validator_rejects_a_false_pivot_data_field_aggregation_fact(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "structural" / "pivot_data_field_aggregation_changed"
+    truth_path = case / "truth.json"
+    truth = json.loads(truth_path.read_text(encoding="utf-8"))
+    truth["facts"][0]["candidate_subtotal"] = "sum"
+    truth_path.write_text(json.dumps(truth), encoding="utf-8")
+    assert validate_case(case)
+
+
+def test_validator_rejects_a_corrupted_pivot_data_field_aggregation(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = (
+        fixture_root / "structural" / "pivot_data_field_aggregation_changed" / "candidate.xlsx"
+    )
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    namespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    pivot_member = "xl/pivotTables/pivotTable1.xml"
+    pivot_table = ElementTree.fromstring(members[pivot_member])
+    data_field = pivot_table.find(f".//{{{namespace}}}dataField")
+    assert data_field is not None
+    data_field.set("subtotal", "sum")
+    members[pivot_member] = ElementTree.tostring(
+        pivot_table, encoding="utf-8", xml_declaration=True
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_validator_rejects_a_corrupted_pivot_data_field_relationship(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = (
+        fixture_root / "structural" / "pivot_data_field_aggregation_changed" / "candidate.xlsx"
+    )
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    relationships_member = "xl/pivotTables/_rels/pivotTable1.xml.rels"
+    relationships = ElementTree.fromstring(members[relationships_member])
+    relationship = next(item for item in relationships if item.get("Id") == "rIdWCABPivotCache")
+    relationship.set(
+        "Type", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"
+    )
+    members[relationships_member] = ElementTree.tostring(
+        relationships, encoding="utf-8", xml_declaration=True
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_pivot_data_field_aggregation_pair_changes_only_its_pivot_table(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "structural" / "pivot_data_field_aggregation_changed"
+    with ZipFile(case / "baseline.xlsx") as baseline, ZipFile(case / "candidate.xlsx") as candidate:
+        assert baseline.testzip() is None
+        assert candidate.testzip() is None
+        baseline_members = {
+            entry.filename: baseline.read(entry.filename) for entry in baseline.infolist()
+        }
+        candidate_members = {
+            entry.filename: candidate.read(entry.filename) for entry in candidate.infolist()
+        }
+    assert set(baseline_members) == set(candidate_members)
+    assert [
+        member
+        for member in sorted(baseline_members)
+        if baseline_members[member] != candidate_members[member]
+    ] == ["xl/pivotTables/pivotTable1.xml"]
 
 
 def test_validator_rejects_a_false_chart_series_reference_fact(tmp_path: Path) -> None:
@@ -1697,6 +1835,92 @@ def test_formulafence_adapter_requires_the_pivot_cache_refresh_finding(
     assert result["status"] == "missed"
     assert result["matched"] == []
     assert result["missed"] == ["pivot_cache_refresh_on_load_changed"]
+
+
+def test_formulafence_adapter_maps_the_exact_pivot_data_field_aggregation_change(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _pivot_data_field_aggregation_details()
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "pivot_table_definitions_changed",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF031", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "structural" / "pivot_data_field_aggregation_changed"
+    )
+    assert result["status"] == "matched"
+    assert result["matched"] == ["pivot_data_field_aggregation_changed"]
+
+
+def test_formulafence_adapter_rejects_an_inexact_pivot_data_field_aggregation_change(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _pivot_data_field_aggregation_details()
+        details["cache_record_payload_material_changed"] = True
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "pivot_table_definitions_changed",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF031", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "structural" / "pivot_data_field_aggregation_changed"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["pivot_data_field_aggregation_changed"]
+
+
+def test_formulafence_adapter_requires_the_pivot_data_field_aggregation_finding(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "pivot_table_definitions_changed",
+                    "location": None,
+                    "details": _pivot_data_field_aggregation_details(),
+                }
+            ],
+            "findings": [],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "structural" / "pivot_data_field_aggregation_changed"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["pivot_data_field_aggregation_changed"]
 
 
 def test_formulafence_adapter_maps_the_exact_chart_series_reference_change(

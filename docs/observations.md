@@ -188,7 +188,17 @@ and all controls except `refresh_on_load`, which moves from `false` to `true`.
 WCAB's raw validator—not the adapter—then establishes the `Source!A1:B5`
 binding, `Report!A1:B2` PivotTable location, stable stored report/dashboard
 cells, direct dashboard edge, and cache-definition-only package change.
-Neither report refreshes or renders a PivotTable. For the chart-series
+Neither report refreshes or renders a PivotTable. For the PivotTable
+aggregation case, it requires one exact `pivot_table_definitions_changed`
+record and matching `FF031`: FormulaFence's redacted profile must retain one
+PivotTable, one local cache, one data field, two cache fields, four cache
+records, and no other material flag except
+`pivot_table_layout_material_changed`. FormulaFence does not expose the source
+labels, selected aggregate function, or a rendered report. WCAB's raw
+validator—not the adapter—then establishes the local graph, stable stored
+cells, exact `sum`-to-`average` `dataField/@subtotal` transition, and
+PivotTable-part-only package change. Neither report refreshes, calculates, or
+renders a PivotTable. For the chart-series
 case, it requires one exact `chart_definitions_changed` record and matching
 `FF030`: FormulaFence's redacted profile must retain one host sheet, one
 drawing, one legacy chart, one series, three data references, no chart cache,

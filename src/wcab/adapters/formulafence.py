@@ -41,6 +41,7 @@ _FACT_TO_CHANGE: dict[str, tuple[str, str | None]] = {
     "formula_cached_result_changed": ("formula_cached_result_changed", None),
     "array_formula_mode_changed": ("array_formula_mode_changed", "location"),
     "chart_series_value_reference_changed": ("chart_definitions_changed", None),
+    "pivot_data_field_aggregation_changed": ("pivot_table_definitions_changed", None),
     "external_data_connection_refresh_on_load_changed": (
         "external_data_connections_changed",
         None,
@@ -539,6 +540,85 @@ def _chart_series_value_reference_finding_observed(
     )
 
 
+def _pivot_data_field_aggregation_details_observed(details: Any, fact: dict[str, Any]) -> bool:
+    """Match FormulaFence's redacted one-PivotTable aggregation evidence.
+
+    FormulaFence intentionally reports only PivotTable structure, not source
+    labels, cached values, or the selected aggregate function. WCAB therefore
+    requires exactly its one-PivotTable layout material change and FF031, then
+    independently validates the stored ``sum -> average`` declaration.
+    """
+
+    if (
+        fact.get("cache_id") != 1
+        or fact.get("source_type") != "worksheet"
+        or fact.get("source_sheet") != "Source"
+        or fact.get("source_ref") != "A1:B5"
+        or fact.get("pivot_sheet") != "Report"
+        or fact.get("pivot_ref") != "A1:B2"
+        or fact.get("pivot_output_cell") != "B2"
+        or fact.get("dashboard_sheet") != "Dashboard"
+        or fact.get("dashboard_cell") != "B4"
+        or fact.get("dashboard_formula") != "=Report!$B$2"
+        or fact.get("data_field_source_index") != 1
+        or fact.get("baseline_subtotal") != "sum"
+        or fact.get("candidate_subtotal") != "average"
+        or not isinstance(details, dict)
+    ):
+        return False
+    expected_profile = {
+        "present": True,
+        "pivot_table_sheet_count": 1,
+        "pivot_table_part_count": 1,
+        "pivot_cache_definition_part_count": 1,
+        "pivot_cache_records_part_count": 1,
+        "pivot_cache_binding_count": 1,
+        "layout_location_count": 1,
+        "pivot_field_count": 2,
+        "row_field_count": 1,
+        "column_field_count": 0,
+        "page_field_count": 0,
+        "data_field_count": 1,
+        "filter_count": 0,
+        "row_item_count": 0,
+        "column_item_count": 0,
+        "cache_field_count": 2,
+        "shared_item_count": 6,
+        "calculated_item_count": 0,
+        "calculated_member_count": 0,
+        "cache_record_count": 4,
+        "related_relationship_count": 2,
+        "external_relationship_count": 0,
+        "fingerprinted_cache_record_part_count": 1,
+        "uninspected_cache_record_part_count": 0,
+        "unrecognized_part_count": 0,
+    }
+    return (
+        details.get("before") == expected_profile
+        and details.get("after") == expected_profile
+        and details.get("pivot_table_layout_material_changed") is True
+        and set(details) == {"before", "after", "pivot_table_layout_material_changed"}
+    )
+
+
+def _pivot_data_field_aggregation_observed(change: dict[str, Any], fact: dict[str, Any]) -> bool:
+    """Match FormulaFence's PivotTable-definition change record."""
+
+    return change.get("kind") == "pivot_table_definitions_changed" and (
+        _pivot_data_field_aggregation_details_observed(change.get("details"), fact)
+    )
+
+
+def _pivot_data_field_aggregation_finding_observed(
+    finding: dict[str, Any], fact: dict[str, Any]
+) -> bool:
+    """Require FormulaFence's matching high-severity PivotTable finding."""
+
+    return finding.get("rule_id") == "FF031" and _pivot_data_field_aggregation_details_observed(
+        finding.get("details"), fact
+    )
+
+
 def _formula_cached_result_details_observed(details: Any, fact: dict[str, Any]) -> bool:
     """Match FormulaFence's intentionally redacted saved-result details.
 
@@ -792,6 +872,16 @@ def evaluate_diff_case(case_dir: str | Path, *, executable: str = "formulafence"
                 if isinstance(change, dict)
             ) and any(
                 _chart_series_value_reference_finding_observed(finding, fact)
+                for finding in findings
+                if isinstance(finding, dict)
+            )
+        if kind == "pivot_data_field_aggregation_changed":
+            observed = any(
+                _pivot_data_field_aggregation_observed(change, fact)
+                for change in changes
+                if isinstance(change, dict)
+            ) and any(
+                _pivot_data_field_aggregation_finding_observed(finding, fact)
                 for finding in findings
                 if isinstance(finding, dict)
             )

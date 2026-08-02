@@ -438,6 +438,65 @@ def _pivot_cache_definition_without_refresh_on_load(path: Path, pivot_sheet: str
     return ElementTree.tostring(definition, encoding="utf-8", xml_declaration=True)
 
 
+def _raw_pivot_data_field_aggregation_state(path: Path, pivot_sheet: str) -> dict[str, Any] | None:
+    """Read the sole generated PivotTable value-field aggregation declaration.
+
+    The shared PivotCache reader establishes the relationship-backed graph.
+    This narrower layer then reads exactly one ``dataFields/dataField`` entry;
+    it never recalculates, refreshes, or renders the PivotTable.
+    """
+
+    state = _raw_pivot_cache_refresh_state(path, pivot_sheet)
+    if state is None:
+        return None
+    try:
+        with ZipFile(path) as archive:
+            pivot_table = ElementTree.fromstring(archive.read(state["pivot_table_member"]))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    data_fields_tag = f"{{{_SPREADSHEETML_NS}}}dataFields"
+    data_field_tag = f"{{{_SPREADSHEETML_NS}}}dataField"
+    data_fields = pivot_table.findall(data_fields_tag)
+    if (
+        len(data_fields) != 1
+        or data_fields[0].get("count") != "1"
+        or len(data_fields[0]) != 1
+        or data_fields[0][0].tag != data_field_tag
+    ):
+        return None
+    data_field = data_fields[0][0]
+    try:
+        source_index = int(data_field.get("fld", ""))
+    except ValueError:
+        return None
+    subtotal = data_field.get("subtotal")
+    if not isinstance(subtotal, str):
+        return None
+    return {
+        **state,
+        "data_field_source_index": source_index,
+        "data_field_attributes": tuple(sorted(data_field.attrib.items())),
+    }
+
+
+def _pivot_table_without_data_field_subtotal(path: Path, pivot_sheet: str) -> bytes | None:
+    """Return the generated PivotTable definition without its one subtotal attr."""
+
+    state = _raw_pivot_data_field_aggregation_state(path, pivot_sheet)
+    if state is None:
+        return None
+    try:
+        with ZipFile(path) as archive:
+            pivot_table = ElementTree.fromstring(archive.read(state["pivot_table_member"]))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    data_fields = pivot_table.findall(f"{{{_SPREADSHEETML_NS}}}dataFields")
+    if len(data_fields) != 1 or len(data_fields[0]) != 1:
+        return None
+    data_fields[0][0].attrib.pop("subtotal", None)
+    return ElementTree.tostring(pivot_table, encoding="utf-8", xml_declaration=True)
+
+
 def _chart_anchor_cell(anchor: ElementTree.Element) -> str | None:
     """Return one zero-offset worksheet-drawing anchor as an A1 coordinate."""
 
@@ -1645,6 +1704,190 @@ def _validate_fact(
             == {before_state["chart_member"]}
             and _calculation_properties(baseline_path) == _calculation_properties(candidate_path),
             f"{truth['id']}: expected one relationship-bound chart value-series reference to change with stable worksheets and chart bindings",
+            errors,
+        )
+        return
+
+    if kind == "pivot_data_field_aggregation_changed":
+        cache_id = fact.get("cache_id")
+        source_type = fact.get("source_type")
+        source_sheet = fact.get("source_sheet")
+        source_reference = fact.get("source_ref")
+        pivot_sheet = fact.get("pivot_sheet")
+        pivot_reference = fact.get("pivot_ref")
+        pivot_output_cell = fact.get("pivot_output_cell")
+        dashboard_sheet = fact.get("dashboard_sheet")
+        dashboard_cell = fact.get("dashboard_cell")
+        dashboard_formula = fact.get("dashboard_formula")
+        data_field_source_index = fact.get("data_field_source_index")
+        baseline_subtotal = fact.get("baseline_subtotal")
+        candidate_subtotal = fact.get("candidate_subtotal")
+        before_state = (
+            _raw_pivot_data_field_aggregation_state(baseline_path, pivot_sheet)
+            if isinstance(pivot_sheet, str)
+            else None
+        )
+        after_state = (
+            _raw_pivot_data_field_aggregation_state(candidate_path, pivot_sheet)
+            if isinstance(pivot_sheet, str)
+            else None
+        )
+        before_output = (
+            _raw_cell_state(baseline_path, pivot_sheet, pivot_output_cell)
+            if isinstance(pivot_sheet, str) and isinstance(pivot_output_cell, str)
+            else None
+        )
+        after_output = (
+            _raw_cell_state(candidate_path, pivot_sheet, pivot_output_cell)
+            if isinstance(pivot_sheet, str) and isinstance(pivot_output_cell, str)
+            else None
+        )
+        before_dashboard = (
+            _raw_cell_state(baseline_path, dashboard_sheet, dashboard_cell)
+            if isinstance(dashboard_sheet, str) and isinstance(dashboard_cell, str)
+            else None
+        )
+        after_dashboard = (
+            _raw_cell_state(candidate_path, dashboard_sheet, dashboard_cell)
+            if isinstance(dashboard_sheet, str) and isinstance(dashboard_cell, str)
+            else None
+        )
+        expected_definition_attributes = tuple(
+            sorted(
+                {
+                    "recordCount": "4",
+                    "refreshOnLoad": "0",
+                    "saveData": "1",
+                    f"{{{_DOCUMENT_RELATIONSHIPS_NS}}}id": "rIdWCABPivotRecords",
+                }.items()
+            )
+        )
+        expected_pivot_attributes = (
+            tuple(
+                sorted(
+                    {
+                        "cacheId": str(cache_id),
+                        "dataCaption": "Amount",
+                        "name": "WCAB Pivot Report",
+                    }.items()
+                )
+            )
+            if type(cache_id) is int
+            else None
+        )
+        expected_location_attributes = (
+            tuple(
+                sorted(
+                    {
+                        "ref": pivot_reference,
+                        "firstHeaderRow": "1",
+                        "firstDataRow": "2",
+                        "firstDataCol": "1",
+                    }.items()
+                )
+            )
+            if isinstance(pivot_reference, str)
+            else None
+        )
+        expected_cache_source_attributes = (
+            (("type", source_type),) if isinstance(source_type, str) else None
+        )
+        expected_worksheet_source_attributes = (
+            tuple(sorted({"ref": source_reference, "sheet": source_sheet}.items()))
+            if isinstance(source_reference, str) and isinstance(source_sheet, str)
+            else None
+        )
+        expected_baseline_data_field_attributes = (
+            tuple(
+                sorted(
+                    {
+                        "fld": str(data_field_source_index),
+                        "subtotal": baseline_subtotal,
+                    }.items()
+                )
+            )
+            if type(data_field_source_index) is int and isinstance(baseline_subtotal, str)
+            else None
+        )
+        expected_candidate_data_field_attributes = (
+            tuple(
+                sorted(
+                    {
+                        "fld": str(data_field_source_index),
+                        "subtotal": candidate_subtotal,
+                    }.items()
+                )
+            )
+            if type(data_field_source_index) is int and isinstance(candidate_subtotal, str)
+            else None
+        )
+        graph = _direct_graph(candidate)
+        _assert(
+            type(cache_id) is int
+            and cache_id > 0
+            and isinstance(source_type, str)
+            and isinstance(source_sheet, str)
+            and isinstance(source_reference, str)
+            and isinstance(pivot_sheet, str)
+            and isinstance(pivot_reference, str)
+            and isinstance(pivot_output_cell, str)
+            and isinstance(dashboard_sheet, str)
+            and isinstance(dashboard_cell, str)
+            and isinstance(dashboard_formula, str)
+            and type(data_field_source_index) is int
+            and data_field_source_index >= 0
+            and isinstance(baseline_subtotal, str)
+            and isinstance(candidate_subtotal, str)
+            and baseline_subtotal != candidate_subtotal
+            and source_sheet in baseline.sheetnames
+            and source_sheet in candidate.sheetnames
+            and pivot_sheet in baseline.sheetnames
+            and pivot_sheet in candidate.sheetnames
+            and dashboard_sheet in baseline.sheetnames
+            and dashboard_sheet in candidate.sheetnames
+            and before_state is not None
+            and after_state is not None
+            and {
+                key: value for key, value in before_state.items() if key != "data_field_attributes"
+            }
+            == {key: value for key, value in after_state.items() if key != "data_field_attributes"}
+            and before_state["cache_id"] == cache_id
+            and after_state["cache_id"] == cache_id
+            and before_state["definition_attributes"] == expected_definition_attributes
+            and after_state["definition_attributes"] == expected_definition_attributes
+            and before_state["cache_source_attributes"] == expected_cache_source_attributes
+            and after_state["cache_source_attributes"] == expected_cache_source_attributes
+            and before_state["worksheet_source_attributes"] == expected_worksheet_source_attributes
+            and after_state["worksheet_source_attributes"] == expected_worksheet_source_attributes
+            and before_state["cache_records_attributes"] == (("count", "4"),)
+            and after_state["cache_records_attributes"] == (("count", "4"),)
+            and before_state["cache_record_indexes"] == ((0, 0), (0, 1), (1, 2), (1, 3))
+            and after_state["cache_record_indexes"] == ((0, 0), (0, 1), (1, 2), (1, 3))
+            and before_state["pivot_table_attributes"] == expected_pivot_attributes
+            and after_state["pivot_table_attributes"] == expected_pivot_attributes
+            and before_state["location_attributes"] == expected_location_attributes
+            and after_state["location_attributes"] == expected_location_attributes
+            and before_state["data_field_source_index"] == data_field_source_index
+            and after_state["data_field_source_index"] == data_field_source_index
+            and before_state["data_field_attributes"] == expected_baseline_data_field_attributes
+            and after_state["data_field_attributes"] == expected_candidate_data_field_attributes
+            and before_output is not None
+            and after_output is not None
+            and before_output == after_output
+            and before_output[3] is None
+            and before_output[4] is not None
+            and before_dashboard is not None
+            and after_dashboard is not None
+            and before_dashboard == after_dashboard
+            and before_dashboard[3] == dashboard_formula
+            and _pivot_table_without_data_field_subtotal(baseline_path, pivot_sheet)
+            == _pivot_table_without_data_field_subtotal(candidate_path, pivot_sheet)
+            and _xlsx_member_differences(baseline_path, candidate_path)
+            == {before_state["pivot_table_member"]}
+            and _calculation_properties(baseline_path) == _calculation_properties(candidate_path)
+            and (dashboard_sheet, dashboard_cell)
+            in graph.get((pivot_sheet, pivot_output_cell), set()),
+            f"{truth['id']}: expected one relationship-bound PivotTable value aggregation to change with stable source, cache, stored output, and dashboard formula",
             errors,
         )
         return

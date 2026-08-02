@@ -187,6 +187,24 @@ cells, and package-member isolation. It does not open Excel, refresh data,
 calculate or render the PivotTable, infer a new report result, or claim that a
 client honors the setting.
 
+## PivotTable aggregation without a cell edit
+
+Microsoft's [PivotTable layout guidance](https://support.microsoft.com/en-US/Excel/design-the-layout-and-format-of-a-pivottable)
+describes moving fields into the Values area and changing their settings, while
+the Open XML [`DataField.Subtotal` reference](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.spreadsheet.datafield.subtotal?view=openxml-3.0.1)
+identifies `subtotal` as the stored data-consolidate function. A report can
+therefore switch from Sum to Average without changing a source cell, cached
+record, worksheet formula, or saved PivotTable display value.
+
+WCAB 0.16 isolates that declaration in an original local package. It retains
+the `Source!A1:B5` cache binding, `Report!A1:B2` PivotTable location, all cache
+records, stored `Report!B2`, and `Dashboard!B4=Report!$B$2`; only the sole
+`dataFields/dataField/@subtotal` moves from `sum` to `average`. The raw
+validator follows the local relationship graph and compares the PivotTable
+part after removing that one attribute. It does not open Excel, refresh data,
+calculate or render the PivotTable, infer a changed display value, or claim
+client behavior.
+
 ## Chart series sources without a worksheet edit
 
 Microsoft's [chart-series guidance](https://support.microsoft.com/en-US/Excel/rename-a-data-series)

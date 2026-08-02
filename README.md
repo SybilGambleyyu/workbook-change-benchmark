@@ -34,7 +34,7 @@ gates, static analyzers, and agent workflows that propose workbook edits.
 
 ## Scope and non-goals
 
-Version `0.15` covers formula-to-value replacements, formula reference drift,
+Version `0.16` covers formula-to-value replacements, formula reference drift,
 value changes with downstream effects, external formula references, named
 ranges, data validation, conditional formatting, sheet visibility, direct cell
 protection, calculation settings, static cycles, portfolio dependencies,
@@ -66,6 +66,13 @@ stored `Report!A1:B2` display cells, and `Dashboard!B4=Report!$B$2` consumer
 remain unchanged. It records only the stored open-time request: it does not
 open Excel, refresh the cache, calculate or render the PivotTable, or claim a
 changed report result.
+It also covers a local worksheet-backed PivotTable value field whose raw
+`dataField/@subtotal` moves from `sum` to `average` while its source cells,
+cache records, stored `Report!A1:B2` display cells, and
+`Dashboard!B4=Report!$B$2` consumer remain unchanged. It records only the
+stored aggregation declaration: it does not open Excel, refresh, calculate, or
+render the PivotTable, infer a changed displayed value, or claim client
+behavior.
 It also covers a Dashboard DrawingML chart whose raw numeric-series reference
 switches from `Source!$B$2:$B$4` to `Source!$C$2:$C$4` while all source cells,
 the chart anchor, its title/category references, and every package member
@@ -189,6 +196,14 @@ source cells or rendered PivotTable output; WCAB's raw validator independently
 proves the cache/PivotTable relationship binding, stable stored cells, direct
 dashboard edge, and cache-definition-only package change. Neither layer
 refreshes or renders the PivotTable.
+For the PivotTable aggregation case, it requires FormulaFence's exact redacted
+one-PivotTable `pivot_table_definitions_changed` profile,
+`pivot_table_layout_material_changed`, and `FF031`. FormulaFence does not
+expose the selected aggregate function or a rendered report. WCAB's raw
+validator instead proves the local source/cache/PivotTable relationship graph,
+stable stored cells, exact `sum`-to-`average` declaration, and
+PivotTable-part-only package change. Neither layer refreshes, calculates, or
+renders the PivotTable.
 For the chart-series case, it requires FormulaFence's exact redacted one-chart
 profile, `chart_definition_material_changed`, and `FF030`; FormulaFence does
 not expose the source formula or a visual result. WCAB's raw validator instead

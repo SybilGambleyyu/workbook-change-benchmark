@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.16.0 — 2026-08-03
+
+- Add a deterministic relationship-backed PivotTable value-field aggregation
+  case. Its local worksheet source, cache records, stored `Report!A1:B2`
+  display cells, and `Dashboard!B4=Report!$B$2` consumer remain unchanged while
+  raw `dataField/@subtotal` switches from `sum` to `average`.
+- Add the exact `pivot_data_field_aggregation_changed` fact, raw cache-to-
+  PivotTable relationship validator, PivotTable-XML isolation check, and
+  corruption regressions. WCAB records the stored aggregate declaration only:
+  it does not refresh, calculate, or render a PivotTable, infer a changed
+  displayed value, or claim client behavior.
+- Extend the optional FormulaFence adapter to require its exact redacted
+  one-PivotTable `pivot_table_definitions_changed` profile and high-severity
+  `FF031`, while WCAB independently proves the source and `sum -> average`
+  declaration transition.
+
 ## 0.15.0 — 2026-08-03
 
 - Add a deterministic relationship-backed DrawingML chart case. Its one chart

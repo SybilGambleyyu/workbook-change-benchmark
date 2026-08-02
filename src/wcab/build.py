@@ -66,6 +66,9 @@ _PIVOT_CACHE_SOURCE_REF = "A1:B5"
 _PIVOT_REPORT_SHEET = "Report"
 _PIVOT_REPORT_REF = "A1:B2"
 _PIVOT_CACHE_DASHBOARD_FORMULA = "=Report!$B$2"
+_PIVOT_DATA_FIELD_SOURCE_INDEX = 1
+_PIVOT_DATA_FIELD_BASELINE_SUBTOTAL = "sum"
+_PIVOT_DATA_FIELD_CANDIDATE_SUBTOTAL = "average"
 _CHART_SERIES_SOURCE_SHEET = "Source"
 _CHART_SERIES_DASHBOARD_SHEET = "Dashboard"
 _CHART_SERIES_ANCHOR = "D2"
@@ -1157,6 +1160,51 @@ def _add_pivot_cache_refresh_control(path: Path, *, refresh_on_load: bool) -> No
     _rewrite_xlsx_parts(path, mutate)
 
 
+def _set_pivot_data_field_subtotal(path: Path, *, subtotal: str) -> None:
+    """Set the sole generated PivotTable value field's aggregation control.
+
+    ``dataField/@subtotal`` stores the aggregate function for a PivotTable
+    value field.  This is deliberately a raw OOXML change after openpyxl has
+    written the ordinary workbook, so the fixture records a PivotTable
+    declaration rather than a recalculated or rendered output.
+    """
+
+    if subtotal not in {
+        _PIVOT_DATA_FIELD_BASELINE_SUBTOTAL,
+        _PIVOT_DATA_FIELD_CANDIDATE_SUBTOTAL,
+    }:
+        raise ValueError(f"unsupported PivotTable data-field subtotal {subtotal!r}")
+
+    def mutate(members: dict[str, bytes]) -> None:
+        pivot_members = sorted(
+            name
+            for name in members
+            if name.startswith("xl/pivotTables/")
+            and name.endswith(".xml")
+            and "/_rels/" not in name
+        )
+        if pivot_members != ["xl/pivotTables/pivotTable1.xml"]:
+            raise ValueError("pivot aggregation fixture must contain exactly one PivotTable part")
+        pivot_table = ElementTree.fromstring(members[pivot_members[0]])
+        data_fields_tag = f"{{{_SPREADSHEETML_NS}}}dataFields"
+        data_field_tag = f"{{{_SPREADSHEETML_NS}}}dataField"
+        data_fields = pivot_table.findall(data_fields_tag)
+        if (
+            len(data_fields) != 1
+            or data_fields[0].get("count") != "1"
+            or len(data_fields[0]) != 1
+            or data_fields[0][0].tag != data_field_tag
+            or data_fields[0][0].get("fld") != str(_PIVOT_DATA_FIELD_SOURCE_INDEX)
+        ):
+            raise ValueError("pivot aggregation fixture has an unexpected data-field declaration")
+        data_fields[0][0].set("subtotal", subtotal)
+        members[pivot_members[0]] = ElementTree.tostring(
+            pivot_table, encoding="utf-8", xml_declaration=True
+        )
+
+    _rewrite_xlsx_parts(path, mutate)
+
+
 def _set_chart_series_value_reference(path: Path, *, value_reference: str) -> None:
     """Set the sole generated chart's stored numeric-series reference.
 
@@ -1877,6 +1925,59 @@ def _build_governance_pivot_cache_refresh(root: Path) -> None:
     )
 
 
+def _build_structural_pivot_data_field_aggregation(root: Path) -> None:
+    """Build a PivotTable whose stored value aggregation switches in isolation."""
+
+    directory = root / "structural" / "pivot_data_field_aggregation_changed"
+    directory.mkdir(parents=True, exist_ok=True)
+    baseline = directory / "baseline.xlsx"
+    candidate = directory / "candidate.xlsx"
+    _save_workbook(_pivot_cache_refresh_workbook(), baseline)
+    _save_workbook(_pivot_cache_refresh_workbook(), candidate)
+    _add_pivot_cache_refresh_control(baseline, refresh_on_load=False)
+    _add_pivot_cache_refresh_control(candidate, refresh_on_load=False)
+    _set_pivot_data_field_subtotal(baseline, subtotal=_PIVOT_DATA_FIELD_BASELINE_SUBTOTAL)
+    _set_pivot_data_field_subtotal(candidate, subtotal=_PIVOT_DATA_FIELD_CANDIDATE_SUBTOTAL)
+    _write_json(
+        directory / "truth.json",
+        _truth(
+            case_id="structural.pivot_data_field_aggregation_changed",
+            title="A PivotTable value field switches from Sum to Average",
+            family="structural",
+            review_expectation="block",
+            facts=[
+                {
+                    "kind": "pivot_data_field_aggregation_changed",
+                    "cache_id": _PIVOT_CACHE_ID,
+                    "source_type": "worksheet",
+                    "source_sheet": _PIVOT_CACHE_SOURCE_SHEET,
+                    "source_ref": _PIVOT_CACHE_SOURCE_REF,
+                    "pivot_sheet": _PIVOT_REPORT_SHEET,
+                    "pivot_ref": _PIVOT_REPORT_REF,
+                    "pivot_output_cell": "B2",
+                    "dashboard_sheet": "Dashboard",
+                    "dashboard_cell": "B4",
+                    "dashboard_formula": _PIVOT_CACHE_DASHBOARD_FORMULA,
+                    "data_field_source_index": _PIVOT_DATA_FIELD_SOURCE_INDEX,
+                    "baseline_subtotal": _PIVOT_DATA_FIELD_BASELINE_SUBTOTAL,
+                    "candidate_subtotal": _PIVOT_DATA_FIELD_CANDIDATE_SUBTOTAL,
+                }
+            ],
+            must_reach=[
+                {
+                    "source": {"sheet": _PIVOT_REPORT_SHEET, "cell": "B2"},
+                    "targets": [{"sheet": "Dashboard", "cell": "B4"}],
+                }
+            ],
+            coverage=[
+                "The pair changes only raw pivotTableDefinition/dataFields/dataField/@subtotal from sum to average. It does not edit source cells, cache records, stored PivotTable display cells, formula text, refresh controls, or calculation properties.",
+                "The observable contract is the stored aggregation declaration. WCAB does not calculate, refresh, or render the PivotTable, infer a changed displayed value, or claim client behavior.",
+                "The validator follows the local cache/PivotTable relationship graph, verifies the stable source and direct dashboard edge, and treats that edge as a lower bound only if a client refresh changes the PivotTable display.",
+            ],
+        ),
+    )
+
+
 def _build_governance_external_workbook_link_update_policy(root: Path) -> None:
     """Build a pair differing only in the global external-link open policy."""
 
@@ -2274,6 +2375,7 @@ _BUILDERS: tuple[Callable[[Path], None], ...] = (
     _build_governance_external_data_refresh,
     _build_governance_pivot_cache_refresh,
     _build_governance_external_workbook_link_update_policy,
+    _build_structural_pivot_data_field_aggregation,
     _build_structural_chart_series_reference,
     _build_structural_array_formula_mode,
     _build_structural_three_d_scope,
@@ -2306,6 +2408,7 @@ CASE_IDS = (
     "governance.external_data_refresh_on_open",
     "governance.pivot_cache_refresh_on_open",
     "governance.external_workbook_link_update_on_open",
+    "structural.pivot_data_field_aggregation_changed",
     "structural.chart_series_reference_changed",
     "structural.array_formula_mode_changed",
     "structural.three_d_scope_expansion",

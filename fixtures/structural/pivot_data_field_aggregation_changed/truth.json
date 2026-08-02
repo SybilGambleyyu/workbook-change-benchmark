@@ -1,0 +1,46 @@
+{
+  "coverage": [
+    "The pair changes only raw pivotTableDefinition/dataFields/dataField/@subtotal from sum to average. It does not edit source cells, cache records, stored PivotTable display cells, formula text, refresh controls, or calculation properties.",
+    "The observable contract is the stored aggregation declaration. WCAB does not calculate, refresh, or render the PivotTable, infer a changed displayed value, or claim client behavior.",
+    "The validator follows the local cache/PivotTable relationship graph, verifies the stable source and direct dashboard edge, and treats that edge as a lower bound only if a client refresh changes the PivotTable display."
+  ],
+  "coverage_expectations": [],
+  "facts": [
+    {
+      "baseline_subtotal": "sum",
+      "cache_id": 1,
+      "candidate_subtotal": "average",
+      "dashboard_cell": "B4",
+      "dashboard_formula": "=Report!$B$2",
+      "dashboard_sheet": "Dashboard",
+      "data_field_source_index": 1,
+      "kind": "pivot_data_field_aggregation_changed",
+      "pivot_output_cell": "B2",
+      "pivot_ref": "A1:B2",
+      "pivot_sheet": "Report",
+      "source_ref": "A1:B5",
+      "source_sheet": "Source",
+      "source_type": "worksheet"
+    }
+  ],
+  "family": "structural",
+  "id": "structural.pivot_data_field_aggregation_changed",
+  "must_reach": [
+    {
+      "source": {
+        "cell": "B2",
+        "sheet": "Report"
+      },
+      "targets": [
+        {
+          "cell": "B4",
+          "sheet": "Dashboard"
+        }
+      ]
+    }
+  ],
+  "review_expectation": "block",
+  "schema_version": 3,
+  "title": "A PivotTable value field switches from Sum to Average",
+  "topology": "pair"
+}

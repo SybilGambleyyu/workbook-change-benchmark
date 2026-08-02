@@ -1,6 +1,6 @@
 # Validation record
 
-This record describes the WCAB 0.15.0 / schema-version-3 validation run on
+This record describes the WCAB 0.16.0 / schema-version-3 validation run on
 2026-08-03. It is reproducible from this repository; no network service or
 private workbook is required.
 
@@ -32,16 +32,16 @@ wcab validate --fixtures fixtures
 
 Results:
 
-- 30 cases: 29 paired-workbook cases and one directory portfolio case.
-- 32 observable truth facts across 25 `block` and five `review` cases.
+- 31 cases: 30 paired-workbook cases and one directory portfolio case.
+- 33 observable truth facts across 26 `block` and five `review` cases.
 - Three scoreable coverage expectations: one newly introduced `INDIRECT`
   boundary and two unchanged-formula selector changes (`INDIRECT` address text
   and `OFFSET` column displacement).
-- 93 generated fixture files: 62 workbooks, 30 truth manifests, and one JSONL
+- 96 generated fixture files: 64 workbooks, 31 truth manifests, and one JSONL
   case catalogue, all generated from source.
-- Eighty-seven unit tests passed locally under Python 3.13, including
+- Ninety-four unit tests passed locally under Python 3.13, including
   independent regeneration and byte-for-byte fixture-tree equality.
-- The fixture validator accepted all 30 cases.
+- The fixture validator accepted all 31 cases.
 - The external-data pair has identical package members except for
   `xl/connections.xml`; both archives pass ZIP integrity checks and remain
   readable by openpyxl. Its relationship-backed source is a non-routable
@@ -53,6 +53,14 @@ Results:
   `Dashboard!B4` formula are unchanged while raw `refreshOnLoad` changes from
   false to true. The validation run did not open Excel, refresh a cache,
   calculate or render a PivotTable, or infer a report result.
+- The PivotTable aggregation pair has identical package members except for
+  `xl/pivotTables/pivotTable1.xml`; both archives pass ZIP integrity checks and
+  remain readable by openpyxl. Its local `Source!A1:B5` binding, cache records,
+  `Report!A1:B2` location, stored report/dashboard cells, direct
+  `Dashboard!B4` formula, refresh control, and calculation properties are
+  unchanged while its one `dataFields/dataField/@subtotal` moves from `sum` to
+  `average`. The validation run did not open Excel, refresh, calculate, or
+  render a PivotTable, infer a changed display value, or claim client behavior.
 - The chart-series pair has identical package members except for
   `xl/charts/chart1.xml`; both archives pass ZIP integrity checks and remain
   readable by openpyxl. Its `Dashboard!D2` anchor, title/category references,
@@ -106,7 +114,7 @@ Results:
 
 ## Distribution supplement
 
-The 0.15.0 release retains the one-row-per-case `manifest.jsonl` catalogue and
+The 0.16.0 release retains the one-row-per-case `manifest.jsonl` catalogue and
 the tool-neutral observation protocol at version 2. Each catalogue row retains
 the schema-version-3 truth contract and includes byte counts and SHA-256
 digests for the workbooks it names.
@@ -114,11 +122,11 @@ digests for the workbooks it names.
 Commands:
 
 ```bash
-python -m build --outdir /tmp/wcab-v015-dist
-twine check /tmp/wcab-v015-dist/*
+python -m build --outdir /tmp/wcab-v016-dist
+twine check /tmp/wcab-v016-dist/*
 python -m venv /tmp/wcab-wheel-test
 /tmp/wcab-wheel-test/bin/python -m pip install \
-  /tmp/wcab-v015-dist/workbook_change_benchmark-0.15.0-py3-none-any.whl
+  /tmp/wcab-v016-dist/workbook_change_benchmark-0.16.0-py3-none-any.whl
 /tmp/wcab-wheel-test/bin/wcab validate --fixtures fixtures
 /tmp/wcab-wheel-test/bin/wcab manifest --fixtures fixtures --output /tmp/manifest.jsonl
 cmp fixtures/manifest.jsonl /tmp/manifest.jsonl
@@ -132,14 +140,14 @@ Results:
 
 - The source distribution and universal wheel passed `twine check`.
 - Fresh Python 3.13 wheel and source-distribution installations both reported
-  version 0.15.0 and validated all 30 fixtures; the wheel emitted
+  version 0.16.0 and validated all 31 fixtures; the wheel emitted
   byte-identical JSONL output.
-- The full eighty-seven-test suite, lint, and format checks passed locally under
+- The full ninety-four-test suite, lint, and format checks passed locally under
   Python 3.13 and in hosted release CI under Python 3.10 and 3.13.
 - The generated unsupported template scored as zero analyzed coverage, zero
   expected-fact recall, and zero coverage-disclosure recall, confirming that
   unsupported cases cannot become a pass.
-- The FormulaFence normalizer emitted 31 matched facts, one intentionally
+- The FormulaFence normalizer emitted 32 matched facts, one intentionally
   unmapped fact, three matched coverage declarations, and no invented review
   disposition.
 
@@ -154,9 +162,9 @@ wcab formulafence --fixtures fixtures --strict
 
 Results:
 
-- All 31 currently mappable diff/portfolio facts were observed.
+- All 32 currently mappable diff/portfolio facts were observed.
 - All three mappable coverage expectations were matched; no mapped fact,
-  coverage expectation, or targeted lint rule was missed across all 30 cases.
+  coverage expectation, or targeted lint rule was missed across all 31 cases.
 - The schema-version-2 structured Table scope case was observed as a
   `table_definition_changed` diff, even though its summary formula text stays
   unchanged.
@@ -178,6 +186,15 @@ Results:
   emitted no parser warning. WCAB's independent raw validation established the
   source and PivotTable binding, stable stored cells, and cache-definition-only
   package change. Neither report refreshed or rendered a PivotTable.
+- The WCAB 0.16 PivotTable aggregation case was observed as one exact
+  `pivot_table_definitions_changed` record and `FF031`. FormulaFence's redacted
+  profile retained one local cache, one PivotTable, one data field, two cache
+  fields, four cache records, and no auxiliary material while only its
+  PivotTable-layout material changed. It did not expose the source labels,
+  selected aggregate function, or a rendered result. WCAB independently
+  established the local graph, stable stored cells, exact `sum`-to-`average`
+  declaration, and PivotTable-part-only package change. Neither report
+  refreshed, calculated, or rendered a PivotTable.
 - The WCAB 0.15 chart-series case was observed as one exact
   `chart_definitions_changed` record and `FF030`. FormulaFence's redacted
   profile retained one host sheet, drawing, legacy chart, and series; three
