@@ -141,6 +141,33 @@ def _pivot_data_field_aggregation_details() -> dict[str, object]:
     }
 
 
+def _pivot_slicer_selection_details() -> dict[str, object]:
+    profile = {
+        "present": True,
+        "slicer_cache_part_count": 1,
+        "timeline_cache_part_count": 0,
+        "slicer_workbook_binding_count": 1,
+        "timeline_workbook_binding_count": 0,
+        "slicer_pivot_cache_binding_count": 1,
+        "slicer_table_binding_count": 0,
+        "timeline_pivot_cache_binding_count": 0,
+        "slicer_pivot_table_binding_count": 1,
+        "timeline_pivot_table_binding_count": 0,
+        "slicer_item_count": 2,
+        "selected_slicer_item_count": 1,
+        "timeline_state_count": 0,
+        "timeline_filter_count": 0,
+        "related_relationship_count": 0,
+        "external_relationship_count": 0,
+        "unrecognized_part_count": 0,
+    }
+    return {
+        "before": profile,
+        "after": profile,
+        "slicer_filter_state_or_definition_material_changed": True,
+    }
+
+
 def test_committed_fixtures_validate() -> None:
     assert validate_all(PROJECT_ROOT / "fixtures") == {}
 
@@ -262,6 +289,33 @@ def test_committed_manifest_matches_fixture_tree() -> None:
             "data_field_source_index": 1,
             "baseline_subtotal": "sum",
             "candidate_subtotal": "average",
+        }
+    ]
+    pivot_slicer_row = next(
+        row for row in rows if row["id"] == "structural.pivot_slicer_selection_changed"
+    )
+    assert pivot_slicer_row["facts"] == [
+        {
+            "kind": "pivot_slicer_selection_changed",
+            "cache_id": 1,
+            "source_type": "worksheet",
+            "source_sheet": "Source",
+            "source_ref": "A1:B5",
+            "pivot_sheet": "Report",
+            "pivot_ref": "A1:B2",
+            "pivot_output_cell": "B2",
+            "dashboard_sheet": "Dashboard",
+            "dashboard_cell": "B4",
+            "dashboard_formula": "=Report!$B$2",
+            "slicer_name": "WCAB Region slicer",
+            "slicer_source_name": "Region",
+            "slicer_pivot_table_name": "WCAB Pivot Report",
+            "slicer_pivot_tab_id": 2,
+            "item_count": 2,
+            "baseline_selected_item_index": 0,
+            "candidate_selected_item_index": 1,
+            "baseline_selected_value": "North",
+            "candidate_selected_value": "South",
         }
     ]
     external_link_policy_row = next(
@@ -659,6 +713,87 @@ def test_pivot_data_field_aggregation_pair_changes_only_its_pivot_table(tmp_path
         for member in sorted(baseline_members)
         if baseline_members[member] != candidate_members[member]
     ] == ["xl/pivotTables/pivotTable1.xml"]
+
+
+def test_validator_rejects_a_false_pivot_slicer_selection_fact(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "structural" / "pivot_slicer_selection_changed"
+    truth_path = case / "truth.json"
+    truth = json.loads(truth_path.read_text(encoding="utf-8"))
+    truth["facts"][0]["candidate_selected_item_index"] = 0
+    truth_path.write_text(json.dumps(truth), encoding="utf-8")
+    assert validate_case(case)
+
+
+def test_validator_rejects_a_corrupted_pivot_slicer_selection(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = fixture_root / "structural" / "pivot_slicer_selection_changed" / "candidate.xlsx"
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    namespace = "http://schemas.microsoft.com/office/spreadsheetml/2009/9/main"
+    slicer_member = "xl/slicerCaches/slicerCache1.xml"
+    slicer_cache = ElementTree.fromstring(members[slicer_member])
+    items = slicer_cache.findall(
+        f"{{{namespace}}}data/{{{namespace}}}tabular/{{{namespace}}}items/{{{namespace}}}i"
+    )
+    assert len(items) == 2
+    items[0].set("s", "1")
+    items[1].set("s", "0")
+    members[slicer_member] = ElementTree.tostring(
+        slicer_cache, encoding="utf-8", xml_declaration=True
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_validator_rejects_a_corrupted_pivot_slicer_relationship(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = fixture_root / "structural" / "pivot_slicer_selection_changed" / "candidate.xlsx"
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    relationships_member = "xl/_rels/workbook.xml.rels"
+    relationships = ElementTree.fromstring(members[relationships_member])
+    relationship = next(item for item in relationships if item.get("Id") == "rIdWCABSlicerCache")
+    relationship.set(
+        "Type", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"
+    )
+    members[relationships_member] = ElementTree.tostring(
+        relationships, encoding="utf-8", xml_declaration=True
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_pivot_slicer_selection_pair_changes_only_its_slicer_cache(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "structural" / "pivot_slicer_selection_changed"
+    with ZipFile(case / "baseline.xlsx") as baseline, ZipFile(case / "candidate.xlsx") as candidate:
+        assert baseline.testzip() is None
+        assert candidate.testzip() is None
+        baseline_members = {
+            entry.filename: baseline.read(entry.filename) for entry in baseline.infolist()
+        }
+        candidate_members = {
+            entry.filename: candidate.read(entry.filename) for entry in candidate.infolist()
+        }
+    assert set(baseline_members) == set(candidate_members)
+    assert [
+        member
+        for member in sorted(baseline_members)
+        if baseline_members[member] != candidate_members[member]
+    ] == ["xl/slicerCaches/slicerCache1.xml"]
 
 
 def test_validator_rejects_a_false_chart_series_reference_fact(tmp_path: Path) -> None:
@@ -1921,6 +2056,92 @@ def test_formulafence_adapter_requires_the_pivot_data_field_aggregation_finding(
     assert result["status"] == "missed"
     assert result["matched"] == []
     assert result["missed"] == ["pivot_data_field_aggregation_changed"]
+
+
+def test_formulafence_adapter_maps_the_exact_pivot_slicer_selection_change(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _pivot_slicer_selection_details()
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "slicer_timeline_cache_definitions_changed",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF032", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "structural" / "pivot_slicer_selection_changed"
+    )
+    assert result["status"] == "matched"
+    assert result["matched"] == ["pivot_slicer_selection_changed"]
+
+
+def test_formulafence_adapter_rejects_an_inexact_pivot_slicer_selection_change(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _pivot_slicer_selection_details()
+        details["timeline_filter_state_or_definition_material_changed"] = True
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "slicer_timeline_cache_definitions_changed",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF032", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "structural" / "pivot_slicer_selection_changed"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["pivot_slicer_selection_changed"]
+
+
+def test_formulafence_adapter_requires_the_pivot_slicer_selection_finding(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "slicer_timeline_cache_definitions_changed",
+                    "location": None,
+                    "details": _pivot_slicer_selection_details(),
+                }
+            ],
+            "findings": [],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "structural" / "pivot_slicer_selection_changed"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["pivot_slicer_selection_changed"]
 
 
 def test_formulafence_adapter_maps_the_exact_chart_series_reference_change(

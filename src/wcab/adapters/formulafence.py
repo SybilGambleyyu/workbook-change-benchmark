@@ -42,6 +42,7 @@ _FACT_TO_CHANGE: dict[str, tuple[str, str | None]] = {
     "array_formula_mode_changed": ("array_formula_mode_changed", "location"),
     "chart_series_value_reference_changed": ("chart_definitions_changed", None),
     "pivot_data_field_aggregation_changed": ("pivot_table_definitions_changed", None),
+    "pivot_slicer_selection_changed": ("slicer_timeline_cache_definitions_changed", None),
     "external_data_connection_refresh_on_load_changed": (
         "external_data_connections_changed",
         None,
@@ -619,6 +620,82 @@ def _pivot_data_field_aggregation_finding_observed(
     )
 
 
+def _pivot_slicer_selection_details_observed(details: Any, fact: dict[str, Any]) -> bool:
+    """Match FormulaFence's redacted one-Slicer selection evidence.
+
+    FormulaFence keeps Slicer names, selected values, and report output private.
+    WCAB therefore requires its exact one-Slicer structural profile and FF032,
+    then independently validates the stored cache-item selection and local
+    PivotTable relationship graph.
+    """
+
+    if (
+        fact.get("cache_id") != 1
+        or fact.get("source_type") != "worksheet"
+        or fact.get("source_sheet") != "Source"
+        or fact.get("source_ref") != "A1:B5"
+        or fact.get("pivot_sheet") != "Report"
+        or fact.get("pivot_ref") != "A1:B2"
+        or fact.get("pivot_output_cell") != "B2"
+        or fact.get("dashboard_sheet") != "Dashboard"
+        or fact.get("dashboard_cell") != "B4"
+        or fact.get("dashboard_formula") != "=Report!$B$2"
+        or fact.get("slicer_name") != "WCAB Region slicer"
+        or fact.get("slicer_source_name") != "Region"
+        or fact.get("slicer_pivot_table_name") != "WCAB Pivot Report"
+        or fact.get("slicer_pivot_tab_id") != 2
+        or fact.get("item_count") != 2
+        or fact.get("baseline_selected_item_index") != 0
+        or fact.get("candidate_selected_item_index") != 1
+        or fact.get("baseline_selected_value") != "North"
+        or fact.get("candidate_selected_value") != "South"
+        or not isinstance(details, dict)
+    ):
+        return False
+    expected_profile = {
+        "present": True,
+        "slicer_cache_part_count": 1,
+        "timeline_cache_part_count": 0,
+        "slicer_workbook_binding_count": 1,
+        "timeline_workbook_binding_count": 0,
+        "slicer_pivot_cache_binding_count": 1,
+        "slicer_table_binding_count": 0,
+        "timeline_pivot_cache_binding_count": 0,
+        "slicer_pivot_table_binding_count": 1,
+        "timeline_pivot_table_binding_count": 0,
+        "slicer_item_count": 2,
+        "selected_slicer_item_count": 1,
+        "timeline_state_count": 0,
+        "timeline_filter_count": 0,
+        "related_relationship_count": 0,
+        "external_relationship_count": 0,
+        "unrecognized_part_count": 0,
+    }
+    return (
+        details.get("before") == expected_profile
+        and details.get("after") == expected_profile
+        and details.get("slicer_filter_state_or_definition_material_changed") is True
+        and set(details)
+        == {"before", "after", "slicer_filter_state_or_definition_material_changed"}
+    )
+
+
+def _pivot_slicer_selection_observed(change: dict[str, Any], fact: dict[str, Any]) -> bool:
+    """Match FormulaFence's Slicer/Timeline cache definition change record."""
+
+    return change.get("kind") == "slicer_timeline_cache_definitions_changed" and (
+        _pivot_slicer_selection_details_observed(change.get("details"), fact)
+    )
+
+
+def _pivot_slicer_selection_finding_observed(finding: dict[str, Any], fact: dict[str, Any]) -> bool:
+    """Require FormulaFence's matching high-severity Slicer finding."""
+
+    return finding.get("rule_id") == "FF032" and _pivot_slicer_selection_details_observed(
+        finding.get("details"), fact
+    )
+
+
 def _formula_cached_result_details_observed(details: Any, fact: dict[str, Any]) -> bool:
     """Match FormulaFence's intentionally redacted saved-result details.
 
@@ -882,6 +959,16 @@ def evaluate_diff_case(case_dir: str | Path, *, executable: str = "formulafence"
                 if isinstance(change, dict)
             ) and any(
                 _pivot_data_field_aggregation_finding_observed(finding, fact)
+                for finding in findings
+                if isinstance(finding, dict)
+            )
+        if kind == "pivot_slicer_selection_changed":
+            observed = any(
+                _pivot_slicer_selection_observed(change, fact)
+                for change in changes
+                if isinstance(change, dict)
+            ) and any(
+                _pivot_slicer_selection_finding_observed(finding, fact)
                 for finding in findings
                 if isinstance(finding, dict)
             )

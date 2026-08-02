@@ -34,7 +34,7 @@ gates, static analyzers, and agent workflows that propose workbook edits.
 
 ## Scope and non-goals
 
-Version `0.16` covers formula-to-value replacements, formula reference drift,
+Version `0.17` covers formula-to-value replacements, formula reference drift,
 value changes with downstream effects, external formula references, named
 ranges, data validation, conditional formatting, sheet visibility, direct cell
 protection, calculation settings, static cycles, portfolio dependencies,
@@ -73,6 +73,13 @@ cache records, stored `Report!A1:B2` display cells, and
 stored aggregation declaration: it does not open Excel, refresh, calculate, or
 render the PivotTable, infer a changed displayed value, or claim client
 behavior.
+It also covers a relationship-backed local PivotTable Slicer cache whose
+stored `Region` selection moves from `North` to `South` while its source cells,
+PivotCache, stored `Report!A1:B2` display cells, and
+`Dashboard!B4=Report!$B$2` consumer remain unchanged. It records Slicer-cache
+item state only: it does not create a visual Slicer or drawing, apply the
+filter, refresh, calculate, or render the PivotTable, infer a changed report
+result, or claim client behavior.
 It also covers a Dashboard DrawingML chart whose raw numeric-series reference
 switches from `Source!$B$2:$B$4` to `Source!$C$2:$C$4` while all source cells,
 the chart anchor, its title/category references, and every package member
@@ -204,6 +211,15 @@ validator instead proves the local source/cache/PivotTable relationship graph,
 stable stored cells, exact `sum`-to-`average` declaration, and
 PivotTable-part-only package change. Neither layer refreshes, calculates, or
 renders the PivotTable.
+For the PivotTable Slicer-selection case, it requires FormulaFence's exact
+redacted one-Slicer `slicer_timeline_cache_definitions_changed` profile,
+`slicer_filter_state_or_definition_material_changed`, and `FF032`.
+FormulaFence does not expose the Slicer name, selected item/value, or a
+rendered report. WCAB's raw validator instead proves the local Slicer-cache to
+PivotCache/PivotTable graph, stable stored cells, exact `North`-to-`South`
+selected-item transition, and Slicer-cache-part-only package change. Neither
+layer creates a visual Slicer, applies the filter, refreshes, calculates, or
+renders a PivotTable.
 For the chart-series case, it requires FormulaFence's exact redacted one-chart
 profile, `chart_definition_material_changed`, and `FF030`; FormulaFence does
 not expose the source formula or a visual result. WCAB's raw validator instead

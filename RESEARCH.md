@@ -205,6 +205,25 @@ part after removing that one attribute. It does not open Excel, refresh data,
 calculate or render the PivotTable, infer a changed display value, or claim
 client behavior.
 
+## PivotTable Slicer selection without a cell edit
+
+Microsoft's [PivotTable filtering guidance](https://support.microsoft.com/en-us/excel/get-started/filter-data-in-a-pivottable)
+documents that Slicers filter PivotTables and make their current filtering
+state visible. The Office Open XML [Slicer Cache Part
+specification](https://learn.microsoft.com/en-us/openspecs/office_standards/MS-XLSX/e7eda20c-c65e-45ed-9540-de59c4a07b7d)
+records each cache item with an `x` index and stores selection with `s=1`.
+That makes a Slicer-cache selection a review surface outside ordinary cell and
+formula diffs.
+
+WCAB 0.17 isolates that state in an original local package. It retains the
+`Source!A1:B5` cache binding, `Report!A1:B2` PivotTable location, cache records,
+stored `Report!B2`, and `Dashboard!B4=Report!$B$2`; only the selected Slicer
+cache item moves from index 0 (`North`) to index 1 (`South`). The raw validator
+follows the local workbook-to-Slicer-cache-to-PivotCache/PivotTable graph and
+compares the Slicer cache after removing only selection state. It creates no
+visual Slicer or drawing, does not apply the filter, refresh data, calculate or
+render a PivotTable, infer a report value, or claim client behavior.
+
 ## Chart series sources without a worksheet edit
 
 Microsoft's [chart-series guidance](https://support.microsoft.com/en-US/Excel/rename-a-data-series)

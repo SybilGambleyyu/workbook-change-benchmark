@@ -25,6 +25,9 @@ _DYNAMIC_REFERENCE_FUNCTION = re.compile(r"(?i)\b(?P<function>INDIRECT|OFFSET)\s
 _SPREADSHEETML_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 _PACKAGE_RELATIONSHIPS_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
 _DOCUMENT_RELATIONSHIPS_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+_CONTENT_TYPES_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
+_OFFICE_2010_SPREADSHEET_NS = "http://schemas.microsoft.com/office/spreadsheetml/2009/9/main"
+_SLICER_CACHE_RELATIONSHIP = "http://schemas.microsoft.com/office/2007/relationships/slicerCache"
 _DYNAMIC_ARRAY_NS = "http://schemas.microsoft.com/office/spreadsheetml/2017/dynamicarray"
 _DRAWINGML_CHART_NS = "http://schemas.openxmlformats.org/drawingml/2006/chart"
 _DRAWINGML_SPREADSHEET_DRAWING_NS = (
@@ -495,6 +498,214 @@ def _pivot_table_without_data_field_subtotal(path: Path, pivot_sheet: str) -> by
         return None
     data_fields[0][0].attrib.pop("subtotal", None)
     return ElementTree.tostring(pivot_table, encoding="utf-8", xml_declaration=True)
+
+
+def _raw_pivot_slicer_selection_state(path: Path, pivot_sheet: str) -> dict[str, Any] | None:
+    """Read WCAB's compact local PivotTable Slicer-cache selection graph.
+
+    The reader establishes only a stored relationship-backed declaration. It
+    does not create a Slicer view, apply a filter, refresh a cache, calculate a
+    PivotTable, or infer any displayed report result.
+    """
+
+    state = _raw_pivot_cache_refresh_state(path, pivot_sheet)
+    if state is None:
+        return None
+    try:
+        with ZipFile(path) as archive:
+            workbook = ElementTree.fromstring(archive.read("xl/workbook.xml"))
+            workbook_relationships = ElementTree.fromstring(
+                archive.read("xl/_rels/workbook.xml.rels")
+            )
+            sheets = workbook.find(f"{{{_SPREADSHEETML_NS}}}sheets")
+            report_sheets = (
+                [
+                    sheet
+                    for sheet in sheets.findall(f"{{{_SPREADSHEETML_NS}}}sheet")
+                    if sheet.get("name") == pivot_sheet
+                ]
+                if sheets is not None
+                else []
+            )
+            if len(report_sheets) != 1:
+                return None
+            report_sheet_id = report_sheets[0].get("sheetId")
+            try:
+                if not isinstance(report_sheet_id, str) or int(report_sheet_id) <= 0:
+                    return None
+            except ValueError:
+                return None
+
+            workbook_extension_lists = workbook.findall(f"{{{_SPREADSHEETML_NS}}}extLst")
+            if len(workbook_extension_lists) != 1:
+                return None
+            workbook_extensions = workbook_extension_lists[0]
+            slicer_extensions = [
+                extension
+                for extension in workbook_extensions.findall(f"{{{_SPREADSHEETML_NS}}}ext")
+                if extension.get("uri") == "{BBE1A952-AA13-448E-AADC-164F8A28A991}"
+            ]
+            if len(slicer_extensions) != 1:
+                return None
+            slicer_cache_sets = slicer_extensions[0].findall(
+                f"{{{_OFFICE_2010_SPREADSHEET_NS}}}slicerCaches"
+            )
+            if len(slicer_cache_sets) != 1 or len(slicer_cache_sets[0]) != 1:
+                return None
+            slicer_declaration = slicer_cache_sets[0][0]
+            if slicer_declaration.tag != f"{{{_OFFICE_2010_SPREADSHEET_NS}}}slicerCache":
+                return None
+            slicer_relationship_id = slicer_declaration.get(f"{{{_DOCUMENT_RELATIONSHIPS_NS}}}id")
+            if not isinstance(slicer_relationship_id, str):
+                return None
+            slicer_member = _relationship_part_member(
+                workbook_relationships,
+                slicer_relationship_id,
+                "xl/workbook.xml",
+                relationship_type=_SLICER_CACHE_RELATIONSHIP,
+            )
+            if slicer_member is None:
+                return None
+            slicer_cache = ElementTree.fromstring(archive.read(slicer_member))
+
+            content_types = ElementTree.fromstring(archive.read("[Content_Types].xml"))
+            slicer_content_types = [
+                override
+                for override in content_types.findall(f"{{{_CONTENT_TYPES_NS}}}Override")
+                if override.get("PartName") == f"/{slicer_member}"
+            ]
+            if len(slicer_content_types) != 1:
+                return None
+
+            cache_definition = ElementTree.fromstring(archive.read(state["definition_member"]))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+
+    if slicer_cache.tag != f"{{{_OFFICE_2010_SPREADSHEET_NS}}}slicerCacheDefinition":
+        return None
+    pivot_table_sets = slicer_cache.findall(f"{{{_OFFICE_2010_SPREADSHEET_NS}}}pivotTables")
+    data_sets = slicer_cache.findall(f"{{{_OFFICE_2010_SPREADSHEET_NS}}}data")
+    if (
+        len(pivot_table_sets) != 1
+        or pivot_table_sets[0].get("count") != "1"
+        or len(pivot_table_sets[0]) != 1
+        or pivot_table_sets[0][0].tag != f"{{{_OFFICE_2010_SPREADSHEET_NS}}}pivotTable"
+        or len(data_sets) != 1
+        or len(data_sets[0]) != 1
+        or data_sets[0][0].tag != f"{{{_OFFICE_2010_SPREADSHEET_NS}}}tabular"
+    ):
+        return None
+    slicer_pivot_table = pivot_table_sets[0][0]
+    tabular = data_sets[0][0]
+    item_sets = tabular.findall(f"{{{_OFFICE_2010_SPREADSHEET_NS}}}items")
+    if len(item_sets) != 1:
+        return None
+    items = item_sets[0]
+    slicer_items = list(items)
+    if any(item.tag != f"{{{_OFFICE_2010_SPREADSHEET_NS}}}i" or len(item) for item in slicer_items):
+        return None
+    try:
+        item_count = int(items.get("count", ""))
+        item_indexes = tuple(int(item.get("x", "")) for item in slicer_items)
+    except ValueError:
+        return None
+    selected_indexes = tuple(
+        item_index
+        for item_index, item in zip(item_indexes, slicer_items, strict=True)
+        if _ooxml_boolean(item.get("s")) is True
+    )
+    if (
+        item_count != len(slicer_items)
+        or item_count <= 0
+        or item_indexes != tuple(range(item_count))
+        or len(selected_indexes) != 1
+    ):
+        return None
+
+    cache_extensions = cache_definition.findall(f"{{{_SPREADSHEETML_NS}}}extLst")
+    if len(cache_extensions) != 1:
+        return None
+    pivot_cache_extensions = [
+        extension
+        for extension in cache_extensions[0].findall(f"{{{_SPREADSHEETML_NS}}}ext")
+        if extension.get("uri") == "{725AE2AE-9491-48BE-B2B4-4EB974FC3084}"
+    ]
+    if len(pivot_cache_extensions) != 1 or len(pivot_cache_extensions[0]) != 1:
+        return None
+    pivot_cache_extension = pivot_cache_extensions[0][0]
+    if pivot_cache_extension.tag != f"{{{_OFFICE_2010_SPREADSHEET_NS}}}pivotCacheDefinition":
+        return None
+
+    cache_field_sets = cache_definition.findall(f"{{{_SPREADSHEETML_NS}}}cacheFields")
+    if len(cache_field_sets) != 1:
+        return None
+    cache_fields = list(cache_field_sets[0])
+    source_name = slicer_cache.get("sourceName")
+    source_fields = [
+        (index, field)
+        for index, field in enumerate(cache_fields)
+        if field.tag == f"{{{_SPREADSHEETML_NS}}}cacheField" and field.get("name") == source_name
+    ]
+    if len(source_fields) != 1:
+        return None
+    source_field_index, source_field = source_fields[0]
+    shared_item_sets = source_field.findall(f"{{{_SPREADSHEETML_NS}}}sharedItems")
+    if len(shared_item_sets) != 1:
+        return None
+    shared_items = list(shared_item_sets[0])
+    shared_item_values = tuple(item.get("v") for item in shared_items)
+    if (
+        shared_item_sets[0].get("count") != str(len(shared_items))
+        or any(item.tag != f"{{{_SPREADSHEETML_NS}}}s" for item in shared_items)
+        or any(not isinstance(value, str) for value in shared_item_values)
+        or item_count != len(shared_item_values)
+    ):
+        return None
+    selected_item_index = selected_indexes[0]
+    return {
+        **state,
+        "pivot_sheet_id": int(report_sheet_id),
+        "slicer_member": slicer_member,
+        "slicer_declaration_attributes": tuple(sorted(slicer_declaration.attrib.items())),
+        "slicer_extension_attributes": tuple(sorted(slicer_extensions[0].attrib.items())),
+        "slicer_content_type_attributes": tuple(sorted(slicer_content_types[0].attrib.items())),
+        "slicer_attributes": tuple(sorted(slicer_cache.attrib.items())),
+        "slicer_pivot_table_attributes": tuple(sorted(slicer_pivot_table.attrib.items())),
+        "slicer_tabular_attributes": tuple(sorted(tabular.attrib.items())),
+        "slicer_item_attributes": tuple(
+            tuple(sorted(item.attrib.items())) for item in slicer_items
+        ),
+        "slicer_source_field_index": source_field_index,
+        "slicer_source_shared_item_values": shared_item_values,
+        "slicer_selected_item_index": selected_item_index,
+        "slicer_selected_value": shared_item_values[selected_item_index],
+        "pivot_cache_slicer_extension_attributes": tuple(
+            sorted(pivot_cache_extension.attrib.items())
+        ),
+    }
+
+
+def _slicer_cache_without_selection_state(path: Path, pivot_sheet: str) -> bytes | None:
+    """Return WCAB's one Slicer cache with only selected-state attrs erased."""
+
+    state = _raw_pivot_slicer_selection_state(path, pivot_sheet)
+    if state is None:
+        return None
+    try:
+        with ZipFile(path) as archive:
+            slicer_cache = ElementTree.fromstring(archive.read(state["slicer_member"]))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    item_sets = slicer_cache.findall(
+        f"{{{_OFFICE_2010_SPREADSHEET_NS}}}data/"
+        f"{{{_OFFICE_2010_SPREADSHEET_NS}}}tabular/"
+        f"{{{_OFFICE_2010_SPREADSHEET_NS}}}items"
+    )
+    if len(item_sets) != 1 or len(item_sets[0]) != 2:
+        return None
+    for item in item_sets[0]:
+        item.attrib.pop("s", None)
+    return ElementTree.tostring(slicer_cache, encoding="utf-8", xml_declaration=True)
 
 
 def _chart_anchor_cell(anchor: ElementTree.Element) -> str | None:
@@ -1704,6 +1915,256 @@ def _validate_fact(
             == {before_state["chart_member"]}
             and _calculation_properties(baseline_path) == _calculation_properties(candidate_path),
             f"{truth['id']}: expected one relationship-bound chart value-series reference to change with stable worksheets and chart bindings",
+            errors,
+        )
+        return
+
+    if kind == "pivot_slicer_selection_changed":
+        cache_id = fact.get("cache_id")
+        source_type = fact.get("source_type")
+        source_sheet = fact.get("source_sheet")
+        source_reference = fact.get("source_ref")
+        pivot_sheet = fact.get("pivot_sheet")
+        pivot_reference = fact.get("pivot_ref")
+        pivot_output_cell = fact.get("pivot_output_cell")
+        dashboard_sheet = fact.get("dashboard_sheet")
+        dashboard_cell = fact.get("dashboard_cell")
+        dashboard_formula = fact.get("dashboard_formula")
+        slicer_name = fact.get("slicer_name")
+        slicer_source_name = fact.get("slicer_source_name")
+        slicer_pivot_table_name = fact.get("slicer_pivot_table_name")
+        slicer_pivot_tab_id = fact.get("slicer_pivot_tab_id")
+        item_count = fact.get("item_count")
+        baseline_selected_item_index = fact.get("baseline_selected_item_index")
+        candidate_selected_item_index = fact.get("candidate_selected_item_index")
+        baseline_selected_value = fact.get("baseline_selected_value")
+        candidate_selected_value = fact.get("candidate_selected_value")
+        before_state = (
+            _raw_pivot_slicer_selection_state(baseline_path, pivot_sheet)
+            if isinstance(pivot_sheet, str)
+            else None
+        )
+        after_state = (
+            _raw_pivot_slicer_selection_state(candidate_path, pivot_sheet)
+            if isinstance(pivot_sheet, str)
+            else None
+        )
+        before_output = (
+            _raw_cell_state(baseline_path, pivot_sheet, pivot_output_cell)
+            if isinstance(pivot_sheet, str) and isinstance(pivot_output_cell, str)
+            else None
+        )
+        after_output = (
+            _raw_cell_state(candidate_path, pivot_sheet, pivot_output_cell)
+            if isinstance(pivot_sheet, str) and isinstance(pivot_output_cell, str)
+            else None
+        )
+        before_dashboard = (
+            _raw_cell_state(baseline_path, dashboard_sheet, dashboard_cell)
+            if isinstance(dashboard_sheet, str) and isinstance(dashboard_cell, str)
+            else None
+        )
+        after_dashboard = (
+            _raw_cell_state(candidate_path, dashboard_sheet, dashboard_cell)
+            if isinstance(dashboard_sheet, str) and isinstance(dashboard_cell, str)
+            else None
+        )
+        expected_definition_attributes = tuple(
+            sorted(
+                {
+                    "recordCount": "4",
+                    "refreshOnLoad": "0",
+                    "saveData": "1",
+                    f"{{{_DOCUMENT_RELATIONSHIPS_NS}}}id": "rIdWCABPivotRecords",
+                }.items()
+            )
+        )
+        expected_pivot_attributes = (
+            tuple(
+                sorted(
+                    {
+                        "cacheId": str(cache_id),
+                        "dataCaption": "Amount",
+                        "name": "WCAB Pivot Report",
+                    }.items()
+                )
+            )
+            if type(cache_id) is int
+            else None
+        )
+        expected_location_attributes = (
+            tuple(
+                sorted(
+                    {
+                        "ref": pivot_reference,
+                        "firstHeaderRow": "1",
+                        "firstDataRow": "2",
+                        "firstDataCol": "1",
+                    }.items()
+                )
+            )
+            if isinstance(pivot_reference, str)
+            else None
+        )
+        expected_cache_source_attributes = (
+            (("type", source_type),) if isinstance(source_type, str) else None
+        )
+        expected_worksheet_source_attributes = (
+            tuple(sorted({"ref": source_reference, "sheet": source_sheet}.items()))
+            if isinstance(source_reference, str) and isinstance(source_sheet, str)
+            else None
+        )
+        expected_slicer_declaration_attributes = (
+            (f"{{{_DOCUMENT_RELATIONSHIPS_NS}}}id", "rIdWCABSlicerCache"),
+        )
+        expected_slicer_extension_attributes = (("uri", "{BBE1A952-AA13-448E-AADC-164F8A28A991}"),)
+        expected_slicer_content_type_attributes = (
+            ("ContentType", "application/vnd.ms-excel.slicerCache+xml"),
+            ("PartName", "/xl/slicerCaches/slicerCache1.xml"),
+        )
+        expected_slicer_attributes = (
+            tuple(sorted({"name": slicer_name, "sourceName": slicer_source_name}.items()))
+            if isinstance(slicer_name, str) and isinstance(slicer_source_name, str)
+            else None
+        )
+        expected_slicer_pivot_table_attributes = (
+            tuple(
+                sorted({"name": slicer_pivot_table_name, "tabId": str(slicer_pivot_tab_id)}.items())
+            )
+            if isinstance(slicer_pivot_table_name, str) and type(slicer_pivot_tab_id) is int
+            else None
+        )
+        expected_slicer_tabular_attributes = (
+            (("pivotCacheId", str(cache_id)),) if type(cache_id) is int else None
+        )
+        expected_baseline_slicer_items = (
+            (
+                tuple(sorted({"x": "0", "s": "1"}.items())),
+                tuple(sorted({"x": "1", "s": "0"}.items())),
+            )
+            if baseline_selected_item_index == 0 and candidate_selected_item_index == 1
+            else None
+        )
+        expected_candidate_slicer_items = (
+            (
+                tuple(sorted({"x": "0", "s": "0"}.items())),
+                tuple(sorted({"x": "1", "s": "1"}.items())),
+            )
+            if baseline_selected_item_index == 0 and candidate_selected_item_index == 1
+            else None
+        )
+        graph = _direct_graph(candidate)
+        selection_fields = {
+            "slicer_item_attributes",
+            "slicer_selected_item_index",
+            "slicer_selected_value",
+        }
+        _assert(
+            type(cache_id) is int
+            and cache_id > 0
+            and isinstance(source_type, str)
+            and isinstance(source_sheet, str)
+            and isinstance(source_reference, str)
+            and isinstance(pivot_sheet, str)
+            and isinstance(pivot_reference, str)
+            and isinstance(pivot_output_cell, str)
+            and isinstance(dashboard_sheet, str)
+            and isinstance(dashboard_cell, str)
+            and isinstance(dashboard_formula, str)
+            and isinstance(slicer_name, str)
+            and isinstance(slicer_source_name, str)
+            and isinstance(slicer_pivot_table_name, str)
+            and type(slicer_pivot_tab_id) is int
+            and type(item_count) is int
+            and item_count == 2
+            and type(baseline_selected_item_index) is int
+            and type(candidate_selected_item_index) is int
+            and baseline_selected_item_index == 0
+            and candidate_selected_item_index == 1
+            and isinstance(baseline_selected_value, str)
+            and isinstance(candidate_selected_value, str)
+            and baseline_selected_value != candidate_selected_value
+            and source_sheet in baseline.sheetnames
+            and source_sheet in candidate.sheetnames
+            and pivot_sheet in baseline.sheetnames
+            and pivot_sheet in candidate.sheetnames
+            and dashboard_sheet in baseline.sheetnames
+            and dashboard_sheet in candidate.sheetnames
+            and before_state is not None
+            and after_state is not None
+            and {key: value for key, value in before_state.items() if key not in selection_fields}
+            == {key: value for key, value in after_state.items() if key not in selection_fields}
+            and before_state["cache_id"] == cache_id
+            and after_state["cache_id"] == cache_id
+            and before_state["definition_attributes"] == expected_definition_attributes
+            and after_state["definition_attributes"] == expected_definition_attributes
+            and before_state["cache_source_attributes"] == expected_cache_source_attributes
+            and after_state["cache_source_attributes"] == expected_cache_source_attributes
+            and before_state["worksheet_source_attributes"] == expected_worksheet_source_attributes
+            and after_state["worksheet_source_attributes"] == expected_worksheet_source_attributes
+            and before_state["cache_records_attributes"] == (("count", "4"),)
+            and after_state["cache_records_attributes"] == (("count", "4"),)
+            and before_state["cache_record_indexes"] == ((0, 0), (0, 1), (1, 2), (1, 3))
+            and after_state["cache_record_indexes"] == ((0, 0), (0, 1), (1, 2), (1, 3))
+            and before_state["pivot_table_attributes"] == expected_pivot_attributes
+            and after_state["pivot_table_attributes"] == expected_pivot_attributes
+            and before_state["location_attributes"] == expected_location_attributes
+            and after_state["location_attributes"] == expected_location_attributes
+            and before_state["pivot_sheet_id"] == slicer_pivot_tab_id
+            and after_state["pivot_sheet_id"] == slicer_pivot_tab_id
+            and before_state["slicer_member"] == "xl/slicerCaches/slicerCache1.xml"
+            and after_state["slicer_member"] == "xl/slicerCaches/slicerCache1.xml"
+            and before_state["slicer_declaration_attributes"]
+            == expected_slicer_declaration_attributes
+            and after_state["slicer_declaration_attributes"]
+            == expected_slicer_declaration_attributes
+            and before_state["slicer_extension_attributes"] == expected_slicer_extension_attributes
+            and after_state["slicer_extension_attributes"] == expected_slicer_extension_attributes
+            and before_state["slicer_content_type_attributes"]
+            == expected_slicer_content_type_attributes
+            and after_state["slicer_content_type_attributes"]
+            == expected_slicer_content_type_attributes
+            and before_state["slicer_attributes"] == expected_slicer_attributes
+            and after_state["slicer_attributes"] == expected_slicer_attributes
+            and before_state["slicer_pivot_table_attributes"]
+            == expected_slicer_pivot_table_attributes
+            and after_state["slicer_pivot_table_attributes"]
+            == expected_slicer_pivot_table_attributes
+            and before_state["slicer_tabular_attributes"] == expected_slicer_tabular_attributes
+            and after_state["slicer_tabular_attributes"] == expected_slicer_tabular_attributes
+            and before_state["slicer_source_field_index"] == 0
+            and after_state["slicer_source_field_index"] == 0
+            and before_state["slicer_source_shared_item_values"]
+            == (baseline_selected_value, candidate_selected_value)
+            and after_state["slicer_source_shared_item_values"]
+            == (baseline_selected_value, candidate_selected_value)
+            and before_state["slicer_item_attributes"] == expected_baseline_slicer_items
+            and after_state["slicer_item_attributes"] == expected_candidate_slicer_items
+            and before_state["slicer_selected_item_index"] == baseline_selected_item_index
+            and after_state["slicer_selected_item_index"] == candidate_selected_item_index
+            and before_state["slicer_selected_value"] == baseline_selected_value
+            and after_state["slicer_selected_value"] == candidate_selected_value
+            and before_state["pivot_cache_slicer_extension_attributes"]
+            == (("pivotCacheId", str(cache_id)),)
+            and after_state["pivot_cache_slicer_extension_attributes"]
+            == (("pivotCacheId", str(cache_id)),)
+            and before_output is not None
+            and after_output is not None
+            and before_output == after_output
+            and before_output[3] is None
+            and before_output[4] is not None
+            and before_dashboard is not None
+            and after_dashboard is not None
+            and before_dashboard == after_dashboard
+            and before_dashboard[3] == dashboard_formula
+            and _slicer_cache_without_selection_state(baseline_path, pivot_sheet)
+            == _slicer_cache_without_selection_state(candidate_path, pivot_sheet)
+            and _xlsx_member_differences(baseline_path, candidate_path)
+            == {before_state["slicer_member"]}
+            and _calculation_properties(baseline_path) == _calculation_properties(candidate_path)
+            and (dashboard_sheet, dashboard_cell)
+            in graph.get((pivot_sheet, pivot_output_cell), set()),
+            f"{truth['id']}: expected one relationship-bound PivotTable Slicer selection to move with stable source, cache, stored output, and dashboard formula",
             errors,
         )
         return

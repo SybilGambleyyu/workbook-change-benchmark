@@ -1,0 +1,52 @@
+{
+  "coverage": [
+    "The pair changes only raw slicerCacheDefinition/data/tabular/items/i/@s selection state. It does not edit source cells, cache records, stored PivotTable display cells, formula text, refresh controls, or calculation properties.",
+    "The observable contract is the stored Slicer-cache selection declaration. This fixture has no Slicer drawing or view geometry; WCAB does not apply the filter, refresh, calculate, render, infer a changed display value, or claim client behavior.",
+    "The validator follows the local workbook-to-Slicer-cache-to-PivotCache/PivotTable relationship graph, verifies the stable source and direct dashboard edge, and treats that edge as a lower bound only if a client applies the Slicer filter."
+  ],
+  "coverage_expectations": [],
+  "facts": [
+    {
+      "baseline_selected_item_index": 0,
+      "baseline_selected_value": "North",
+      "cache_id": 1,
+      "candidate_selected_item_index": 1,
+      "candidate_selected_value": "South",
+      "dashboard_cell": "B4",
+      "dashboard_formula": "=Report!$B$2",
+      "dashboard_sheet": "Dashboard",
+      "item_count": 2,
+      "kind": "pivot_slicer_selection_changed",
+      "pivot_output_cell": "B2",
+      "pivot_ref": "A1:B2",
+      "pivot_sheet": "Report",
+      "slicer_name": "WCAB Region slicer",
+      "slicer_pivot_tab_id": 2,
+      "slicer_pivot_table_name": "WCAB Pivot Report",
+      "slicer_source_name": "Region",
+      "source_ref": "A1:B5",
+      "source_sheet": "Source",
+      "source_type": "worksheet"
+    }
+  ],
+  "family": "structural",
+  "id": "structural.pivot_slicer_selection_changed",
+  "must_reach": [
+    {
+      "source": {
+        "cell": "B2",
+        "sheet": "Report"
+      },
+      "targets": [
+        {
+          "cell": "B4",
+          "sheet": "Dashboard"
+        }
+      ]
+    }
+  ],
+  "review_expectation": "block",
+  "schema_version": 3,
+  "title": "A PivotTable slicer switches from North to South",
+  "topology": "pair"
+}

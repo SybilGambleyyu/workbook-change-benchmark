@@ -22,6 +22,8 @@ refresh-on-open control change with unchanged stored cells. WCAB 0.15 adds a
 relationship-backed DrawingML chart-series source-reference change with
 unchanged worksheet cells. WCAB 0.16 adds a relationship-backed PivotTable
 value-field aggregation change with unchanged source/cache/report cells.
+WCAB 0.17 adds a relationship-backed PivotTable Slicer-cache selection change
+with unchanged source/cache/report cells.
 Version 2 remains
 available in the immutable v0.2.0 and v0.3.0 releases.
 
@@ -69,6 +71,7 @@ Facts are observed directly from the fixture files by `wcab validate`.
 | `external_data_connection_refresh_on_load_changed` | `connection_id`, `baseline_refresh_on_load`, `candidate_refresh_on_load` | The relationship-backed connection with this workbook-local ID explicitly changes `refreshOnLoad` from `false` to `true`. The validator reads raw OOXML only. |
 | `pivot_cache_refresh_on_load_changed` | `cache_id`, `source_type`, `source_sheet`, `source_ref`, `pivot_sheet`, `pivot_ref`, `pivot_output_cell`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula`, `baseline_refresh_on_load`, `candidate_refresh_on_load` | One relationship-bound local worksheet PivotCache changes raw `refreshOnLoad` from `false` to `true`; its source binding, PivotTable location, stored report/dashboard cells, calculation properties, and every package member except its cache definition remain unchanged. The validator neither refreshes nor renders a PivotTable. |
 | `pivot_data_field_aggregation_changed` | `cache_id`, `source_type`, `source_sheet`, `source_ref`, `pivot_sheet`, `pivot_ref`, `pivot_output_cell`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula`, `data_field_source_index`, `baseline_subtotal`, `candidate_subtotal` | One relationship-bound local worksheet PivotTable retains its source/cache bindings, stored report/dashboard cells, refresh control, and calculation properties while raw `dataFields/dataField/@subtotal` moves between the declared aggregate functions. Every package member except its PivotTable definition remains unchanged. The validator does not refresh, calculate, render, or infer a displayed result. |
+| `pivot_slicer_selection_changed` | `cache_id`, `source_type`, `source_sheet`, `source_ref`, `pivot_sheet`, `pivot_ref`, `pivot_output_cell`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula`, `slicer_name`, `slicer_source_name`, `slicer_pivot_table_name`, `slicer_pivot_tab_id`, `item_count`, `baseline_selected_item_index`, `candidate_selected_item_index`, `baseline_selected_value`, `candidate_selected_value` | One relationship-bound local Slicer cache retains its source/PivotCache/PivotTable bindings, stored report/dashboard cells, refresh control, and calculation properties while exactly one selected cache item moves between the declared index/value pairs. Every package member except its Slicer-cache definition remains unchanged. The validator does not create a Slicer drawing, apply a filter, refresh, calculate, render, or infer a displayed result. |
 | `chart_series_value_reference_changed` | `chart_sheet`, `chart_anchor`, `source_sheet`, `series_title_ref`, `category_ref`, `baseline_value_ref`, `candidate_value_ref` | One relationship-bound DrawingML chart retains its host, anchor, title/category references, source worksheet cells, and every package member except its chart part while raw `c:ser/c:val/c:numRef/c:f` moves between declared local value ranges. The validator does not calculate, refresh, or render a chart. |
 | `external_workbook_link_update_policy_changed` | `sheet`, `cell`, `formula`, `baseline_update_links`, `candidate_update_links` | The declared external-workbook formula remains unchanged while raw `workbookPr/@updateLinks` changes exactly from `never` to `always`; all other stored `workbookPr` attributes are unchanged. The validator does not resolve the source workbook. |
 | `array_formula_mode_changed` | `sheet`, `cell`, `formula`, `baseline_mode`, `candidate_mode`, `baseline_output_range`, `candidate_output_range` | The declared unchanged array anchor moves from `legacy_cse` to `dynamic`, with its stored formula text and output range exactly as declared. The validator reads the raw OOXML cell-metadata binding. |
@@ -135,6 +138,25 @@ calculation property; the only raw difference is its sole
 that local graph and compares the PivotTable XML after removing exactly that
 attribute. It does not open Excel, refresh, calculate, render, infer a changed
 displayed value, or claim client behavior.
+
+## PivotTable Slicer selection
+
+Microsoft's [PivotTable filtering guidance](https://support.microsoft.com/en-us/excel/get-started/filter-data-in-a-pivottable)
+describes Slicers as controls that filter a PivotTable and convey its filtering
+state. The Office Open XML [Slicer Cache Part
+specification](https://learn.microsoft.com/en-us/openspecs/office_standards/MS-XLSX/e7eda20c-c65e-45ed-9540-de59c4a07b7d)
+stores item indices as `x` and selected items as `s=1`, so this state can be
+material even when no worksheet cell changes.
+
+WCAB's Slicer fixture retains the same local worksheet cache graph:
+`Source!A1:B5` binds to a PivotTable at `Report!A1:B2`, whose stored `B2`
+display cell is directly referenced by `Dashboard!B4`. The local Slicer cache
+targets that PivotTable and cache, has two `Region` items, and changes the one
+selected item from index 0 (`North`) to index 1 (`South`). The validator follows
+the local package relationships, maps selected item indices through the cache's
+shared items, and compares the Slicer XML after removing only `s` attributes.
+It creates no visual Slicer or drawing and does not apply the filter, refresh,
+calculate, render, infer a displayed value, or claim client behavior.
 
 ## External-workbook link update policy
 

@@ -69,6 +69,20 @@ _PIVOT_CACHE_DASHBOARD_FORMULA = "=Report!$B$2"
 _PIVOT_DATA_FIELD_SOURCE_INDEX = 1
 _PIVOT_DATA_FIELD_BASELINE_SUBTOTAL = "sum"
 _PIVOT_DATA_FIELD_CANDIDATE_SUBTOTAL = "average"
+_OFFICE_2010_SPREADSHEET_NS = "http://schemas.microsoft.com/office/spreadsheetml/2009/9/main"
+_PIVOT_SLICER_CACHE_RELATIONSHIP = (
+    "http://schemas.microsoft.com/office/2007/relationships/slicerCache"
+)
+_PIVOT_SLICER_CACHE_CONTENT_TYPE = "application/vnd.ms-excel.slicerCache+xml"
+_PIVOT_SLICER_CACHE_EXTENSION_URI = "{BBE1A952-AA13-448E-AADC-164F8A28A991}"
+_PIVOT_SLICER_PIVOT_CACHE_EXTENSION_URI = "{725AE2AE-9491-48BE-B2B4-4EB974FC3084}"
+_PIVOT_SLICER_NAME = "WCAB Region slicer"
+_PIVOT_SLICER_SOURCE_NAME = "Region"
+_PIVOT_SLICER_PIVOT_TABLE_NAME = "WCAB Pivot Report"
+_PIVOT_SLICER_PIVOT_TAB_ID = 2
+_PIVOT_SLICER_ITEM_COUNT = 2
+_PIVOT_SLICER_BASELINE_SELECTED_INDEX = 0
+_PIVOT_SLICER_CANDIDATE_SELECTED_INDEX = 1
 _CHART_SERIES_SOURCE_SHEET = "Source"
 _CHART_SERIES_DASHBOARD_SHEET = "Dashboard"
 _CHART_SERIES_ANCHOR = "D2"
@@ -1160,6 +1174,168 @@ def _add_pivot_cache_refresh_control(path: Path, *, refresh_on_load: bool) -> No
     _rewrite_xlsx_parts(path, mutate)
 
 
+def _add_pivot_slicer_selection(path: Path, *, selected_item_index: int) -> None:
+    """Attach one local PivotTable slicer with one explicitly selected cache item.
+
+    ``slicerCacheDefinition/data/tabular/items/i/@s`` is a stored Slicer-cache
+    state.  This package-only fixture deliberately records that declaration
+    after openpyxl writes ordinary worksheet cells; it neither creates a Slicer
+    drawing nor asks a spreadsheet client to apply, refresh, calculate, or
+    render the filter.
+    """
+
+    if type(selected_item_index) is not int or selected_item_index not in range(
+        _PIVOT_SLICER_ITEM_COUNT
+    ):
+        raise ValueError(f"unsupported PivotTable slicer selection {selected_item_index!r}")
+
+    def serialize(root: ElementTree.Element) -> bytes:
+        return ElementTree.tostring(root, encoding="utf-8", xml_declaration=True)
+
+    def mutate(members: dict[str, bytes]) -> None:
+        workbook = ElementTree.fromstring(members["xl/workbook.xml"])
+        relationship_id_attribute = f"{{{_DOCUMENT_RELATIONSHIPS_NS}}}id"
+        relationship_tag = f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationship"
+        sheets = workbook.find(f"{{{_SPREADSHEETML_NS}}}sheets")
+        report_sheets = (
+            [
+                sheet
+                for sheet in sheets.findall(f"{{{_SPREADSHEETML_NS}}}sheet")
+                if sheet.get("name") == _PIVOT_REPORT_SHEET
+            ]
+            if sheets is not None
+            else []
+        )
+        if len(report_sheets) != 1:
+            raise ValueError("PivotTable slicer fixture has an unexpected Report worksheet")
+        report_sheet_id = report_sheets[0].get("sheetId")
+        try:
+            if (
+                not isinstance(report_sheet_id, str)
+                or int(report_sheet_id) != _PIVOT_SLICER_PIVOT_TAB_ID
+            ):
+                raise ValueError
+        except ValueError as error:
+            raise ValueError(
+                "PivotTable slicer fixture Report worksheet has no sheet id"
+            ) from error
+
+        pivot_caches = workbook.findall(f"{{{_SPREADSHEETML_NS}}}pivotCaches")
+        if len(pivot_caches) != 1 or len(pivot_caches[0]) != 1:
+            raise ValueError("PivotTable slicer fixture must contain exactly one PivotCache")
+        pivot_cache = pivot_caches[0][0]
+        if pivot_cache.tag != f"{{{_SPREADSHEETML_NS}}}pivotCache":
+            raise ValueError("PivotTable slicer fixture has an unexpected PivotCache declaration")
+        if workbook.find(f"{{{_SPREADSHEETML_NS}}}extLst") is not None:
+            raise ValueError(
+                "PivotTable slicer fixture unexpectedly already has workbook extensions"
+            )
+
+        workbook_extensions = ElementTree.SubElement(workbook, f"{{{_SPREADSHEETML_NS}}}extLst")
+        workbook_extension = ElementTree.SubElement(
+            workbook_extensions,
+            f"{{{_SPREADSHEETML_NS}}}ext",
+            {"uri": _PIVOT_SLICER_CACHE_EXTENSION_URI},
+        )
+        slicer_caches = ElementTree.SubElement(
+            workbook_extension, f"{{{_OFFICE_2010_SPREADSHEET_NS}}}slicerCaches"
+        )
+        ElementTree.SubElement(
+            slicer_caches,
+            f"{{{_OFFICE_2010_SPREADSHEET_NS}}}slicerCache",
+            {relationship_id_attribute: "rIdWCABSlicerCache"},
+        )
+        members["xl/workbook.xml"] = serialize(workbook)
+
+        workbook_relationships = ElementTree.fromstring(members["xl/_rels/workbook.xml.rels"])
+        if any(
+            relationship.get("Id") == "rIdWCABSlicerCache"
+            for relationship in workbook_relationships.findall(relationship_tag)
+        ):
+            raise ValueError("PivotTable slicer fixture relationship ID is already in use")
+        ElementTree.SubElement(
+            workbook_relationships,
+            relationship_tag,
+            {
+                "Id": "rIdWCABSlicerCache",
+                "Type": _PIVOT_SLICER_CACHE_RELATIONSHIP,
+                "Target": "slicerCaches/slicerCache1.xml",
+            },
+        )
+        members["xl/_rels/workbook.xml.rels"] = serialize(workbook_relationships)
+
+        cache_definition_member = "xl/pivotCache/pivotCacheDefinition1.xml"
+        cache_definition = ElementTree.fromstring(members[cache_definition_member])
+        if cache_definition.tag != f"{{{_SPREADSHEETML_NS}}}pivotCacheDefinition":
+            raise ValueError("PivotTable slicer fixture has an unexpected cache definition")
+        if cache_definition.find(f"{{{_SPREADSHEETML_NS}}}extLst") is not None:
+            raise ValueError("PivotTable slicer fixture unexpectedly already has cache extensions")
+        cache_extensions = ElementTree.SubElement(
+            cache_definition, f"{{{_SPREADSHEETML_NS}}}extLst"
+        )
+        cache_extension = ElementTree.SubElement(
+            cache_extensions,
+            f"{{{_SPREADSHEETML_NS}}}ext",
+            {"uri": _PIVOT_SLICER_PIVOT_CACHE_EXTENSION_URI},
+        )
+        ElementTree.SubElement(
+            cache_extension,
+            f"{{{_OFFICE_2010_SPREADSHEET_NS}}}pivotCacheDefinition",
+            {"pivotCacheId": str(_PIVOT_CACHE_ID)},
+        )
+        members[cache_definition_member] = serialize(cache_definition)
+
+        slicer_member = "xl/slicerCaches/slicerCache1.xml"
+        slicer_cache = ElementTree.Element(
+            f"{{{_OFFICE_2010_SPREADSHEET_NS}}}slicerCacheDefinition",
+            {"name": _PIVOT_SLICER_NAME, "sourceName": _PIVOT_SLICER_SOURCE_NAME},
+        )
+        pivot_tables = ElementTree.SubElement(
+            slicer_cache,
+            f"{{{_OFFICE_2010_SPREADSHEET_NS}}}pivotTables",
+            {"count": "1"},
+        )
+        ElementTree.SubElement(
+            pivot_tables,
+            f"{{{_OFFICE_2010_SPREADSHEET_NS}}}pivotTable",
+            {"tabId": report_sheet_id, "name": _PIVOT_SLICER_PIVOT_TABLE_NAME},
+        )
+        data = ElementTree.SubElement(slicer_cache, f"{{{_OFFICE_2010_SPREADSHEET_NS}}}data")
+        tabular = ElementTree.SubElement(
+            data,
+            f"{{{_OFFICE_2010_SPREADSHEET_NS}}}tabular",
+            {"pivotCacheId": str(_PIVOT_CACHE_ID)},
+        )
+        items = ElementTree.SubElement(
+            tabular,
+            f"{{{_OFFICE_2010_SPREADSHEET_NS}}}items",
+            {"count": str(_PIVOT_SLICER_ITEM_COUNT)},
+        )
+        for item_index in range(_PIVOT_SLICER_ITEM_COUNT):
+            ElementTree.SubElement(
+                items,
+                f"{{{_OFFICE_2010_SPREADSHEET_NS}}}i",
+                {"x": str(item_index), "s": "1" if item_index == selected_item_index else "0"},
+            )
+        members[slicer_member] = serialize(slicer_cache)
+
+        content_types = ElementTree.fromstring(members["[Content_Types].xml"])
+        override_tag = f"{{{_CONTENT_TYPES_NS}}}Override"
+        if any(
+            item.get("PartName") == f"/{slicer_member}"
+            for item in content_types.findall(override_tag)
+        ):
+            raise ValueError("PivotTable slicer fixture already has a slicer content type")
+        ElementTree.SubElement(
+            content_types,
+            override_tag,
+            {"PartName": f"/{slicer_member}", "ContentType": _PIVOT_SLICER_CACHE_CONTENT_TYPE},
+        )
+        members["[Content_Types].xml"] = serialize(content_types)
+
+    _rewrite_xlsx_parts(path, mutate)
+
+
 def _set_pivot_data_field_subtotal(path: Path, *, subtotal: str) -> None:
     """Set the sole generated PivotTable value field's aggregation control.
 
@@ -1978,6 +2154,67 @@ def _build_structural_pivot_data_field_aggregation(root: Path) -> None:
     )
 
 
+def _build_structural_pivot_slicer_selection(root: Path) -> None:
+    """Build a PivotTable Slicer whose selected cache item switches in isolation."""
+
+    directory = root / "structural" / "pivot_slicer_selection_changed"
+    directory.mkdir(parents=True, exist_ok=True)
+    baseline = directory / "baseline.xlsx"
+    candidate = directory / "candidate.xlsx"
+    _save_workbook(_pivot_cache_refresh_workbook(), baseline)
+    _save_workbook(_pivot_cache_refresh_workbook(), candidate)
+    _add_pivot_cache_refresh_control(baseline, refresh_on_load=False)
+    _add_pivot_cache_refresh_control(candidate, refresh_on_load=False)
+    _add_pivot_slicer_selection(baseline, selected_item_index=_PIVOT_SLICER_BASELINE_SELECTED_INDEX)
+    _add_pivot_slicer_selection(
+        candidate, selected_item_index=_PIVOT_SLICER_CANDIDATE_SELECTED_INDEX
+    )
+    _write_json(
+        directory / "truth.json",
+        _truth(
+            case_id="structural.pivot_slicer_selection_changed",
+            title="A PivotTable slicer switches from North to South",
+            family="structural",
+            review_expectation="block",
+            facts=[
+                {
+                    "kind": "pivot_slicer_selection_changed",
+                    "cache_id": _PIVOT_CACHE_ID,
+                    "source_type": "worksheet",
+                    "source_sheet": _PIVOT_CACHE_SOURCE_SHEET,
+                    "source_ref": _PIVOT_CACHE_SOURCE_REF,
+                    "pivot_sheet": _PIVOT_REPORT_SHEET,
+                    "pivot_ref": _PIVOT_REPORT_REF,
+                    "pivot_output_cell": "B2",
+                    "dashboard_sheet": "Dashboard",
+                    "dashboard_cell": "B4",
+                    "dashboard_formula": _PIVOT_CACHE_DASHBOARD_FORMULA,
+                    "slicer_name": _PIVOT_SLICER_NAME,
+                    "slicer_source_name": _PIVOT_SLICER_SOURCE_NAME,
+                    "slicer_pivot_table_name": _PIVOT_SLICER_PIVOT_TABLE_NAME,
+                    "slicer_pivot_tab_id": _PIVOT_SLICER_PIVOT_TAB_ID,
+                    "item_count": _PIVOT_SLICER_ITEM_COUNT,
+                    "baseline_selected_item_index": _PIVOT_SLICER_BASELINE_SELECTED_INDEX,
+                    "candidate_selected_item_index": _PIVOT_SLICER_CANDIDATE_SELECTED_INDEX,
+                    "baseline_selected_value": "North",
+                    "candidate_selected_value": "South",
+                }
+            ],
+            must_reach=[
+                {
+                    "source": {"sheet": _PIVOT_REPORT_SHEET, "cell": "B2"},
+                    "targets": [{"sheet": "Dashboard", "cell": "B4"}],
+                }
+            ],
+            coverage=[
+                "The pair changes only raw slicerCacheDefinition/data/tabular/items/i/@s selection state. It does not edit source cells, cache records, stored PivotTable display cells, formula text, refresh controls, or calculation properties.",
+                "The observable contract is the stored Slicer-cache selection declaration. This fixture has no Slicer drawing or view geometry; WCAB does not apply the filter, refresh, calculate, render, infer a changed display value, or claim client behavior.",
+                "The validator follows the local workbook-to-Slicer-cache-to-PivotCache/PivotTable relationship graph, verifies the stable source and direct dashboard edge, and treats that edge as a lower bound only if a client applies the Slicer filter.",
+            ],
+        ),
+    )
+
+
 def _build_governance_external_workbook_link_update_policy(root: Path) -> None:
     """Build a pair differing only in the global external-link open policy."""
 
@@ -2376,6 +2613,7 @@ _BUILDERS: tuple[Callable[[Path], None], ...] = (
     _build_governance_pivot_cache_refresh,
     _build_governance_external_workbook_link_update_policy,
     _build_structural_pivot_data_field_aggregation,
+    _build_structural_pivot_slicer_selection,
     _build_structural_chart_series_reference,
     _build_structural_array_formula_mode,
     _build_structural_three_d_scope,
@@ -2409,6 +2647,7 @@ CASE_IDS = (
     "governance.pivot_cache_refresh_on_open",
     "governance.external_workbook_link_update_on_open",
     "structural.pivot_data_field_aggregation_changed",
+    "structural.pivot_slicer_selection_changed",
     "structural.chart_series_reference_changed",
     "structural.array_formula_mode_changed",
     "structural.three_d_scope_expansion",

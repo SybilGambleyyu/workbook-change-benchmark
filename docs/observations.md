@@ -198,7 +198,17 @@ labels, selected aggregate function, or a rendered report. WCAB's raw
 validator—not the adapter—then establishes the local graph, stable stored
 cells, exact `sum`-to-`average` `dataField/@subtotal` transition, and
 PivotTable-part-only package change. Neither report refreshes, calculates, or
-renders a PivotTable. For the chart-series
+renders a PivotTable. For the PivotTable Slicer-selection case, it requires
+one exact `slicer_timeline_cache_definitions_changed` record and matching
+`FF032`: FormulaFence's redacted profile must retain one Slicer cache, one
+local PivotCache binding, one PivotTable binding, two Slicer items, one selected
+item, and no timeline or auxiliary material while only
+`slicer_filter_state_or_definition_material_changed` is set. FormulaFence does
+not expose the Slicer name, selected item/value, or a rendered report. WCAB's
+raw validator—not the adapter—then establishes the local graph, stable stored
+cells, exact selected `North`-to-`South` item transition, and Slicer-cache-part-
+only package change. Neither report creates a visual Slicer, applies a filter,
+refreshes, calculates, or renders a PivotTable. For the chart-series
 case, it requires one exact `chart_definitions_changed` record and matching
 `FF030`: FormulaFence's redacted profile must retain one host sheet, one
 drawing, one legacy chart, one series, three data references, no chart cache,

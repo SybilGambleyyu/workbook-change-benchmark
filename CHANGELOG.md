@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.17.0 — 2026-08-03
+
+- Add a deterministic relationship-backed PivotTable Slicer-selection case.
+  Its local worksheet source, PivotCache, stored `Report!A1:B2` display cells,
+  and `Dashboard!B4=Report!$B$2` consumer remain unchanged while raw
+  Slicer-cache selection moves from the `North` item to the `South` item.
+- Add the exact `pivot_slicer_selection_changed` fact, raw Slicer-cache to
+  PivotCache/PivotTable relationship validator, Slicer-cache-part isolation
+  check, and corruption regressions. WCAB records stored cache-item state only:
+  it does not create a visual Slicer, apply a filter, refresh, calculate, or
+  render a PivotTable, infer a changed report result, or claim client behavior.
+- Extend the optional FormulaFence adapter to require its exact redacted
+  one-Slicer `slicer_timeline_cache_definitions_changed` profile and
+  high-severity `FF032`, while WCAB independently proves the local item-index
+  and selected-value transition.
+
 ## 0.16.0 — 2026-08-03
 
 - Add a deterministic relationship-backed PivotTable value-field aggregation
