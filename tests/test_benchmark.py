@@ -270,6 +270,54 @@ def _data_validation_list_source_details() -> dict[str, object]:
     }
 
 
+def _conditional_formatting_threshold_details() -> dict[str, object]:
+    rule = {
+        "above_average": True,
+        "bottom": False,
+        "color_scale": None,
+        "data_bar": None,
+        "differential_style": {
+            "element": "dxf",
+            "children": [
+                {
+                    "element": "fill",
+                    "children": [
+                        {
+                            "element": "patternFill",
+                            "attributes": {"patternType": "solid"},
+                            "children": [
+                                {
+                                    "element": "fgColor",
+                                    "attributes": {"rgb": "FFFFC7CE"},
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+        },
+        "equal_average": False,
+        "extensions": [],
+        "icon_set": None,
+        "operator": "greaterThan",
+        "percent": False,
+        "priority": 1,
+        "ranges": ["Operations!B2:B4"],
+        "rank": None,
+        "sheet": "Operations",
+        "std_dev": None,
+        "stop_if_true": False,
+        "text": None,
+        "time_period": None,
+        "type": "cellIs",
+    }
+    return {
+        "sheet": "Operations",
+        "before": {"rules": [{**rule, "formulas": ["100"]}], "extensions": []},
+        "after": {"rules": [{**rule, "formulas": ["50"]}], "extensions": []},
+    }
+
+
 def _replace_power_query_m_filter_literal(path: Path, *, before: bytes, after: bytes) -> None:
     """Rewrite one test fixture's embedded M formula without changing its truth."""
 
@@ -416,6 +464,23 @@ def test_committed_manifest_matches_fixture_tree() -> None:
             "dashboard_sheet": "Dashboard",
             "dashboard_cell": "B4",
             "dashboard_formula": "=Model!$B$2",
+        }
+    ]
+    conditional_formatting_threshold_row = next(
+        row for row in rows if row["id"] == "operations.conditional_formatting_threshold_changed"
+    )
+    assert conditional_formatting_threshold_row["facts"] == [
+        {
+            "kind": "conditional_formatting_threshold_changed",
+            "sheet": "Operations",
+            "target_range": "B2:B4",
+            "priority": 1,
+            "rule_type": "cellIs",
+            "operator": "greaterThan",
+            "baseline_formula": "100",
+            "candidate_formula": "50",
+            "metric_values": [10, 75, 120],
+            "fill_rgb": "FFFFC7CE",
         }
     ]
     external_data_row = next(
@@ -1176,6 +1241,90 @@ def test_data_validation_list_source_pair_changes_only_its_inputs_worksheet(
     fixture_root = tmp_path / "fixtures"
     build_all(fixture_root)
     case = fixture_root / "operations" / "data_validation_list_source_changed"
+    with ZipFile(case / "baseline.xlsx") as baseline, ZipFile(case / "candidate.xlsx") as candidate:
+        assert baseline.testzip() is None
+        assert candidate.testzip() is None
+        baseline_members = {
+            entry.filename: baseline.read(entry.filename) for entry in baseline.infolist()
+        }
+        candidate_members = {
+            entry.filename: candidate.read(entry.filename) for entry in candidate.infolist()
+        }
+    assert set(baseline_members) == set(candidate_members)
+    assert [
+        member
+        for member in sorted(baseline_members)
+        if baseline_members[member] != candidate_members[member]
+    ] == ["xl/worksheets/sheet1.xml"]
+
+
+def test_validator_rejects_a_false_conditional_formatting_threshold_fact(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "operations" / "conditional_formatting_threshold_changed"
+    truth_path = case / "truth.json"
+    truth = json.loads(truth_path.read_text(encoding="utf-8"))
+    truth["facts"][0]["candidate_formula"] = "100"
+    truth_path.write_text(json.dumps(truth), encoding="utf-8")
+    assert validate_case(case)
+
+
+def test_validator_rejects_a_corrupted_conditional_formatting_threshold(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = (
+        fixture_root / "operations" / "conditional_formatting_threshold_changed" / "candidate.xlsx"
+    )
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    namespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    worksheet_member = "xl/worksheets/sheet1.xml"
+    worksheet = ElementTree.fromstring(members[worksheet_member])
+    formula = next(worksheet.iter(f"{{{namespace}}}formula"))
+    formula.text = "100"
+    members[worksheet_member] = ElementTree.tostring(
+        worksheet, encoding="utf-8", xml_declaration=True
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_validator_rejects_an_unrelated_conditional_formatting_control_change(
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = (
+        fixture_root / "operations" / "conditional_formatting_threshold_changed" / "candidate.xlsx"
+    )
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    namespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    worksheet_member = "xl/worksheets/sheet1.xml"
+    worksheet = ElementTree.fromstring(members[worksheet_member])
+    rule = next(worksheet.iter(f"{{{namespace}}}cfRule"))
+    rule.set("operator", "lessThan")
+    members[worksheet_member] = ElementTree.tostring(
+        worksheet, encoding="utf-8", xml_declaration=True
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_conditional_formatting_threshold_pair_changes_only_its_operations_worksheet(
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "operations" / "conditional_formatting_threshold_changed"
     with ZipFile(case / "baseline.xlsx") as baseline, ZipFile(case / "candidate.xlsx") as candidate:
         assert baseline.testzip() is None
         assert candidate.testzip() is None
@@ -2579,6 +2728,92 @@ def test_formulafence_adapter_requires_the_data_validation_list_source_finding(
     assert result["status"] == "missed"
     assert result["matched"] == []
     assert result["missed"] == ["data_validation_list_source_changed"]
+
+
+def test_formulafence_adapter_maps_the_exact_conditional_formatting_threshold_change(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _conditional_formatting_threshold_details()
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "conditional_formatting_changed",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF021", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "operations" / "conditional_formatting_threshold_changed"
+    )
+    assert result["status"] == "matched"
+    assert result["matched"] == ["conditional_formatting_threshold_changed"]
+
+
+def test_formulafence_adapter_rejects_an_inexact_conditional_formatting_threshold_change(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _conditional_formatting_threshold_details()
+        details["after"]["rules"][0]["formulas"] = ["100"]
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "conditional_formatting_changed",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF021", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "operations" / "conditional_formatting_threshold_changed"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["conditional_formatting_threshold_changed"]
+
+
+def test_formulafence_adapter_requires_the_conditional_formatting_threshold_finding(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "conditional_formatting_changed",
+                    "location": None,
+                    "details": _conditional_formatting_threshold_details(),
+                }
+            ],
+            "findings": [],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "operations" / "conditional_formatting_threshold_changed"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["conditional_formatting_threshold_changed"]
 
 
 def test_formulafence_adapter_maps_the_exact_pivot_cache_refresh_change(

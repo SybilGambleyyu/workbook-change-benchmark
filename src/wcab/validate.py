@@ -1060,6 +1060,105 @@ def _data_validation_worksheet_without_source_formula(
     return ElementTree.tostring(worksheet, encoding="utf-8", xml_declaration=True)
 
 
+def _raw_conditional_formatting_threshold_state(
+    path: Path, sheet_name: str, target_range: str
+) -> dict[str, Any] | None:
+    """Read WCAB's one stored ``cellIs`` exception-threshold declaration.
+
+    This narrow reader only accepts the compact rule shape generated for the
+    benchmark. It observes a stored threshold formula without evaluating the
+    rule or determining which cells a spreadsheet client would format.
+    """
+
+    try:
+        with ZipFile(path) as archive:
+            worksheet_member = _worksheet_member_for_sheet(archive, sheet_name)
+            if worksheet_member is None:
+                return None
+            worksheet = ElementTree.fromstring(archive.read(worksheet_member))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    if worksheet.tag != f"{{{_SPREADSHEETML_NS}}}worksheet":
+        return None
+    conditional_formatting_tag = f"{{{_SPREADSHEETML_NS}}}conditionalFormatting"
+    rule_tag = f"{{{_SPREADSHEETML_NS}}}cfRule"
+    formula_tag = f"{{{_SPREADSHEETML_NS}}}formula"
+    controls = worksheet.findall(conditional_formatting_tag)
+    if len(controls) != 1 or controls[0].get("sqref") != target_range:
+        return None
+    rules = list(controls[0])
+    if len(rules) != 1 or rules[0].tag != rule_tag:
+        return None
+    rule = rules[0]
+    formulas = rule.findall(formula_tag)
+    if len(rule) != 1 or len(formulas) != 1:
+        return None
+    formula = formulas[0]
+    return {
+        "worksheet_member": worksheet_member,
+        "control_attributes": tuple(sorted(controls[0].attrib.items())),
+        "rule_attributes": tuple(sorted(rule.attrib.items())),
+        "formula_attributes": tuple(sorted(formula.attrib.items())),
+        "formula_text": formula.text,
+        "formula_child_count": len(formula),
+    }
+
+
+def _conditional_formatting_worksheet_without_threshold_formula(
+    path: Path, sheet_name: str, target_range: str
+) -> bytes | None:
+    """Return WCAB's conditional-formatting worksheet with its formula erased."""
+
+    if _raw_conditional_formatting_threshold_state(path, sheet_name, target_range) is None:
+        return None
+    try:
+        with ZipFile(path) as archive:
+            worksheet_member = _worksheet_member_for_sheet(archive, sheet_name)
+            if worksheet_member is None:
+                return None
+            worksheet = ElementTree.fromstring(archive.read(worksheet_member))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    rule_tag = f"{{{_SPREADSHEETML_NS}}}cfRule"
+    formula_tag = f"{{{_SPREADSHEETML_NS}}}formula"
+    rules = [rule for rule in worksheet.iter(rule_tag) if rule.get("type") == "cellIs"]
+    if len(rules) != 1:
+        return None
+    formulas = rules[0].findall(formula_tag)
+    if len(formulas) != 1:
+        return None
+    formulas[0].text = None
+    return ElementTree.tostring(worksheet, encoding="utf-8", xml_declaration=True)
+
+
+def _conditional_formatting_differential_fill_state(
+    path: Path, dxf_id: int
+) -> tuple[str, str] | None:
+    """Read one generated differential fill control without rendering it."""
+
+    if dxf_id < 0:
+        return None
+    try:
+        with ZipFile(path) as archive:
+            styles = ElementTree.fromstring(archive.read("xl/styles.xml"))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    dxfs = styles.find(f"{{{_SPREADSHEETML_NS}}}dxfs")
+    if dxfs is None:
+        return None
+    entries = list(dxfs)
+    if dxf_id >= len(entries) or entries[dxf_id].tag != f"{{{_SPREADSHEETML_NS}}}dxf":
+        return None
+    fill = entries[dxf_id].find(f"{{{_SPREADSHEETML_NS}}}fill")
+    pattern = fill.find(f"{{{_SPREADSHEETML_NS}}}patternFill") if fill is not None else None
+    colour = pattern.find(f"{{{_SPREADSHEETML_NS}}}fgColor") if pattern is not None else None
+    pattern_type = pattern.get("patternType") if pattern is not None else None
+    colour_rgb = colour.get("rgb") if colour is not None else None
+    if not isinstance(pattern_type, str) or not isinstance(colour_rgb, str):
+        return None
+    return (pattern_type, colour_rgb)
+
+
 def _raw_what_if_data_table_state(
     path: Path, sheet_name: str, master_cell: str
 ) -> dict[str, Any] | None:
@@ -1843,6 +1942,88 @@ def _validate_fact(
             before_count == fact.get("baseline_count")
             and after_count == fact.get("candidate_count"),
             f"{truth['id']}: expected {kind} {fact.get('baseline_count')} -> {fact.get('candidate_count')}, got {before_count} -> {after_count}",
+            errors,
+        )
+        return
+
+    if kind == "conditional_formatting_threshold_changed":
+        sheet_name = fact.get("sheet")
+        target_range = fact.get("target_range")
+
+        def range_values(workbook: Workbook) -> tuple[Any, ...] | None:
+            if (
+                not isinstance(sheet_name, str)
+                or not isinstance(target_range, str)
+                or sheet_name not in workbook.sheetnames
+            ):
+                return None
+            try:
+                cells = workbook[sheet_name][target_range]
+            except ValueError:
+                return None
+            if not isinstance(cells, tuple) or any(not isinstance(row, tuple) for row in cells):
+                return None
+            return tuple(cell.value for row in cells for cell in row)
+
+        before_state = (
+            _raw_conditional_formatting_threshold_state(baseline_path, sheet_name, target_range)
+            if isinstance(sheet_name, str) and isinstance(target_range, str)
+            else None
+        )
+        after_state = (
+            _raw_conditional_formatting_threshold_state(candidate_path, sheet_name, target_range)
+            if isinstance(sheet_name, str) and isinstance(target_range, str)
+            else None
+        )
+        before_values = range_values(baseline)
+        after_values = range_values(candidate)
+        expected_values = (10, 75, 120)
+        expected_rule_attributes = (
+            ("dxfId", "0"),
+            ("operator", "greaterThan"),
+            ("priority", "1"),
+            ("type", "cellIs"),
+        )
+        _assert(
+            sheet_name == "Operations"
+            and target_range == "B2:B4"
+            and fact.get("priority") == 1
+            and fact.get("rule_type") == "cellIs"
+            and fact.get("operator") == "greaterThan"
+            and fact.get("baseline_formula") == "100"
+            and fact.get("candidate_formula") == "50"
+            and fact.get("metric_values") == list(expected_values)
+            and fact.get("fill_rgb") == "FFFFC7CE"
+            and before_state is not None
+            and after_state is not None
+            and before_state["worksheet_member"] == "xl/worksheets/sheet1.xml"
+            and after_state["worksheet_member"] == "xl/worksheets/sheet1.xml"
+            and before_state["control_attributes"] == (("sqref", "B2:B4"),)
+            and after_state["control_attributes"] == (("sqref", "B2:B4"),)
+            and before_state["rule_attributes"] == expected_rule_attributes
+            and after_state["rule_attributes"] == expected_rule_attributes
+            and before_state["formula_attributes"] == ()
+            and after_state["formula_attributes"] == ()
+            and before_state["formula_child_count"] == 0
+            and after_state["formula_child_count"] == 0
+            and before_state["formula_text"] == "100"
+            and after_state["formula_text"] == "50"
+            and before_values == expected_values
+            and after_values == expected_values
+            and _conditional_formatting_differential_fill_state(baseline_path, 0)
+            == ("solid", "FFFFC7CE")
+            and _conditional_formatting_differential_fill_state(candidate_path, 0)
+            == ("solid", "FFFFC7CE")
+            and _conditional_formatting_worksheet_without_threshold_formula(
+                baseline_path, sheet_name, target_range
+            )
+            == _conditional_formatting_worksheet_without_threshold_formula(
+                candidate_path, sheet_name, target_range
+            )
+            and _xlsx_member_differences(baseline_path, candidate_path)
+            == {before_state["worksheet_member"]}
+            and _calculation_properties(baseline_path) == _calculation_properties(candidate_path),
+            f"{truth['id']}: expected only one cellIs conditional-formatting threshold formula change with stable control, fill, values, calculation properties, and package boundary",
             errors,
         )
         return

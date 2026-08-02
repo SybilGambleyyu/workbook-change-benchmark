@@ -322,6 +322,34 @@ ordinary direct formula path only. It does not evaluate a source formula,
 determine a future input's validity, accept or reject an input, calculate a
 workbook, or claim behavior from any Excel client.
 
+## Conditional-formatting thresholds without a cell edit
+
+Microsoft's [Open XML conditional-formatting guidance](https://learn.microsoft.com/en-us/office/open-xml/spreadsheet/working-with-conditional-formatting)
+describes conditional formats as worksheet-level rules applied when a condition
+is true. Its `cellIs` example stores the comparison operator and a `formula`
+threshold inside `cfRule`; the [MS-XLSX conditional-formatting formula
+specification](https://learn.microsoft.com/en-us/openspecs/office_standards/ms-xlsx/7476f340-5fe0-4051-9524-6daeaa1e0006)
+likewise identifies `cfRule` formula elements as conditional-formatting
+formulas. A stored threshold can therefore change the visual exception
+criterion without a cell-value or ordinary-formula edit.
+
+That boundary is relevant to review rather than merely to visual polish:
+[ICAEW's spreadsheet-review guidance](https://www.icaew.com/technical/technology/excel-community/excel-community-articles/2021/conditional-formatting-and-spreadsheet-review)
+describes conditional formatting as part of spreadsheet review, while a
+comparison product can explicitly focus on entered values and formulas in its
+[workbook comparison description](https://www.xltrail.com/blog/compare-two-excel-workbooks).
+Those sources do not establish a population-wide coverage measurement; they
+motivate a small, inspectable rule-level case that distinguishes a changed
+criterion from an executed or rendered outcome.
+
+WCAB 0.22 keeps one `Operations!B2:B4` `cellIs` rule's target, priority,
+`greaterThan` operator, differential red fill, and stored `10`, `75`, and
+`120` metrics fixed. Only its raw `formula` threshold moves from `100` to
+`50`. The validator compares the worksheet after erasing that one formula and
+requires the Operations worksheet to be the only changed package member. It
+does not evaluate the rule, decide which cells an Excel client formats,
+calculate a workbook, or claim client behavior.
+
 ## Chart series sources without a worksheet edit
 
 Microsoft's [chart-series guidance](https://support.microsoft.com/en-US/Excel/rename-a-data-series)

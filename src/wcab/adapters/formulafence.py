@@ -32,6 +32,7 @@ _FACT_TO_CHANGE: dict[str, tuple[str, str | None]] = {
     "data_validation_count_changed": ("data_validation_changed", None),
     "data_validation_list_source_changed": ("data_validation_changed", None),
     "conditional_formatting_count_changed": ("conditional_formatting_changed", None),
+    "conditional_formatting_threshold_changed": ("conditional_formatting_changed", None),
     "auto_filter_criteria_changed": ("filter_visibility_controls_changed", None),
     "sheet_visibility_changed": ("sheet_visibility_changed", None),
     "formula_cell_unlocked": ("cell_protection_assignments_changed", None),
@@ -853,6 +854,100 @@ def _data_validation_list_source_finding_observed(
     )
 
 
+def _conditional_formatting_threshold_details_observed(details: Any, fact: dict[str, Any]) -> bool:
+    """Require FormulaFence's exact one-rule threshold transition and FF021.
+
+    FormulaFence exposes the stored conditional-formatting rule rather than a
+    rendered workbook. WCAB independently validates the raw cellIs formula,
+    stable differential fill, values, and package boundary; this adapter
+    requires FormulaFence to show that same one-rule formula transition.
+    """
+
+    if (
+        fact.get("sheet") != "Operations"
+        or fact.get("target_range") != "B2:B4"
+        or fact.get("priority") != 1
+        or fact.get("rule_type") != "cellIs"
+        or fact.get("operator") != "greaterThan"
+        or fact.get("baseline_formula") != "100"
+        or fact.get("candidate_formula") != "50"
+        or fact.get("metric_values") != [10, 75, 120]
+        or fact.get("fill_rgb") != "FFFFC7CE"
+        or not isinstance(details, dict)
+        or set(details) != {"sheet", "before", "after"}
+        or details.get("sheet") != "Operations"
+    ):
+        return False
+    before = details.get("before")
+    after = details.get("after")
+    if (
+        not isinstance(before, dict)
+        or not isinstance(after, dict)
+        or set(before) != {"rules", "extensions"}
+        or set(after) != {"rules", "extensions"}
+        or before.get("extensions") != []
+        or after.get("extensions") != []
+        or not isinstance(before.get("rules"), list)
+        or not isinstance(after.get("rules"), list)
+        or len(before["rules"]) != 1
+        or len(after["rules"]) != 1
+    ):
+        return False
+    before_rule = before["rules"][0]
+    after_rule = after["rules"][0]
+    if not isinstance(before_rule, dict) or not isinstance(after_rule, dict):
+        return False
+    expected_controls = {
+        "sheet": "Operations",
+        "ranges": ["Operations!B2:B4"],
+        "priority": 1,
+        "type": "cellIs",
+        "operator": "greaterThan",
+        "stop_if_true": False,
+        "above_average": True,
+        "percent": False,
+        "bottom": False,
+        "rank": None,
+        "std_dev": None,
+        "equal_average": False,
+        "text": None,
+        "time_period": None,
+    }
+    if any(before_rule.get(key) != value for key, value in expected_controls.items()) or any(
+        after_rule.get(key) != value for key, value in expected_controls.items()
+    ):
+        return False
+    before_without_formula = dict(before_rule)
+    after_without_formula = dict(after_rule)
+    before_formula = before_without_formula.pop("formulas", None)
+    after_formula = after_without_formula.pop("formulas", None)
+    return (
+        before_formula == ["100"]
+        and after_formula == ["50"]
+        and before_without_formula == after_without_formula
+    )
+
+
+def _conditional_formatting_threshold_observed(
+    change: dict[str, Any], fact: dict[str, Any]
+) -> bool:
+    """Match FormulaFence's stored conditional-formatting change record."""
+
+    return change.get("kind") == "conditional_formatting_changed" and (
+        _conditional_formatting_threshold_details_observed(change.get("details"), fact)
+    )
+
+
+def _conditional_formatting_threshold_finding_observed(
+    finding: dict[str, Any], fact: dict[str, Any]
+) -> bool:
+    """Require FormulaFence's matching high-severity conditional-format finding."""
+
+    return finding.get("rule_id") == "FF021" and _conditional_formatting_threshold_details_observed(
+        finding.get("details"), fact
+    )
+
+
 def _what_if_data_table_input_reference_details_observed(
     details: Any, fact: dict[str, Any]
 ) -> bool:
@@ -1244,6 +1339,16 @@ def evaluate_diff_case(case_dir: str | Path, *, executable: str = "formulafence"
                 if isinstance(change, dict)
             ) and any(
                 _data_validation_list_source_finding_observed(finding, fact)
+                for finding in findings
+                if isinstance(finding, dict)
+            )
+        if kind == "conditional_formatting_threshold_changed":
+            observed = any(
+                _conditional_formatting_threshold_observed(change, fact)
+                for change in changes
+                if isinstance(change, dict)
+            ) and any(
+                _conditional_formatting_threshold_finding_observed(finding, fact)
                 for finding in findings
                 if isinstance(finding, dict)
             )

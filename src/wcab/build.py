@@ -154,6 +154,12 @@ _DATA_VALIDATION_LIST_ERROR_TITLE = "Invalid status"
 _DATA_VALIDATION_LIST_ERROR = "Choose an approved status."
 _DATA_VALIDATION_LIST_PROMPT_TITLE = "Approved status"
 _DATA_VALIDATION_LIST_PROMPT = "Choose a documented status."
+_CONDITIONAL_FORMATTING_THRESHOLD_SHEET = "Operations"
+_CONDITIONAL_FORMATTING_THRESHOLD_RANGE = "B2:B4"
+_CONDITIONAL_FORMATTING_THRESHOLD_BASELINE_FORMULA = "100"
+_CONDITIONAL_FORMATTING_THRESHOLD_CANDIDATE_FORMULA = "50"
+_CONDITIONAL_FORMATTING_THRESHOLD_VALUES = (10, 75, 120)
+_CONDITIONAL_FORMATTING_THRESHOLD_FILL_RGB = "FFFFC7CE"
 _CHART_SERIES_SOURCE_SHEET = "Source"
 _CHART_SERIES_DASHBOARD_SHEET = "Dashboard"
 _CHART_SERIES_ANCHOR = "D2"
@@ -412,6 +418,38 @@ def _data_validation_list_source_workbook() -> Workbook:
     dashboard["A1"] = "Board status"
     dashboard["A4"] = "Selected status"
     dashboard[_DATA_VALIDATION_LIST_DASHBOARD_CELL] = _DATA_VALIDATION_LIST_DASHBOARD_FORMULA
+    return workbook
+
+
+def _conditional_formatting_threshold_workbook() -> Workbook:
+    """Build one stable exception-highlight rule with stored metric values.
+
+    Conditional-formatting formulas live alongside worksheet controls rather
+    than as ordinary cell formulas. The candidate is later changed only at the
+    rule's raw threshold formula, which lets the fixture measure a visual
+    control transition without asking a spreadsheet client to render it.
+    """
+
+    workbook = Workbook()
+    _configure_workbook(workbook, title="WCAB conditional-formatting threshold fixture")
+    operations = workbook.active
+    operations.title = _CONDITIONAL_FORMATTING_THRESHOLD_SHEET
+    operations["A1"] = "Metric"
+    operations["B1"] = "Exception review metric"
+    for row, value in enumerate(_CONDITIONAL_FORMATTING_THRESHOLD_VALUES, start=2):
+        operations.cell(row, 1, f"Period {row - 1}")
+        operations.cell(row, 2, value)
+    exception_fill = PatternFill(
+        fill_type="solid", fgColor=_CONDITIONAL_FORMATTING_THRESHOLD_FILL_RGB
+    )
+    operations.conditional_formatting.add(
+        _CONDITIONAL_FORMATTING_THRESHOLD_RANGE,
+        CellIsRule(
+            operator="greaterThan",
+            formula=[_CONDITIONAL_FORMATTING_THRESHOLD_BASELINE_FORMULA],
+            fill=exception_fill,
+        ),
+    )
     return workbook
 
 
@@ -1682,6 +1720,61 @@ def _set_data_validation_list_source(path: Path, *, source_formula: str) -> None
     _rewrite_xlsx_parts(path, mutate)
 
 
+def _set_conditional_formatting_threshold(path: Path, *, formula: str) -> None:
+    """Set WCAB's one conditional-formatting threshold without saving cells.
+
+    The stored ``formula`` child of a ``cellIs`` conditional-formatting rule
+    defines the exception threshold. Editing it after openpyxl writes the
+    baseline shape keeps the candidate's boundary narrow: only its operations
+    worksheet part may differ, and no conditional formatting is evaluated.
+    """
+
+    if formula not in {
+        _CONDITIONAL_FORMATTING_THRESHOLD_BASELINE_FORMULA,
+        _CONDITIONAL_FORMATTING_THRESHOLD_CANDIDATE_FORMULA,
+    }:
+        raise ValueError(f"unsupported conditional-formatting threshold {formula!r}")
+
+    def mutate(members: dict[str, bytes]) -> None:
+        worksheet_member = "xl/worksheets/sheet1.xml"
+        worksheet = ElementTree.fromstring(members[worksheet_member])
+        conditional_formatting_tag = f"{{{_SPREADSHEETML_NS}}}conditionalFormatting"
+        rule_tag = f"{{{_SPREADSHEETML_NS}}}cfRule"
+        formula_tag = f"{{{_SPREADSHEETML_NS}}}formula"
+        controls = worksheet.findall(conditional_formatting_tag)
+        if (
+            len(controls) != 1
+            or controls[0].get("sqref") != _CONDITIONAL_FORMATTING_THRESHOLD_RANGE
+        ):
+            raise ValueError("conditional-formatting fixture lacks one target control")
+        rules = list(controls[0])
+        if len(rules) != 1 or rules[0].tag != rule_tag:
+            raise ValueError("conditional-formatting fixture lacks one rule")
+        rule = rules[0]
+        formulas = rule.findall(formula_tag)
+        if (
+            tuple(sorted(rule.attrib.items()))
+            != (
+                ("dxfId", "0"),
+                ("operator", "greaterThan"),
+                ("priority", "1"),
+                ("type", "cellIs"),
+            )
+            or len(rule) != 1
+            or len(formulas) != 1
+            or formulas[0].attrib
+            or len(formulas[0])
+            or formulas[0].text != _CONDITIONAL_FORMATTING_THRESHOLD_BASELINE_FORMULA
+        ):
+            raise ValueError("conditional-formatting fixture has an unexpected threshold rule")
+        formulas[0].text = formula
+        members[worksheet_member] = ElementTree.tostring(
+            worksheet, encoding="utf-8", xml_declaration=True
+        )
+
+    _rewrite_xlsx_parts(path, mutate)
+
+
 def _add_pivot_slicer_selection(path: Path, *, selected_item_index: int) -> None:
     """Attach one local PivotTable slicer with one explicitly selected cache item.
 
@@ -2264,6 +2357,47 @@ def _build_operations_conditional_formatting(root: Path) -> None:
     )
     _write_pair(
         root / "operations" / "conditional_formatting_removed", _operations_workbook, mutate, truth
+    )
+
+
+def _build_operations_conditional_formatting_threshold(root: Path) -> None:
+    """Build a stored exception-threshold transition without changing cells."""
+
+    directory = root / "operations" / "conditional_formatting_threshold_changed"
+    directory.mkdir(parents=True, exist_ok=True)
+    baseline = directory / "baseline.xlsx"
+    candidate = directory / "candidate.xlsx"
+    _save_workbook(_conditional_formatting_threshold_workbook(), baseline)
+    _save_workbook(_conditional_formatting_threshold_workbook(), candidate)
+    _set_conditional_formatting_threshold(
+        candidate, formula=_CONDITIONAL_FORMATTING_THRESHOLD_CANDIDATE_FORMULA
+    )
+    _write_json(
+        directory / "truth.json",
+        _truth(
+            case_id="operations.conditional_formatting_threshold_changed",
+            title="A conditional-formatting exception threshold is lowered",
+            family="operations",
+            review_expectation="review",
+            facts=[
+                {
+                    "kind": "conditional_formatting_threshold_changed",
+                    "sheet": _CONDITIONAL_FORMATTING_THRESHOLD_SHEET,
+                    "target_range": _CONDITIONAL_FORMATTING_THRESHOLD_RANGE,
+                    "priority": 1,
+                    "rule_type": "cellIs",
+                    "operator": "greaterThan",
+                    "baseline_formula": _CONDITIONAL_FORMATTING_THRESHOLD_BASELINE_FORMULA,
+                    "candidate_formula": _CONDITIONAL_FORMATTING_THRESHOLD_CANDIDATE_FORMULA,
+                    "metric_values": list(_CONDITIONAL_FORMATTING_THRESHOLD_VALUES),
+                    "fill_rgb": _CONDITIONAL_FORMATTING_THRESHOLD_FILL_RGB,
+                }
+            ],
+            coverage=[
+                "The pair changes only the raw formula child in one cellIs conditional-formatting rule. It does not edit the target range, priority, operator, differential fill, worksheet values, calculation properties, or any other package member.",
+                "The observed contract is a stored visual exception threshold. WCAB does not evaluate the rule, determine which cells a client formats, calculate the workbook, or claim Excel-client behavior.",
+            ],
+        ),
     )
 
 
@@ -3389,6 +3523,7 @@ _BUILDERS: tuple[Callable[[Path], None], ...] = (
     _build_operations_data_validation,
     _build_operations_data_validation_list_source,
     _build_operations_conditional_formatting,
+    _build_operations_conditional_formatting_threshold,
     _build_operations_auto_filter_criteria,
     _build_governance_visibility,
     _build_governance_protection,
@@ -3427,6 +3562,7 @@ CASE_IDS = (
     "operations.data_validation_removed",
     "operations.data_validation_list_source_changed",
     "operations.conditional_formatting_removed",
+    "operations.conditional_formatting_threshold_changed",
     "operations.auto_filter_criteria_changed",
     "governance.hidden_sheet_revealed",
     "governance.formula_cell_unlocked",

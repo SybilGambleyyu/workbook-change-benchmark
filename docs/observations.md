@@ -249,7 +249,16 @@ WCAB's raw validator—not the adapter—then establishes the exact
 `Lists!$A$2:$A$4`-to-`Lists!$B$2:$B$4` declaration, stable source values and
 ordinary formula path, direct static lower bounds, and Inputs-worksheet-only
 package change. Neither report accepts/rejects an entry, calculates a
-workbook, or claims client behavior. For the chart-series case, it requires
+workbook, or claims client behavior. For the conditional-formatting threshold
+case, it requires one exact `conditional_formatting_changed` record and
+matching `FF021`: FormulaFence must expose one `Operations!B2:B4` `cellIs`
+rule whose only before/after rule difference is its `100`-to-`50` formula
+threshold. FormulaFence exposes stored rule metadata but does not render a
+workbook or determine which cells receive a format. WCAB's raw validator—not
+the adapter—then establishes the stable priority, operator, differential fill,
+metric values, calculation properties, and Operations-worksheet-only package
+change. Neither report evaluates the rule, calculates a workbook, or claims
+client behavior. For the chart-series case, it requires
 one exact `chart_definitions_changed` record and matching
 `FF030`: FormulaFence's redacted profile must retain one host sheet, one
 drawing, one legacy chart, one series, three data references, no chart cache,

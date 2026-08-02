@@ -34,7 +34,7 @@ gates, static analyzers, and agent workflows that propose workbook edits.
 
 ## Scope and non-goals
 
-Version `0.21` covers formula-to-value replacements, formula reference drift,
+Version `0.22` covers formula-to-value replacements, formula reference drift,
 value changes with downstream effects, external formula references, named
 ranges, data validation, conditional formatting, sheet visibility, direct cell
 protection, calculation settings, static cycles, portfolio dependencies,
@@ -108,6 +108,12 @@ and calculation properties remain unchanged. It records the stored input
 control only: it does not evaluate the list source, decide whether a future
 entry is valid, accept or reject an entry, calculate a workbook, or claim
 Excel-client behavior.
+It also covers one `Operations!B2:B4` `cellIs` conditional-formatting rule
+whose raw threshold formula moves from `100` to `50` while its target, priority,
+`greaterThan` operator, differential red fill, metric values, and calculation
+properties remain unchanged. It records the stored visual control only: it
+does not evaluate the rule, determine which cells a client formats, calculate
+a workbook, or claim Excel-client behavior.
 It also covers a Dashboard DrawingML chart whose raw numeric-series reference
 switches from `Source!$B$2:$B$4` to `Source!$C$2:$C$4` while all source cells,
 the chart anchor, its title/category references, and every package member
@@ -283,6 +289,14 @@ validator independently proves the generated `Lists!$A$2:$A$4` to
 direct static model/dashboard lower bounds, and Inputs-worksheet-only package
 change. Neither layer accepts or rejects an entry, calculates a workbook, or
 claims client behavior.
+For the conditional-formatting threshold case, it requires FormulaFence's
+exact one-rule `conditional_formatting_changed` transition and `FF021`.
+FormulaFence exposes stored rule metadata but does not render a workbook or
+determine which cells receive a format. WCAB's raw validator independently
+proves the raw `100`-to-`50` threshold transition, stable priority, operator,
+differential fill, metric values, calculation properties, and
+Operations-worksheet-only package change. Neither layer evaluates the rule,
+calculates a workbook, or claims client behavior.
 For the chart-series case, it requires FormulaFence's exact redacted one-chart
 profile, `chart_definition_material_changed`, and `FF030`; FormulaFence does
 not expose the source formula or a visual result. WCAB's raw validator instead

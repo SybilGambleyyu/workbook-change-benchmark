@@ -1,0 +1,32 @@
+{
+  "coverage": [
+    "The pair changes only the raw formula child in one cellIs conditional-formatting rule. It does not edit the target range, priority, operator, differential fill, worksheet values, calculation properties, or any other package member.",
+    "The observed contract is a stored visual exception threshold. WCAB does not evaluate the rule, determine which cells a client formats, calculate the workbook, or claim Excel-client behavior."
+  ],
+  "coverage_expectations": [],
+  "facts": [
+    {
+      "baseline_formula": "100",
+      "candidate_formula": "50",
+      "fill_rgb": "FFFFC7CE",
+      "kind": "conditional_formatting_threshold_changed",
+      "metric_values": [
+        10,
+        75,
+        120
+      ],
+      "operator": "greaterThan",
+      "priority": 1,
+      "rule_type": "cellIs",
+      "sheet": "Operations",
+      "target_range": "B2:B4"
+    }
+  ],
+  "family": "operations",
+  "id": "operations.conditional_formatting_threshold_changed",
+  "must_reach": [],
+  "review_expectation": "review",
+  "schema_version": 3,
+  "title": "A conditional-formatting exception threshold is lowered",
+  "topology": "pair"
+}

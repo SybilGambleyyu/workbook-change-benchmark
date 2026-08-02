@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.22.0 — 2026-08-03
+
+- Add a deterministic conditional-formatting exception-threshold case. Its one
+  `Operations!B2:B4` `cellIs` rule retains its target, priority, operator,
+  differential red fill, metric values, and calculation properties while raw
+  `formula` moves from `100` to `50`.
+- Add the exact `conditional_formatting_threshold_changed` fact, a narrow raw
+  worksheet/style validator, operations-worksheet-only package isolation
+  check, and corruption regressions. WCAB records a stored visual-control
+  formula only: it does not evaluate the rule, determine which cells a client
+  formats, calculate a workbook, or claim Excel-client behavior.
+- Extend the optional FormulaFence adapter to require the exact one-rule
+  `conditional_formatting_changed` transition and high-severity `FF021`, while
+  WCAB independently proves the raw threshold, stable fill/values, and package
+  boundary.
+
 ## 0.21.0 — 2026-08-03
 
 - Add a deterministic list data-validation source-retargeting case. Its one
