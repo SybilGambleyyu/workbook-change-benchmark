@@ -114,8 +114,7 @@ Results:
   version 0.12.0 and validated all 27 fixtures; the wheel emitted
   byte-identical JSONL output.
 - The full sixty-three-test suite, lint, and format checks passed locally under
-  Python 3.13; hosted release CI runs the same checks under Python 3.10 and
-  3.13.
+  Python 3.13 and in hosted release CI under Python 3.10 and 3.13.
 - The generated unsupported template scored as zero analyzed coverage, zero
   expected-fact recall, and zero coverage-disclosure recall, confirming that
   unsupported cases cannot become a pass.
