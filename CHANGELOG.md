@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.0 — 2026-08-02
+
+- Add deterministic `INDIRECT` address-driver and `OFFSET` displacement-driver
+  cases. In both, formula text stays unchanged while the selected effective
+  reference can change.
+- Add the scoreable `dynamic_reference_driver_changed` coverage expectation
+  and validator invariant for a changed literal driver feeding an unchanged
+  dynamic formula.
+- Extend the optional FormulaFence adapter to pair its native input-change
+  record with its candidate-profile dynamic-reference feature, preserving the
+  analysis boundary without claiming formula evaluation.
+
 ## 0.4.0 — 2026-08-02
 
 - Upgrade the fixture contract to schema version 3 and add a deterministic

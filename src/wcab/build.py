@@ -322,6 +322,42 @@ def _dynamic_reference_workbook() -> Workbook:
     return workbook
 
 
+def _dynamic_reference_driver_workbook(*, function: str, driver_value: str | int) -> Workbook:
+    """Build a model with a stable dynamic formula and an editable driver.
+
+    ``INDIRECT`` changes a reference by changing text; ``OFFSET`` changes one
+    by changing displacement. In both cases the formula is deliberately stable
+    across the fixture pair, so reviewers must not equate unchanged formula
+    text with unchanged effective dependency selection.
+    """
+
+    workbook = Workbook()
+    _configure_workbook(workbook, title=f"WCAB {function} driver fixture")
+    inputs = workbook.active
+    inputs.title = "Inputs"
+    inputs["A1"] = "Dynamic reference driver"
+    inputs["E12"] = driver_value
+
+    revenue = workbook.create_sheet("Revenue")
+    revenue["A1"] = "Revenue sources"
+    revenue["B8"] = 100
+    revenue["C8"] = 120
+
+    summary = workbook.create_sheet("Summary")
+    summary["A1"] = "Selected revenue"
+    if function == "INDIRECT":
+        summary["B2"] = "=INDIRECT(Inputs!$E$12)"
+    elif function == "OFFSET":
+        summary["B2"] = "=OFFSET(Revenue!$B$8,0,Inputs!$E$12)"
+    else:  # Internal callers use the two explicitly supported fixture forms.
+        raise ValueError(f"unsupported dynamic-reference fixture function {function!r}")
+
+    dashboard = workbook.create_sheet("Dashboard")
+    dashboard["A1"] = "Board output"
+    dashboard["B4"] = "=Summary!$B$2"
+    return workbook
+
+
 def _portfolio_workbook(*, driver_value: int) -> tuple[Workbook, Workbook]:
     drivers = Workbook()
     _configure_workbook(drivers, title="WCAB portfolio drivers")
@@ -777,6 +813,77 @@ def _build_structural_dynamic_reference(root: Path) -> None:
     )
 
 
+def _build_structural_dynamic_reference_drivers(root: Path) -> None:
+    def write_case(
+        *,
+        case_name: str,
+        case_id: str,
+        function: str,
+        baseline_driver: str | int,
+        candidate_driver: str | int,
+        title: str,
+        coverage: list[str],
+    ) -> None:
+        truth = _truth(
+            case_id=case_id,
+            title=title,
+            family="structural",
+            review_expectation="block",
+            facts=[{"kind": "value_changed", "sheet": "Inputs", "cell": "E12"}],
+            must_reach=[
+                {
+                    "source": {"sheet": "Inputs", "cell": "E12"},
+                    "targets": [
+                        {"sheet": "Summary", "cell": "B2"},
+                        {"sheet": "Dashboard", "cell": "B4"},
+                    ],
+                }
+            ],
+            coverage=coverage,
+            coverage_expectations=[
+                {
+                    "kind": "dynamic_reference_driver_changed",
+                    "driver": {"sheet": "Inputs", "cell": "E12"},
+                    "formula": {"sheet": "Summary", "cell": "B2"},
+                    "functions": [function],
+                }
+            ],
+        )
+        _write_pair(
+            root / "structural" / case_name,
+            lambda: _dynamic_reference_driver_workbook(
+                function=function, driver_value=baseline_driver
+            ),
+            lambda workbook: setattr(workbook["Inputs"]["E12"], "value", candidate_driver),
+            truth,
+        )
+
+    write_case(
+        case_name="indirect_reference_driver_changed",
+        case_id="structural.indirect_reference_driver_changed",
+        function="INDIRECT",
+        baseline_driver="Revenue!B8",
+        candidate_driver="Revenue!C8",
+        title="An unchanged INDIRECT formula receives a different address driver",
+        coverage=[
+            "INDIRECT returns a reference from workbook text; this fixture does not evaluate or calculate the selected address.",
+            "The unchanged formula still directly reads the changed driver, but its effective target selection is outside a complete static dependency graph.",
+        ],
+    )
+    write_case(
+        case_name="offset_reference_driver_changed",
+        case_id="structural.offset_reference_driver_changed",
+        function="OFFSET",
+        baseline_driver=0,
+        candidate_driver=1,
+        title="An unchanged OFFSET formula receives a different column displacement",
+        coverage=[
+            "OFFSET returns a reference displaced from another reference; this fixture does not calculate the selected cell.",
+            "The unchanged formula still directly reads the changed driver, but its effective target selection is outside a complete static dependency graph.",
+        ],
+    )
+
+
 def _build_portfolio_external_driver(root: Path) -> None:
     directory = root / "portfolio" / "external_driver_value_change"
     baseline = directory / "baseline"
@@ -837,6 +944,7 @@ _BUILDERS: tuple[Callable[[Path], None], ...] = (
     _build_structural_formula_rewrite,
     _build_structural_table_scope,
     _build_structural_dynamic_reference,
+    _build_structural_dynamic_reference_drivers,
     _build_portfolio_external_driver,
 )
 
@@ -858,6 +966,8 @@ CASE_IDS = (
     "structural.formula_rewrite_after_column_insert",
     "structural.structured_table_scope_expansion",
     "structural.dynamic_reference_introduced",
+    "structural.indirect_reference_driver_changed",
+    "structural.offset_reference_driver_changed",
     "portfolio.external_driver_value_change",
 )
 

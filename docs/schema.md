@@ -5,9 +5,9 @@ generated fixture; it never relies on a private workbook or an external data
 source.
 
 Version 3 adds `coverage_expectations`: machine-matchable disclosures for
-important analysis boundaries. Its first case requires a warning that an
-introduced `INDIRECT` reference can leave static dependency coverage
-incomplete. Version 2 remains available in the immutable v0.2.0 and v0.3.0
+important analysis boundaries. WCAB 0.5 extends that same stable envelope with
+cases where an unchanged `INDIRECT` or `OFFSET` formula receives a changed
+selector. Version 2 remains available in the immutable v0.2.0 and v0.3.0
 releases.
 
 ```json
@@ -72,13 +72,17 @@ boundary was visible.
 | Expectation kind | Required fields | Observable contract |
 | --- | --- | --- |
 | `dynamic_reference_static_coverage` | `sheet`, `cell`, `functions` | Candidate formula contains the declared newly introduced `INDIRECT` or `OFFSET` function while the baseline formula has none. A matching observation declaration means the tool surfaced the static-dependency coverage boundary. |
+| `dynamic_reference_driver_changed` | `driver` (`sheet`, `cell`), `formula` (`sheet`, `cell`), `functions` | A literal driver changes, the declared dynamic formula remains textually unchanged on both sides, and the candidate formula directly reads that driver. A matching observation declaration means the tool surfaced the pre-existing dynamic-reference boundary alongside the input change. |
 
 Excel documents that [INDIRECT returns a reference specified by a text
 string](https://support.microsoft.com/en-us/excel/functions/indirect-function)
 and that [OFFSET returns a reference displaced from another
 reference](https://support.microsoft.com/en-us/excel/functions/offset-function).
 WCAB consequently does not treat a simple static graph as a complete statement
-of all possible dependencies once either function is introduced.
+of all possible dependencies once either function is present. The driver cases
+separate a formula-text diff from an effective-target change: `INDIRECT` reads
+an address from text, while `OFFSET` reads a displacement, so each can change
+which cell is selected even when its formula text is unchanged.
 
 The observation protocol's `coverage.declarations` items wrap an exact
 expectation plus optional native evidence. See

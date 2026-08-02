@@ -44,6 +44,10 @@ _COVERAGE_EXPECTATION_TO_RULE: dict[str, tuple[str, str | None]] = {
     "dynamic_reference_static_coverage": ("FF012", "location"),
 }
 
+_COVERAGE_EXPECTATION_TO_PROFILE_FEATURE = {
+    "dynamic_reference_driver_changed": "dynamic_reference_cells",
+}
+
 _LINT_EXPECTATIONS = {
     "operations.copied_formula_interruption": "FF082",
     "operations.sumifs_range_shape": "FF093",
@@ -111,6 +115,12 @@ def diff(
     return _run_json(["diff", str(baseline), str(candidate)], executable=executable)
 
 
+def profile(workbook: str | Path, *, executable: str = "formulafence") -> dict[str, Any]:
+    """Run a local FormulaFence profile and return its JSON report."""
+
+    return _run_json(["profile", str(workbook)], executable=executable)
+
+
 def lint(workbook: str | Path, *, executable: str = "formulafence") -> dict[str, Any]:
     """Run local FormulaFence lint and return its JSON report."""
 
@@ -139,6 +149,31 @@ def _fact_location(fact: dict[str, Any]) -> str | None:
     cell = fact.get("cell")
     if isinstance(sheet, str) and isinstance(cell, str):
         return f"{sheet}!{cell}"
+    return None
+
+
+def _nested_location(expectation: dict[str, Any], field: str) -> str | None:
+    value = expectation.get(field)
+    if not isinstance(value, dict):
+        return None
+    sheet = value.get("sheet")
+    cell = value.get("cell")
+    if isinstance(sheet, str) and isinstance(cell, str):
+        return f"{sheet}!{cell}"
+    return None
+
+
+def _coverage_evidence(expectation: dict[str, Any]) -> dict[str, str] | None:
+    kind = str(expectation.get("kind"))
+    rule_mapping = _COVERAGE_EXPECTATION_TO_RULE.get(kind)
+    if rule_mapping is not None:
+        return {"native_rule_id": rule_mapping[0]}
+    profile_feature = _COVERAGE_EXPECTATION_TO_PROFILE_FEATURE.get(kind)
+    if profile_feature is not None:
+        return {
+            "native_change_kind": "value_changed",
+            "native_profile_feature": profile_feature,
+        }
     return None
 
 
@@ -261,32 +296,63 @@ def evaluate_diff_case(case_dir: str | Path, *, executable: str = "formulafence"
         if not isinstance(raw_findings, list):
             raise FormulaFenceAdapterError("FormulaFence report has no findings list")
         findings = raw_findings
+    candidate_profile: dict[str, Any] | None = None
     matched_coverage_expectations: list[dict[str, Any]] = []
     missed_coverage_expectations: list[dict[str, Any]] = []
     unmapped_coverage_expectations: list[dict[str, Any]] = []
     for expectation in coverage_expectations:
         if not isinstance(expectation, dict):
             raise FormulaFenceAdapterError(f"{directory}: coverage expectation must be an object")
-        mapping = _COVERAGE_EXPECTATION_TO_RULE.get(str(expectation.get("kind")))
-        if mapping is None:
-            unmapped_coverage_expectations.append(expectation)
-            continue
-        expected_rule, location_mode = mapping
-        expected_location = _fact_location(expectation) if location_mode is not None else None
-        expected_functions = expectation.get("functions")
-        observed = any(
-            isinstance(finding, dict)
-            and finding.get("rule_id") == expected_rule
-            and (expected_location is None or finding.get("location") == expected_location)
-            and (
-                expected_functions is None
-                or (
-                    isinstance(finding.get("details"), dict)
-                    and finding["details"].get("functions") == expected_functions
+        expectation_kind = str(expectation.get("kind"))
+        rule_mapping = _COVERAGE_EXPECTATION_TO_RULE.get(expectation_kind)
+        if rule_mapping is not None:
+            expected_rule, location_mode = rule_mapping
+            expected_location = _fact_location(expectation) if location_mode is not None else None
+            expected_functions = expectation.get("functions")
+            observed = any(
+                isinstance(finding, dict)
+                and finding.get("rule_id") == expected_rule
+                and (expected_location is None or finding.get("location") == expected_location)
+                and (
+                    expected_functions is None
+                    or (
+                        isinstance(finding.get("details"), dict)
+                        and finding["details"].get("functions") == expected_functions
+                    )
                 )
+                for finding in findings
             )
-            for finding in findings
-        )
+        else:
+            profile_feature = _COVERAGE_EXPECTATION_TO_PROFILE_FEATURE.get(expectation_kind)
+            if profile_feature is None:
+                unmapped_coverage_expectations.append(expectation)
+                continue
+            if candidate_profile is None:
+                candidate_profile = profile(directory / "candidate.xlsx", executable=executable)
+            features = candidate_profile.get("features")
+            if not isinstance(features, dict):
+                raise FormulaFenceAdapterError("FormulaFence profile has no features object")
+            profile_entries = features.get(profile_feature)
+            if not isinstance(profile_entries, list):
+                raise FormulaFenceAdapterError(
+                    f"FormulaFence profile feature {profile_feature!r} is not a list"
+                )
+            driver_location = _nested_location(expectation, "driver")
+            formula_location = _nested_location(expectation, "formula")
+            expected_functions = expectation.get("functions")
+            driver_changed = any(
+                isinstance(change, dict)
+                and change.get("kind") == "value_changed"
+                and change.get("location") == driver_location
+                for change in changes
+            )
+            profile_observed = any(
+                isinstance(entry, dict)
+                and entry.get("location") == formula_location
+                and entry.get("functions") == expected_functions
+                for entry in profile_entries
+            )
+            observed = driver_changed and profile_observed
         (matched_coverage_expectations if observed else missed_coverage_expectations).append(
             expectation
         )
@@ -428,12 +494,12 @@ def reference_observations(root: str | Path, *, executable: str = "formulafence"
         for expectation in result.get("matched_coverage_expectations", []):
             if not isinstance(expectation, dict):
                 continue
-            mapping = _COVERAGE_EXPECTATION_TO_RULE.get(str(expectation.get("kind")))
-            if mapping is None:
+            evidence = _coverage_evidence(expectation)
+            if evidence is None:
                 continue
             coverage_declarations.append(
                 {
-                    "evidence": {"native_rule_id": mapping[0]},
+                    "evidence": evidence,
                     "expectation": expectation,
                 }
             )

@@ -1,0 +1,53 @@
+{
+  "coverage": [
+    "OFFSET returns a reference displaced from another reference; this fixture does not calculate the selected cell.",
+    "The unchanged formula still directly reads the changed driver, but its effective target selection is outside a complete static dependency graph."
+  ],
+  "coverage_expectations": [
+    {
+      "driver": {
+        "cell": "E12",
+        "sheet": "Inputs"
+      },
+      "formula": {
+        "cell": "B2",
+        "sheet": "Summary"
+      },
+      "functions": [
+        "OFFSET"
+      ],
+      "kind": "dynamic_reference_driver_changed"
+    }
+  ],
+  "facts": [
+    {
+      "cell": "E12",
+      "kind": "value_changed",
+      "sheet": "Inputs"
+    }
+  ],
+  "family": "structural",
+  "id": "structural.offset_reference_driver_changed",
+  "must_reach": [
+    {
+      "source": {
+        "cell": "E12",
+        "sheet": "Inputs"
+      },
+      "targets": [
+        {
+          "cell": "B2",
+          "sheet": "Summary"
+        },
+        {
+          "cell": "B4",
+          "sheet": "Dashboard"
+        }
+      ]
+    }
+  ],
+  "review_expectation": "block",
+  "schema_version": 3,
+  "title": "An unchanged OFFSET formula receives a different column displacement",
+  "topology": "pair"
+}

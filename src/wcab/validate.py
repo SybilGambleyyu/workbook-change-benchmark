@@ -381,7 +381,10 @@ def _validate_coverage_expectations(
             errors.append(f"{truth['id']}: coverage expectation must be an object")
             continue
         kind = expectation.get("kind")
-        if kind != "dynamic_reference_static_coverage":
+        if kind not in {
+            "dynamic_reference_static_coverage",
+            "dynamic_reference_driver_changed",
+        }:
             errors.append(f"{truth['id']}: unsupported coverage expectation kind {kind!r}")
             continue
         try:
@@ -391,27 +394,70 @@ def _validate_coverage_expectations(
             continue
         baseline = _load_workbook(baseline_path)
         candidate = _load_workbook(candidate_path)
-        sheet_name = expectation.get("sheet")
-        coordinate = expectation.get("cell")
         expected_functions = expectation.get("functions")
-        if (
-            not isinstance(sheet_name, str)
-            or not isinstance(coordinate, str)
-            or sheet_name not in baseline.sheetnames
-            or sheet_name not in candidate.sheetnames
-        ):
-            errors.append(f"{truth['id']}: dynamic-reference coverage location is absent")
+        if kind == "dynamic_reference_static_coverage":
+            sheet_name = expectation.get("sheet")
+            coordinate = expectation.get("cell")
+            if (
+                not isinstance(sheet_name, str)
+                or not isinstance(coordinate, str)
+                or sheet_name not in baseline.sheetnames
+                or sheet_name not in candidate.sheetnames
+            ):
+                errors.append(f"{truth['id']}: dynamic-reference coverage location is absent")
+                continue
+            before = baseline[sheet_name][coordinate]
+            after = candidate[sheet_name][coordinate]
+            _assert(
+                _cell_kind(before) == "formula"
+                and _cell_kind(after) == "formula"
+                and not _dynamic_reference_functions(str(before.value))
+                and isinstance(expected_functions, list)
+                and all(isinstance(function, str) for function in expected_functions)
+                and _dynamic_reference_functions(str(after.value)) == tuple(expected_functions),
+                f"{truth['id']}: expected static-dependency coverage boundary at {sheet_name}!{coordinate}",
+                errors,
+            )
             continue
-        before = baseline[sheet_name][coordinate]
-        after = candidate[sheet_name][coordinate]
+
+        driver = expectation.get("driver")
+        formula = expectation.get("formula")
+        if not isinstance(driver, dict) or not isinstance(formula, dict):
+            errors.append(
+                f"{truth['id']}: dynamic-reference driver coverage needs driver and formula"
+            )
+            continue
+        driver_sheet = driver.get("sheet")
+        driver_cell = driver.get("cell")
+        formula_sheet = formula.get("sheet")
+        formula_cell = formula.get("cell")
+        locations = (driver_sheet, driver_cell, formula_sheet, formula_cell)
+        if (
+            not all(isinstance(location, str) for location in locations)
+            or driver_sheet not in baseline.sheetnames
+            or driver_sheet not in candidate.sheetnames
+            or formula_sheet not in baseline.sheetnames
+            or formula_sheet not in candidate.sheetnames
+        ):
+            errors.append(f"{truth['id']}: dynamic-reference driver coverage location is absent")
+            continue
+        before_driver = baseline[driver_sheet][driver_cell]
+        after_driver = candidate[driver_sheet][driver_cell]
+        before_formula = baseline[formula_sheet][formula_cell]
+        after_formula = candidate[formula_sheet][formula_cell]
+        graph = _direct_graph(candidate)
         _assert(
-            _cell_kind(before) == "formula"
-            and _cell_kind(after) == "formula"
-            and not _dynamic_reference_functions(str(before.value))
+            _cell_kind(before_driver) == "value"
+            and _cell_kind(after_driver) == "value"
+            and before_driver.value != after_driver.value
+            and _cell_kind(before_formula) == "formula"
+            and _cell_kind(after_formula) == "formula"
+            and before_formula.value == after_formula.value
             and isinstance(expected_functions, list)
             and all(isinstance(function, str) for function in expected_functions)
-            and _dynamic_reference_functions(str(after.value)) == tuple(expected_functions),
-            f"{truth['id']}: expected static-dependency coverage boundary at {sheet_name}!{coordinate}",
+            and _dynamic_reference_functions(str(after_formula.value)) == tuple(expected_functions)
+            and (formula_sheet, formula_cell) in graph.get((driver_sheet, driver_cell), set()),
+            f"{truth['id']}: expected changed dynamic-reference driver {driver_sheet}!{driver_cell} to feed unchanged formula {formula_sheet}!{formula_cell}",
             errors,
         )
 

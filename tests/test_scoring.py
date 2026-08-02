@@ -48,12 +48,12 @@ def test_score_reports_full_expected_fact_recall_and_policy_agreement(tmp_path: 
     build_all(fixture_root)
     result = score_observations(fixture_root, _perfect_observations(fixture_root))
     summary = result["summary"]
-    assert summary["expected_fact_count"] == 20
-    assert summary["matched_fact_count"] == 20
+    assert summary["expected_fact_count"] == 22
+    assert summary["matched_fact_count"] == 22
     assert summary["missing_fact_count"] == 0
     assert summary["fact_recall"] == 1.0
-    assert summary["expected_coverage_expectation_count"] == 1
-    assert summary["matched_coverage_declaration_count"] == 1
+    assert summary["expected_coverage_expectation_count"] == 3
+    assert summary["matched_coverage_declaration_count"] == 3
     assert summary["coverage_disclosure_recall"] == 1.0
     assert summary["review_agreement"] == 1.0
     assert summary["complete_case_count"] == len(CASE_IDS)
@@ -82,8 +82,8 @@ def test_score_records_unsupported_cases_without_treating_them_as_passes(tmp_pat
     assert summary["analyzed_case_count"] == 0
     assert summary["unsupported_case_count"] == len(CASE_IDS)
     assert summary["matched_fact_count"] == 0
-    assert summary["missing_fact_count"] == 20
-    assert summary["missing_coverage_expectation_count"] == 1
+    assert summary["missing_fact_count"] == 22
+    assert summary["missing_coverage_expectation_count"] == 3
     assert summary["review_not_reported_count"] == len(CASE_IDS)
 
 
@@ -108,7 +108,7 @@ def test_score_requires_the_dynamic_reference_coverage_disclosure(tmp_path: Path
     dynamic_case["coverage"]["declarations"] = []
     result = score_observations(fixture_root, observations)
     summary = result["summary"]
-    assert summary["coverage_disclosure_recall"] == 0.0
+    assert summary["coverage_disclosure_recall"] == pytest.approx(2 / 3)
     assert summary["missing_coverage_expectation_count"] == 1
     assert summary["complete_case_count"] == len(CASE_IDS) - 1
 
@@ -199,7 +199,8 @@ def test_formulafence_reference_observations_are_scoreable(monkeypatch, tmp_path
     result = score_observations(fixture_root, observations)
     summary = result["summary"]
     assert summary["analyzed_case_count"] == len(CASE_IDS)
-    assert summary["matched_fact_count"] == 19
+    assert summary["matched_fact_count"] == 21
     assert summary["missing_fact_count"] == 1
+    assert summary["matched_coverage_declaration_count"] == 3
     assert summary["coverage_disclosure_recall"] == 1.0
     assert summary["review_not_reported_count"] == len(CASE_IDS)

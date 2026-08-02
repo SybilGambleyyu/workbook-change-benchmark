@@ -34,13 +34,15 @@ gates, static analyzers, and agent workflows that propose workbook edits.
 
 ## Scope and non-goals
 
-Version `0.4` covers formula-to-value replacements, formula reference drift,
+Version `0.5` covers formula-to-value replacements, formula reference drift,
 value changes with downstream effects, external formula references, named
 ranges, data validation, conditional formatting, sheet visibility, direct cell
 protection, calculation settings, static cycles, portfolio dependencies,
 formula refactors, 3-D-reference scope changes, and Excel Table scope changes
 that leave a structured-reference formula textually unchanged. It also covers
-new `INDIRECT` references whose dependency target comes from workbook text.
+new `INDIRECT` references whose dependency target comes from workbook text,
+plus unchanged `INDIRECT` and `OFFSET` formulas whose address or displacement
+driver changes.
 
 The benchmark does **not** evaluate formula execution or claim that a
 candidate's numerical results are correct.  A case's `review_expectation` is a
@@ -94,8 +96,9 @@ Each `truth.json` is schema version 3 and contains:
   reference policy.
 - `coverage`: case-specific boundaries that consumers must preserve.
 - `coverage_expectations`: machine-matchable analysis-boundary disclosures;
-  the initial expectation requires visible static-dependency coverage evidence
-  when a dynamic reference is introduced.
+  current expectations require visible static-dependency coverage evidence
+  both when a dynamic reference is introduced and when a pre-existing dynamic
+  formula receives a changed selector.
 
 The bundled validator checks the generated workbooks against this contract.  A
 tool adapter may map its own output into these facts, but WCAB deliberately
@@ -145,9 +148,12 @@ its JSON schema the benchmark schema:
 wcab formulafence --fixtures fixtures --strict
 ```
 
-It runs only local commands against the synthetic fixtures. The adapter keeps
-unmapped facts explicit; it does not treat the benign structural-rewrite
-annotation as a generic semantic-equivalence claim.
+It runs only local commands against the synthetic fixtures. The adapter maps
+the introduced-dynamic case from FormulaFence's native warning and maps the
+unchanged-formula driver cases from the observed input change plus the
+candidate profile's dynamic-reference feature. It keeps unmapped facts
+explicit; it does not treat the benign structural-rewrite annotation as a
+generic semantic-equivalence claim.
 
 ## Reproducibility
 

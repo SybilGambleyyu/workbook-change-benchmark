@@ -82,12 +82,35 @@ making one tool's report schema normative.
 the native tool visibly surfaced that specific analysis boundary. Its matching
 is exact and deterministic, just like fact matching.
 
-For example, the dynamic-reference fixture requires the
+For example, the introduced-dynamic fixture requires the
 `dynamic_reference_static_coverage` expectation. `INDIRECT` turns text into a
 reference, so a static dependency reviewer must not silently imply complete
-target or impact coverage. A tool may have richer evaluation capabilities, but
-the declaration measures whether the boundary was made visible—not an
-untestable claim that every possible Excel evaluation is resolved.
+target or impact coverage. WCAB 0.5 also includes
+`dynamic_reference_driver_changed`: its exact expectation names both the
+changed driver and the unchanged dynamic formula. An adapter can use a native
+input-change record plus a candidate-profile feature as evidence; it need not
+and must not invent a resolved target value. A tool may have richer evaluation
+capabilities, but the declaration measures whether the boundary was made
+visible—not an untestable claim that every possible Excel evaluation is
+resolved.
+
+For a changed `INDIRECT` driver, an adapter declaration can therefore look
+like this (the evidence keys remain adapter-owned):
+
+```json
+{
+  "expectation": {
+    "kind": "dynamic_reference_driver_changed",
+    "driver": {"sheet": "Inputs", "cell": "E12"},
+    "formula": {"sheet": "Summary", "cell": "B2"},
+    "functions": ["INDIRECT"]
+  },
+  "evidence": {
+    "native_change_kind": "value_changed",
+    "native_profile_feature": "dynamic_reference_cells"
+  }
+}
+```
 
 `coverage.notes` is an optional array of human-readable adapter notes. It is
 not scored and is the right place to explain an intentionally unavailable
@@ -150,10 +173,12 @@ wcab score --fixtures fixtures --observations formulafence-observations.json
 ```
 
 The adapter copies a WCAB fact into the normalized report only after it matches
-the documented native FormulaFence change category. It similarly copies a
-coverage expectation only after FormulaFence emits the matching native warning;
-the dynamic-reference case maps to `FF012`. The adapter leaves `review` as
-`null`: FormulaFence surfaces evidence but does not impose WCAB's reference
-policy as a universal approval decision. Any intentionally unmapped fact or
-coverage expectation becomes an adapter note and remains missing from its
-respective recall metric.
+the documented native FormulaFence change category. It copies an introduced
+dynamic-reference expectation only after FormulaFence emits `FF012`; for a
+pre-existing dynamic formula with a changed driver, it requires both the
+native `value_changed` record and the candidate profile's
+`dynamic_reference_cells` feature. The adapter leaves `review` as `null`:
+FormulaFence surfaces evidence but does not impose WCAB's reference policy as
+a universal approval decision. Any intentionally unmapped fact or coverage
+expectation becomes an adapter note and remains missing from its respective
+recall metric.

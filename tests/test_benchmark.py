@@ -62,6 +62,17 @@ def test_committed_manifest_matches_fixture_tree() -> None:
             "functions": ["INDIRECT"],
         }
     ]
+    driver_row = next(
+        row for row in rows if row["id"] == "structural.indirect_reference_driver_changed"
+    )
+    assert driver_row["coverage_expectations"] == [
+        {
+            "kind": "dynamic_reference_driver_changed",
+            "driver": {"sheet": "Inputs", "cell": "E12"},
+            "formula": {"sheet": "Summary", "cell": "B2"},
+            "functions": ["INDIRECT"],
+        }
+    ]
     assert (fixture_root / "manifest.jsonl").read_text(encoding="utf-8") == manifest_text(rows)
 
 
@@ -102,6 +113,17 @@ def test_validator_rejects_a_false_dynamic_reference_coverage_expectation(tmp_pa
     truth_path = case / "truth.json"
     truth = json.loads(truth_path.read_text(encoding="utf-8"))
     truth["coverage_expectations"][0]["functions"] = ["OFFSET"]
+    truth_path.write_text(json.dumps(truth), encoding="utf-8")
+    assert validate_case(case)
+
+
+def test_validator_rejects_a_false_dynamic_reference_driver_expectation(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "structural" / "indirect_reference_driver_changed"
+    truth_path = case / "truth.json"
+    truth = json.loads(truth_path.read_text(encoding="utf-8"))
+    truth["coverage_expectations"][0]["formula"]["cell"] = "B3"
     truth_path.write_text(json.dumps(truth), encoding="utf-8")
     assert validate_case(case)
 
@@ -173,6 +195,36 @@ def test_formulafence_adapter_maps_dynamic_fact_and_coverage_expectation(
     )
     assert result["status"] == "matched"
     assert result["matched"] == ["dynamic_formula_reference_added"]
+    assert len(result["matched_coverage_expectations"]) == 1
+    assert result["missed_coverage_expectations"] == []
+
+
+def test_formulafence_adapter_maps_dynamic_driver_coverage_from_profile(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        return {
+            "summary": {"change_count": 1},
+            "changes": [{"kind": "value_changed", "location": "Inputs!E12"}],
+        }
+
+    def fake_profile(*_args, **_kwargs):
+        return {
+            "features": {
+                "dynamic_reference_cells": [{"location": "Summary!B2", "functions": ["INDIRECT"]}]
+            }
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    monkeypatch.setattr(formulafence, "profile", fake_profile)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "structural" / "indirect_reference_driver_changed"
+    )
+    assert result["status"] == "matched"
+    assert result["matched"] == ["value_changed"]
     assert len(result["matched_coverage_expectations"]) == 1
     assert result["missed_coverage_expectations"] == []
 
