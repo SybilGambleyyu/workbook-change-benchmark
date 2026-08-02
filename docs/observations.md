@@ -189,7 +189,10 @@ legacy-CSE and dynamic modes plus the declared output range; a generic array
 change is not enough. For the iterative-calculation case, it requires the
 exact `calculation_settings_changed` details: `iterate` moves from `false` to
 `true`, while the explicit 100 / 0.001 bounds and other stored calculation
-controls remain unchanged. The adapter leaves `review` as `null`: FormulaFence
+controls remain unchanged. For the precision-as-displayed case, it requires
+the exact `calculation_settings_changed` details: `fullPrecision` moves from
+`true` to `false`, while the declared input, number format, formula, and all
+other stored calculation controls remain unchanged. The adapter leaves `review` as `null`: FormulaFence
 surfaces evidence but does not impose WCAB's reference policy as a universal
 approval decision. Any intentionally unmapped fact or coverage expectation
 becomes an adapter note and remains missing from its respective recall metric.

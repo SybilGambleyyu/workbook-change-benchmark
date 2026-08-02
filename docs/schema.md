@@ -12,7 +12,8 @@ fact, WCAB 0.7 adds an unchanged anchor formula that moves from fixed
 legacy-CSE to dynamic-array semantics, and WCAB 0.8 adds an unchanged
 external-workbook formula whose stored open-time link-update policy changes.
 WCAB 0.9 adds an unchanged direct circular formula whose stored iterative
-calculation setting changes. Version 2 remains available in the immutable
+calculation setting changes, and WCAB 0.10 adds a precision-as-displayed
+calculation control change without a cell edit. Version 2 remains available in the immutable
 v0.2.0 and v0.3.0 releases.
 
 ```json
@@ -52,6 +53,7 @@ Facts are observed directly from the fixture files by `wcab validate`.
 | `formula_cell_unlocked` | `sheet`, `cell` | A formula cell is explicitly unlocked while its sheet remains protected. |
 | `manual_calculation_incomplete` | none | Candidate calculation metadata is `manual` and records incomplete calculation. |
 | `iterative_calculation_enabled` | `sheet`, `cell`, `formula`, `baseline_iterate`, `candidate_iterate`, `iteration_count`, `iteration_delta` | The declared direct self-referencing formula remains unchanged while raw `calcPr/@iterate` changes exactly from `false` to `true`; the explicit count and delta remain the declared values, and all non-iteration calculation attributes are unchanged. The validator does not calculate the model. |
+| `precision_as_displayed_enabled` | `input_sheet`, `input_cell`, `input_value`, `number_format`, `formula_sheet`, `formula_cell`, `formula`, `baseline_full_precision`, `candidate_full_precision` | The declared stored input, number format, and formula remain unchanged while raw `calcPr/@fullPrecision` changes exactly from `true` to `false`; all other `calcPr` attributes are unchanged. The validator does not calculate, open, or save the workbook. |
 | `external_data_connection_refresh_on_load_changed` | `connection_id`, `baseline_refresh_on_load`, `candidate_refresh_on_load` | The relationship-backed connection with this workbook-local ID explicitly changes `refreshOnLoad` from `false` to `true`. The validator reads raw OOXML only. |
 | `external_workbook_link_update_policy_changed` | `sheet`, `cell`, `formula`, `baseline_update_links`, `candidate_update_links` | The declared external-workbook formula remains unchanged while raw `workbookPr/@updateLinks` changes exactly from `never` to `always`; all other stored `workbookPr` attributes are unchanged. The validator does not resolve the source workbook. |
 | `array_formula_mode_changed` | `sheet`, `cell`, `formula`, `baseline_mode`, `candidate_mode`, `baseline_output_range`, `candidate_output_range` | The declared unchanged array anchor moves from `legacy_cse` to `dynamic`, with its stored formula text and output range exactly as declared. The validator reads the raw OOXML cell-metadata binding. |
@@ -117,6 +119,25 @@ delta, equal non-iteration `calcPr` attributes, and the unchanged direct
 self-reference. It does not calculate either workbook, establish convergence,
 count recalculations, predict a terminal value, or assert Excel-client
 compatibility.
+
+## Precision as displayed
+
+Excel normally calculates from stored values rather than the values a number
+format displays. Microsoft documents that its
+[precision-as-displayed setting](https://support.microsoft.com/en-US/Excel/change-formula-recalculation-iteration-or-precision-in-excel)
+uses displayed values for calculation and permanently changes stored values;
+its [rounding-precision guidance](https://support.microsoft.com/en-us/excel/set-rounding-precision)
+warns that the control can have cumulative calculation effects. Open XML stores
+the corresponding `fullPrecision` control on
+[`calcPr`](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.spreadsheet.calculationproperties?view=openxml-3.0.1).
+
+WCAB's precision case preserves an explicitly stored `Inputs!B2=10.005`, its
+`0.00` number format, `Model!B2`'s `=Inputs!$B$2*2` formula, and the local
+`Dashboard!B4` consumer. The raw validator requires explicit baseline
+`fullPrecision=true`, candidate `fullPrecision=false`, and equal remaining
+calculation attributes. It never opens or saves either workbook, executes a
+formula, alters the stored 10.005 value, predicts a rounded value, or claims
+that a particular Excel client will apply or persist the setting.
 
 ## Array-formula mode
 

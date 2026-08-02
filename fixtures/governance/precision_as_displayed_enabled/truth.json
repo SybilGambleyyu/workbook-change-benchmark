@@ -1,0 +1,46 @@
+{
+  "coverage": [
+    "The pair records the raw calcPr fullPrecision switch that corresponds to Excel's precision-as-displayed setting. WCAB does not emulate Excel's calculation engine or claim that a client applied the control.",
+    "Both generated packages retain the exact stored 10.005 input and its two-decimal number format. The validator does not claim that opening, calculating, or saving either workbook rounds a value or produces a particular formula result.",
+    "The pair differs only in workbook calculation metadata; no worksheet value, formula text, number format, or dependency edge is edited."
+  ],
+  "coverage_expectations": [],
+  "facts": [
+    {
+      "baseline_full_precision": true,
+      "candidate_full_precision": false,
+      "formula": "=Inputs!$B$2*2",
+      "formula_cell": "B2",
+      "formula_sheet": "Model",
+      "input_cell": "B2",
+      "input_sheet": "Inputs",
+      "input_value": 10.005,
+      "kind": "precision_as_displayed_enabled",
+      "number_format": "0.00"
+    }
+  ],
+  "family": "governance",
+  "id": "governance.precision_as_displayed_enabled",
+  "must_reach": [
+    {
+      "source": {
+        "cell": "B2",
+        "sheet": "Inputs"
+      },
+      "targets": [
+        {
+          "cell": "B2",
+          "sheet": "Model"
+        },
+        {
+          "cell": "B4",
+          "sheet": "Dashboard"
+        }
+      ]
+    }
+  ],
+  "review_expectation": "block",
+  "schema_version": 3,
+  "title": "Precision-as-displayed calculation is enabled without a cell edit",
+  "topology": "pair"
+}

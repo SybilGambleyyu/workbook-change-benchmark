@@ -156,6 +156,13 @@ def _calculation_iteration_state(path: Path) -> tuple[bool, int, Decimal] | None
     return None if iterate is None else (iterate, count, delta)
 
 
+def _calculation_full_precision(path: Path) -> bool | None:
+    """Read the explicit stored full-precision calculation control."""
+
+    properties = _calculation_properties(path)
+    return None if properties is None else _ooxml_boolean(properties.get("fullPrecision"))
+
+
 def _relationship_target(
     relationships: ElementTree.Element,
     relationship_id: str,
@@ -571,6 +578,78 @@ def _validate_fact(
             and after_state == (True, expected_count, declared_delta)
             and before_non_iteration_properties == after_non_iteration_properties,
             f"{truth['id']}: expected unchanged direct circular formula and calcPr iterate false -> true with declared bounds only",
+            errors,
+        )
+        return
+
+    if kind == "precision_as_displayed_enabled":
+        input_sheet = fact.get("input_sheet")
+        input_cell = fact.get("input_cell")
+        formula_sheet = fact.get("formula_sheet")
+        formula_cell = fact.get("formula_cell")
+        formula = fact.get("formula")
+        number_format = fact.get("number_format")
+        expected_value = fact.get("input_value")
+        try:
+            declared_value = Decimal(str(expected_value))
+        except InvalidOperation:
+            declared_value = None
+        before_properties = _calculation_properties(baseline_path)
+        after_properties = _calculation_properties(candidate_path)
+        before_non_precision_properties = (
+            {key: value for key, value in before_properties.items() if key != "fullPrecision"}
+            if before_properties is not None
+            else None
+        )
+        after_non_precision_properties = (
+            {key: value for key, value in after_properties.items() if key != "fullPrecision"}
+            if after_properties is not None
+            else None
+        )
+        if (
+            not isinstance(input_sheet, str)
+            or not isinstance(input_cell, str)
+            or not isinstance(formula_sheet, str)
+            or not isinstance(formula_cell, str)
+            or input_sheet not in baseline.sheetnames
+            or input_sheet not in candidate.sheetnames
+            or formula_sheet not in baseline.sheetnames
+            or formula_sheet not in candidate.sheetnames
+        ):
+            errors.append(f"{truth['id']}: precision-as-displayed locations are absent")
+            return
+        before_input = baseline[input_sheet][input_cell]
+        after_input = candidate[input_sheet][input_cell]
+        before_formula = baseline[formula_sheet][formula_cell]
+        after_formula = candidate[formula_sheet][formula_cell]
+        try:
+            before_value = Decimal(str(before_input.value))
+            after_value = Decimal(str(after_input.value))
+        except InvalidOperation:
+            before_value = after_value = None
+        graph = _direct_graph(candidate)
+        _assert(
+            isinstance(formula, str)
+            and isinstance(number_format, str)
+            and declared_value is not None
+            and declared_value.is_finite()
+            and fact.get("baseline_full_precision") is True
+            and fact.get("candidate_full_precision") is False
+            and _calculation_full_precision(baseline_path) is True
+            and _calculation_full_precision(candidate_path) is False
+            and before_non_precision_properties == after_non_precision_properties
+            and _cell_kind(before_input) == "value"
+            and _cell_kind(after_input) == "value"
+            and before_value == declared_value
+            and after_value == declared_value
+            and before_input.number_format == number_format
+            and after_input.number_format == number_format
+            and _cell_kind(before_formula) == "formula"
+            and _cell_kind(after_formula) == "formula"
+            and before_formula.value == formula
+            and after_formula.value == formula
+            and (formula_sheet, formula_cell) in graph.get((input_sheet, input_cell), set()),
+            f"{truth['id']}: expected unchanged stored input/formula and calcPr fullPrecision true -> false only",
             errors,
         )
         return

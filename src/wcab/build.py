@@ -42,6 +42,9 @@ _EXTERNAL_WORKBOOK_LINK_FORMULA = "='[WCABSource.xlsx]Inputs'!$B$2"
 _ITERATIVE_CALCULATION_FORMULA = "=(B2+Inputs!$B$2)/2"
 _ITERATION_COUNT = 100
 _ITERATION_DELTA = 0.001
+_PRECISION_AS_DISPLAYED_INPUT = 10.005
+_PRECISION_AS_DISPLAYED_NUMBER_FORMAT = "0.00"
+_PRECISION_AS_DISPLAYED_FORMULA = "=Inputs!$B$2*2"
 
 
 def _configure_workbook(workbook: Workbook, *, title: str) -> None:
@@ -458,6 +461,40 @@ def _iterative_calculation_workbook() -> Workbook:
     workbook.calculation.iterate = False
     workbook.calculation.iterateCount = _ITERATION_COUNT
     workbook.calculation.iterateDelta = _ITERATION_DELTA
+    return workbook
+
+
+def _precision_as_displayed_workbook() -> Workbook:
+    """Build a model whose stored precision control can change in isolation.
+
+    The generated pair deliberately retains the input's stored 10.005 value,
+    its two-decimal display format, and every formula. A desktop Excel client
+    can apply its own precision-as-displayed behavior later, but fixture
+    generation never opens Excel, calculates a formula, or rewrites that value.
+    """
+
+    workbook = Workbook()
+    _configure_workbook(workbook, title="WCAB precision-as-displayed fixture")
+    inputs = workbook.active
+    inputs.title = "Inputs"
+    inputs["A1"] = "Stored input with a two-decimal display"
+    inputs["B2"] = _PRECISION_AS_DISPLAYED_INPUT
+    inputs["B2"].number_format = _PRECISION_AS_DISPLAYED_NUMBER_FORMAT
+
+    model = workbook.create_sheet("Model")
+    model["A1"] = "Doubled input"
+    model["B2"] = _PRECISION_AS_DISPLAYED_FORMULA
+    model["B2"].number_format = _PRECISION_AS_DISPLAYED_NUMBER_FORMAT
+
+    dashboard = workbook.create_sheet("Dashboard")
+    dashboard["A1"] = "Published output"
+    dashboard["B4"] = "=Model!$B$2"
+    dashboard["B4"].number_format = _PRECISION_AS_DISPLAYED_NUMBER_FORMAT
+
+    workbook.calculation.calcMode = "auto"
+    workbook.calculation.fullPrecision = True
+    workbook.calculation.calcCompleted = True
+    workbook.calculation.calcOnSave = True
     return workbook
 
 
@@ -971,6 +1008,52 @@ def _build_governance_iterative_calculation(root: Path) -> None:
     )
 
 
+def _build_governance_precision_as_displayed(root: Path) -> None:
+    def mutate(workbook: Workbook) -> None:
+        workbook.calculation.fullPrecision = False
+
+    truth = _truth(
+        case_id="governance.precision_as_displayed_enabled",
+        title="Precision-as-displayed calculation is enabled without a cell edit",
+        family="governance",
+        review_expectation="block",
+        facts=[
+            {
+                "kind": "precision_as_displayed_enabled",
+                "input_sheet": "Inputs",
+                "input_cell": "B2",
+                "input_value": _PRECISION_AS_DISPLAYED_INPUT,
+                "number_format": _PRECISION_AS_DISPLAYED_NUMBER_FORMAT,
+                "formula_sheet": "Model",
+                "formula_cell": "B2",
+                "formula": _PRECISION_AS_DISPLAYED_FORMULA,
+                "baseline_full_precision": True,
+                "candidate_full_precision": False,
+            }
+        ],
+        must_reach=[
+            {
+                "source": {"sheet": "Inputs", "cell": "B2"},
+                "targets": [
+                    {"sheet": "Model", "cell": "B2"},
+                    {"sheet": "Dashboard", "cell": "B4"},
+                ],
+            }
+        ],
+        coverage=[
+            "The pair records the raw calcPr fullPrecision switch that corresponds to Excel's precision-as-displayed setting. WCAB does not emulate Excel's calculation engine or claim that a client applied the control.",
+            "Both generated packages retain the exact stored 10.005 input and its two-decimal number format. The validator does not claim that opening, calculating, or saving either workbook rounds a value or produces a particular formula result.",
+            "The pair differs only in workbook calculation metadata; no worksheet value, formula text, number format, or dependency edge is edited.",
+        ],
+    )
+    _write_pair(
+        root / "governance" / "precision_as_displayed_enabled",
+        _precision_as_displayed_workbook,
+        mutate,
+        truth,
+    )
+
+
 def _build_governance_static_cycle(root: Path) -> None:
     def mutate(workbook: Workbook) -> None:
         workbook["Controls"]["D10"] = "=D11+1"
@@ -1379,6 +1462,7 @@ _BUILDERS: tuple[Callable[[Path], None], ...] = (
     _build_governance_protection,
     _build_governance_manual_calculation,
     _build_governance_iterative_calculation,
+    _build_governance_precision_as_displayed,
     _build_governance_static_cycle,
     _build_governance_external_data_refresh,
     _build_governance_external_workbook_link_update_policy,
@@ -1405,6 +1489,7 @@ CASE_IDS = (
     "governance.formula_cell_unlocked",
     "governance.manual_calculation_incomplete",
     "governance.iterative_calculation_enabled",
+    "governance.precision_as_displayed_enabled",
     "governance.static_cycle_introduced",
     "governance.external_data_refresh_on_open",
     "governance.external_workbook_link_update_on_open",

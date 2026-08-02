@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.10.0 — 2026-08-02
+
+- Add a deterministic precision-as-displayed case. Its stored `10.005` input,
+  two-decimal number format, formula, and local downstream reference remain
+  unchanged while `calcPr/@fullPrecision` changes from `true` to `false`.
+- Add the exact `precision_as_displayed_enabled` fact, raw-OOXML validator, and
+  corruption regression coverage. WCAB records the stored calculation control;
+  it does not open or save an Excel workbook, calculate a formula, claim a
+  rounded value, or claim that a client applies the setting.
+- Extend the optional FormulaFence adapter to require the exact isolated
+  `FF009` full-precision transition rather than accepting an arbitrary
+  calculation-setting difference.
+
 ## 0.9.0 — 2026-08-02
 
 - Add a deterministic iterative-calculation case. Its direct self-referencing

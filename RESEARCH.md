@@ -91,6 +91,26 @@ outcome. The validator does not calculate the circular model, assume that it
 converges, predict how many iterations occur, or assert a cached or
 business-correct result.
 
+## Precision as displayed and irreversible stored values
+
+Microsoft's [calculation and precision guidance](https://support.microsoft.com/en-US/Excel/change-formula-recalculation-iteration-or-precision-in-excel)
+distinguishes the values Excel stores from the values a number format displays.
+It warns that enabling calculation using displayed values permanently changes
+stored values to that displayed precision and cannot restore the prior
+underlying values. Its separate [rounding-precision guidance](https://support.microsoft.com/en-us/excel/set-rounding-precision)
+also warns of cumulative calculation effects. The Open XML
+[`calcPr` specification](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.spreadsheet.calculationproperties?view=openxml-3.0.1)
+identifies `fullPrecision` as the stored calculation control.
+
+That creates a review boundary that a formula or cell-value diff can miss: a
+package can retain a stored `10.005` input, a `0.00` format, and unchanged
+formulas while its calculation control moves from full precision to displayed
+precision. WCAB 0.10 therefore isolates raw `fullPrecision=true` to
+`fullPrecision=false` in an original synthetic pair. The validator confirms
+the stored metadata, input value, format, and formulas only. It does not open
+or save either workbook, emulate Excel, calculate a result, round a stored
+value, or assert any client will apply or persist the control.
+
 ## Array-formula semantics
 
 Microsoft's [dynamic-array versus legacy-CSE guidance](https://support.microsoft.com/en-US/Excel/dynamic-array-formulas-vs-legacy-cse-array-formulas)

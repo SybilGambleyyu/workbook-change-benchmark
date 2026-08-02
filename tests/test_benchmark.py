@@ -113,6 +113,23 @@ def test_committed_manifest_matches_fixture_tree() -> None:
             "iteration_delta": 0.001,
         }
     ]
+    precision_as_displayed_row = next(
+        row for row in rows if row["id"] == "governance.precision_as_displayed_enabled"
+    )
+    assert precision_as_displayed_row["facts"] == [
+        {
+            "kind": "precision_as_displayed_enabled",
+            "input_sheet": "Inputs",
+            "input_cell": "B2",
+            "input_value": 10.005,
+            "number_format": "0.00",
+            "formula_sheet": "Model",
+            "formula_cell": "B2",
+            "formula": "=Inputs!$B$2*2",
+            "baseline_full_precision": True,
+            "candidate_full_precision": False,
+        }
+    ]
     array_row = next(row for row in rows if row["id"] == "structural.array_formula_mode_changed")
     assert array_row["facts"] == [
         {
@@ -292,6 +309,72 @@ def test_iterative_calculation_pair_changes_only_workbook_xml(tmp_path: Path) ->
     fixture_root = tmp_path / "fixtures"
     build_all(fixture_root)
     case = fixture_root / "governance" / "iterative_calculation_enabled"
+    with ZipFile(case / "baseline.xlsx") as baseline, ZipFile(case / "candidate.xlsx") as candidate:
+        baseline_members = {
+            entry.filename: baseline.read(entry.filename) for entry in baseline.infolist()
+        }
+        candidate_members = {
+            entry.filename: candidate.read(entry.filename) for entry in candidate.infolist()
+        }
+    assert set(baseline_members) == set(candidate_members)
+    assert [
+        member
+        for member in sorted(baseline_members)
+        if baseline_members[member] != candidate_members[member]
+    ] == ["xl/workbook.xml"]
+
+
+def test_validator_rejects_a_false_precision_as_displayed_fact(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "governance" / "precision_as_displayed_enabled"
+    truth_path = case / "truth.json"
+    truth = json.loads(truth_path.read_text(encoding="utf-8"))
+    truth["facts"][0]["input_value"] = 10.01
+    truth_path.write_text(json.dumps(truth), encoding="utf-8")
+    assert validate_case(case)
+
+
+def test_validator_rejects_a_corrupted_precision_as_displayed_control(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = fixture_root / "governance" / "precision_as_displayed_enabled" / "candidate.xlsx"
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    members["xl/workbook.xml"] = members["xl/workbook.xml"].replace(
+        b'fullPrecision="0"', b'fullPrecision="1"', 1
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_validator_rejects_an_unrelated_precision_as_displayed_control_change(
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = fixture_root / "governance" / "precision_as_displayed_enabled" / "candidate.xlsx"
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    members["xl/workbook.xml"] = members["xl/workbook.xml"].replace(
+        b'forceFullCalc="0"', b'forceFullCalc="1"', 1
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_precision_as_displayed_pair_changes_only_workbook_xml(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "governance" / "precision_as_displayed_enabled"
     with ZipFile(case / "baseline.xlsx") as baseline, ZipFile(case / "candidate.xlsx") as candidate:
         baseline_members = {
             entry.filename: baseline.read(entry.filename) for entry in baseline.infolist()
@@ -653,6 +736,93 @@ def test_formulafence_adapter_rejects_an_inexact_iterative_calculation_transitio
     assert result["status"] == "missed"
     assert result["matched"] == []
     assert result["missed"] == ["iterative_calculation_enabled"]
+
+
+def test_formulafence_adapter_maps_the_exact_precision_as_displayed_transition(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "calculation_settings_changed",
+                    "location": None,
+                    "details": {
+                        "before": {
+                            "calcCompleted": True,
+                            "calcMode": "auto",
+                            "calcOnSave": True,
+                            "forceFullCalc": False,
+                            "fullCalcOnLoad": False,
+                            "fullPrecision": True,
+                        },
+                        "after": {
+                            "calcCompleted": True,
+                            "calcMode": "auto",
+                            "calcOnSave": True,
+                            "forceFullCalc": False,
+                            "fullCalcOnLoad": False,
+                            "fullPrecision": False,
+                        },
+                    },
+                }
+            ],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "precision_as_displayed_enabled"
+    )
+    assert result["status"] == "matched"
+    assert result["matched"] == ["precision_as_displayed_enabled"]
+
+
+def test_formulafence_adapter_rejects_an_inexact_precision_as_displayed_transition(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "calculation_settings_changed",
+                    "location": None,
+                    "details": {
+                        "before": {
+                            "calcCompleted": True,
+                            "calcMode": "auto",
+                            "calcOnSave": True,
+                            "forceFullCalc": False,
+                            "fullCalcOnLoad": False,
+                            "fullPrecision": True,
+                        },
+                        "after": {
+                            "calcCompleted": True,
+                            "calcMode": "auto",
+                            "calcOnSave": False,
+                            "forceFullCalc": False,
+                            "fullCalcOnLoad": False,
+                            "fullPrecision": False,
+                        },
+                    },
+                }
+            ],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "precision_as_displayed_enabled"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["precision_as_displayed_enabled"]
 
 
 def test_formulafence_adapter_maps_the_exact_array_formula_mode_transition(

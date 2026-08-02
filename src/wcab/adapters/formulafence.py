@@ -35,6 +35,7 @@ _FACT_TO_CHANGE: dict[str, tuple[str, str | None]] = {
     "formula_cell_unlocked": ("cell_protection_assignments_changed", None),
     "manual_calculation_incomplete": ("calculation_settings_changed", None),
     "iterative_calculation_enabled": ("calculation_settings_changed", None),
+    "precision_as_displayed_enabled": ("calculation_settings_changed", None),
     "array_formula_mode_changed": ("array_formula_mode_changed", "location"),
     "external_data_connection_refresh_on_load_changed": (
         "external_data_connections_changed",
@@ -281,6 +282,31 @@ def _iterative_calculation_enabled_observed(change: dict[str, Any], fact: dict[s
     return details.get("before") == expected_before and details.get("after") == expected_after
 
 
+def _precision_as_displayed_enabled_observed(change: dict[str, Any], fact: dict[str, Any]) -> bool:
+    """Require FormulaFence's exact full-precision switch and stable controls."""
+
+    if change.get("kind") != "calculation_settings_changed":
+        return False
+    if (
+        fact.get("baseline_full_precision") is not True
+        or fact.get("candidate_full_precision") is not False
+    ):
+        return False
+    details = change.get("details")
+    if not isinstance(details, dict):
+        return False
+    expected_before = {
+        "calcCompleted": True,
+        "calcMode": "auto",
+        "calcOnSave": True,
+        "forceFullCalc": False,
+        "fullCalcOnLoad": False,
+        "fullPrecision": True,
+    }
+    expected_after = {**expected_before, "fullPrecision": False}
+    return details.get("before") == expected_before and details.get("after") == expected_after
+
+
 def _array_formula_mode_observed(change: dict[str, Any], fact: dict[str, Any]) -> bool:
     """Require FormulaFence to identify this exact CSE-to-dynamic transition."""
 
@@ -431,6 +457,12 @@ def evaluate_diff_case(case_dir: str | Path, *, executable: str = "formulafence"
         if kind == "iterative_calculation_enabled":
             observed = any(
                 _iterative_calculation_enabled_observed(change, fact)
+                for change in changes
+                if isinstance(change, dict)
+            )
+        if kind == "precision_as_displayed_enabled":
+            observed = any(
+                _precision_as_displayed_enabled_observed(change, fact)
                 for change in changes
                 if isinstance(change, dict)
             )

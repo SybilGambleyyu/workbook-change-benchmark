@@ -34,7 +34,7 @@ gates, static analyzers, and agent workflows that propose workbook edits.
 
 ## Scope and non-goals
 
-Version `0.9` covers formula-to-value replacements, formula reference drift,
+Version `0.10` covers formula-to-value replacements, formula reference drift,
 value changes with downstream effects, external formula references, named
 ranges, data validation, conditional formatting, sheet visibility, direct cell
 protection, calculation settings, static cycles, portfolio dependencies,
@@ -45,9 +45,10 @@ unchanged `INDIRECT` and `OFFSET` formulas whose address or displacement driver
 changes, an external-data connection whose refresh-on-open behavior changes
 without any worksheet-cell edit, and an external-workbook link policy that
 switches from never to always updating when the workbook opens. It also covers
-an unchanged direct circular formula that enables iterative calculation, and an
-unchanged array formula switching from a fixed legacy CSE output range to
-dynamic-array semantics.
+an unchanged direct circular formula that enables iterative calculation, an
+unchanged precision-sensitive input and formula whose calculation switches to
+precision as displayed, and an unchanged array formula switching from a fixed
+legacy CSE output range to dynamic-array semantics.
 
 The benchmark does **not** evaluate formula execution or claim that a
 candidate's numerical results are correct.  A case's `review_expectation` is a
@@ -163,7 +164,10 @@ from `never` to `always` in `FF023` evidence. For the array-mode case, it
 requires the exact legacy-CSE-to-dynamic transition and output range in
 FormulaFence's `FF018` evidence. For the iterative-calculation case, it
 requires the exact `FF009` switch from iteration disabled to enabled with the
-declared bounds. It keeps unmapped facts explicit; it does not treat the benign
+declared bounds. For the precision-as-displayed case, it requires the exact
+isolated `fullPrecision: true -> false` `FF009` control transition while the
+stored input, number format, formula, and other calculation controls remain
+unchanged. It keeps unmapped facts explicit; it does not treat the benign
 structural-rewrite annotation as a generic semantic-equivalence claim.
 
 ## Reproducibility
