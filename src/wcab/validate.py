@@ -984,6 +984,83 @@ def _scenario_manager_worksheet_without_stored_input_value(
     return ElementTree.tostring(worksheet, encoding="utf-8", xml_declaration=True)
 
 
+def _raw_what_if_data_table_state(
+    path: Path, sheet_name: str, master_cell: str
+) -> dict[str, Any] | None:
+    """Read WCAB's one raw What-If Data Table master declaration.
+
+    A Data Table is encoded as a ``dataTable`` formula on its top-left master
+    cell. This narrow reader establishes only the small generated declaration;
+    it does not substitute inputs, calculate the table, or interpret a saved
+    table output.
+    """
+
+    try:
+        with ZipFile(path) as archive:
+            worksheet_member = _worksheet_member_for_sheet(archive, sheet_name)
+            if worksheet_member is None:
+                return None
+            worksheet = ElementTree.fromstring(archive.read(worksheet_member))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    if worksheet.tag != f"{{{_SPREADSHEETML_NS}}}worksheet":
+        return None
+    cell_tag = f"{{{_SPREADSHEETML_NS}}}c"
+    formula_tag = f"{{{_SPREADSHEETML_NS}}}f"
+    value_tag = f"{{{_SPREADSHEETML_NS}}}v"
+    data_table_masters = [
+        (cell, formula)
+        for cell in worksheet.iter(cell_tag)
+        for formula in cell.findall(formula_tag)
+        if formula.get("t") == "dataTable"
+    ]
+    if len(data_table_masters) != 1:
+        return None
+    cell, formula = data_table_masters[0]
+    if cell.get("r") != master_cell or len(cell.findall(formula_tag)) != 1:
+        return None
+    values = cell.findall(value_tag)
+    if len(values) != 1:
+        return None
+    return {
+        "worksheet_member": worksheet_member,
+        "master_cell_attributes": tuple(sorted(cell.attrib.items())),
+        "formula_attributes": tuple(sorted(formula.attrib.items())),
+        "formula_text": formula.text,
+        "formula_child_count": len(formula),
+        "master_value_text": values[0].text,
+    }
+
+
+def _what_if_data_table_worksheet_without_input_reference(
+    path: Path, sheet_name: str, master_cell: str
+) -> bytes | None:
+    """Return WCAB's Data Table worksheet with its one ``r1`` value erased."""
+
+    if _raw_what_if_data_table_state(path, sheet_name, master_cell) is None:
+        return None
+    try:
+        with ZipFile(path) as archive:
+            worksheet_member = _worksheet_member_for_sheet(archive, sheet_name)
+            if worksheet_member is None:
+                return None
+            worksheet = ElementTree.fromstring(archive.read(worksheet_member))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    cell_tag = f"{{{_SPREADSHEETML_NS}}}c"
+    formula_tag = f"{{{_SPREADSHEETML_NS}}}f"
+    masters = [cell for cell in worksheet.iter(cell_tag) if cell.get("r") == master_cell]
+    if len(masters) != 1:
+        return None
+    formulas = [
+        formula for formula in masters[0].findall(formula_tag) if formula.get("t") == "dataTable"
+    ]
+    if len(formulas) != 1 or "r1" not in formulas[0].attrib:
+        return None
+    formulas[0].attrib.pop("r1")
+    return ElementTree.tostring(worksheet, encoding="utf-8", xml_declaration=True)
+
+
 def _chart_anchor_cell(anchor: ElementTree.Element) -> str | None:
     """Return one zero-offset worksheet-drawing anchor as an A1 coordinate."""
 
@@ -2324,6 +2401,194 @@ def _validate_fact(
             and _xlsx_member_differences(baseline_path, candidate_path) == {data_mashup_part}
             and _calculation_properties(baseline_path) == _calculation_properties(candidate_path),
             f"{truth['id']}: expected only one compact connection-only local-table Power Query M filter literal to change with stable source, metadata, permissions, and calculation controls",
+            errors,
+        )
+        return
+
+    if kind == "what_if_data_table_input_reference_changed":
+        table_sheet = fact.get("table_sheet")
+        master_cell = fact.get("master_cell")
+        output_range = fact.get("output_range")
+        baseline_input_cell = fact.get("baseline_input_cell")
+        candidate_input_cell = fact.get("candidate_input_cell")
+        input_value_range = fact.get("input_value_range")
+        scale_cell = fact.get("scale_cell")
+        output_formula_cell = fact.get("output_formula_cell")
+        output_formula = fact.get("output_formula")
+        model_sheet = fact.get("model_sheet")
+        model_cell = fact.get("model_cell")
+        model_formula = fact.get("model_formula")
+        dashboard_sheet = fact.get("dashboard_sheet")
+        dashboard_cell = fact.get("dashboard_cell")
+        dashboard_formula = fact.get("dashboard_formula")
+        before_state = (
+            _raw_what_if_data_table_state(baseline_path, table_sheet, master_cell)
+            if isinstance(table_sheet, str) and isinstance(master_cell, str)
+            else None
+        )
+        after_state = (
+            _raw_what_if_data_table_state(candidate_path, table_sheet, master_cell)
+            if isinstance(table_sheet, str) and isinstance(master_cell, str)
+            else None
+        )
+        try:
+            declared_grid_values = tuple(
+                Decimal(str(value)) for value in fact.get("input_values", [])
+            )
+            declared_primary_value = Decimal(str(fact.get("primary_input_value")))
+            declared_alternate_value = Decimal(str(fact.get("alternate_input_value")))
+            declared_scale_value = Decimal(str(fact.get("scale_value")))
+            before_grid_values = tuple(
+                Decimal(str(baseline[table_sheet][coordinate].value))
+                for coordinate in ("C3", "C4", "C5")
+            )
+            after_grid_values = tuple(
+                Decimal(str(candidate[table_sheet][coordinate].value))
+                for coordinate in ("C3", "C4", "C5")
+            )
+            before_primary_value = Decimal(str(baseline[table_sheet][baseline_input_cell].value))
+            after_primary_value = Decimal(str(candidate[table_sheet][baseline_input_cell].value))
+            before_alternate_value = Decimal(str(baseline[table_sheet][candidate_input_cell].value))
+            after_alternate_value = Decimal(str(candidate[table_sheet][candidate_input_cell].value))
+            before_scale_value = Decimal(str(baseline[table_sheet][scale_cell].value))
+            after_scale_value = Decimal(str(candidate[table_sheet][scale_cell].value))
+        except (InvalidOperation, TypeError, ValueError, KeyError):
+            declared_grid_values = ()
+            declared_primary_value = declared_alternate_value = declared_scale_value = None
+            before_grid_values = after_grid_values = ()
+            before_primary_value = after_primary_value = None
+            before_alternate_value = after_alternate_value = None
+            before_scale_value = after_scale_value = None
+        before_output = (
+            baseline[table_sheet][output_formula_cell]
+            if isinstance(table_sheet, str)
+            and isinstance(output_formula_cell, str)
+            and table_sheet in baseline.sheetnames
+            else None
+        )
+        after_output = (
+            candidate[table_sheet][output_formula_cell]
+            if isinstance(table_sheet, str)
+            and isinstance(output_formula_cell, str)
+            and table_sheet in candidate.sheetnames
+            else None
+        )
+        before_model = (
+            baseline[model_sheet][model_cell]
+            if isinstance(model_sheet, str)
+            and isinstance(model_cell, str)
+            and model_sheet in baseline.sheetnames
+            else None
+        )
+        after_model = (
+            candidate[model_sheet][model_cell]
+            if isinstance(model_sheet, str)
+            and isinstance(model_cell, str)
+            and model_sheet in candidate.sheetnames
+            else None
+        )
+        before_dashboard = (
+            baseline[dashboard_sheet][dashboard_cell]
+            if isinstance(dashboard_sheet, str)
+            and isinstance(dashboard_cell, str)
+            and dashboard_sheet in baseline.sheetnames
+            else None
+        )
+        after_dashboard = (
+            candidate[dashboard_sheet][dashboard_cell]
+            if isinstance(dashboard_sheet, str)
+            and isinstance(dashboard_cell, str)
+            and dashboard_sheet in candidate.sheetnames
+            else None
+        )
+        expected_baseline_attributes = (
+            ("ca", "1"),
+            ("r1", "B2"),
+            ("ref", "D3:D5"),
+            ("t", "dataTable"),
+        )
+        expected_candidate_attributes = (
+            ("ca", "1"),
+            ("r1", "B3"),
+            ("ref", "D3:D5"),
+            ("t", "dataTable"),
+        )
+        graph = _direct_graph(candidate)
+        _assert(
+            table_sheet == "Sensitivity"
+            and master_cell == "D3"
+            and output_range == "D3:D5"
+            and baseline_input_cell == "B2"
+            and candidate_input_cell == "B3"
+            and fact.get("orientation") == "column"
+            and fact.get("recalculation_requested") is True
+            and input_value_range == "C3:C5"
+            and declared_grid_values == (Decimal("0.04"), Decimal("0.08"), Decimal("0.12"))
+            and declared_primary_value == Decimal("0.08")
+            and declared_alternate_value == Decimal("0.12")
+            and scale_cell == "B4"
+            and declared_scale_value == Decimal("100")
+            and output_formula_cell == "D2"
+            and output_formula == "=Model!$B$2"
+            and model_sheet == "Model"
+            and model_cell == "B2"
+            and model_formula == "=Sensitivity!$B$2*Sensitivity!$B$3*Sensitivity!$B$4"
+            and dashboard_sheet == "Dashboard"
+            and dashboard_cell == "B4"
+            and dashboard_formula == "=Model!$B$2"
+            and before_state is not None
+            and after_state is not None
+            and before_state["worksheet_member"] == "xl/worksheets/sheet1.xml"
+            and after_state["worksheet_member"] == "xl/worksheets/sheet1.xml"
+            and before_state["master_cell_attributes"] == (("r", "D3"),)
+            and after_state["master_cell_attributes"] == (("r", "D3"),)
+            and before_state["formula_attributes"] == expected_baseline_attributes
+            and after_state["formula_attributes"] == expected_candidate_attributes
+            and before_state["formula_text"] is None
+            and after_state["formula_text"] is None
+            and before_state["formula_child_count"] == 0
+            and after_state["formula_child_count"] == 0
+            and before_state["master_value_text"] is None
+            and after_state["master_value_text"] is None
+            and before_grid_values == after_grid_values == declared_grid_values
+            and before_primary_value == after_primary_value == declared_primary_value
+            and before_alternate_value == after_alternate_value == declared_alternate_value
+            and before_scale_value == after_scale_value == declared_scale_value
+            and before_output is not None
+            and after_output is not None
+            and _cell_kind(before_output) == "formula"
+            and _cell_kind(after_output) == "formula"
+            and before_output.value == after_output.value == output_formula
+            and before_model is not None
+            and after_model is not None
+            and _cell_kind(before_model) == "formula"
+            and _cell_kind(after_model) == "formula"
+            and before_model.value == after_model.value == model_formula
+            and before_dashboard is not None
+            and after_dashboard is not None
+            and _cell_kind(before_dashboard) == "formula"
+            and _cell_kind(after_dashboard) == "formula"
+            and before_dashboard.value == after_dashboard.value == dashboard_formula
+            and _what_if_data_table_worksheet_without_input_reference(
+                baseline_path, table_sheet, master_cell
+            )
+            == _what_if_data_table_worksheet_without_input_reference(
+                candidate_path, table_sheet, master_cell
+            )
+            and _xlsx_member_differences(baseline_path, candidate_path)
+            == {before_state["worksheet_member"]}
+            and _calculation_properties(baseline_path) == _calculation_properties(candidate_path)
+            and {
+                (model_sheet, model_cell),
+                (dashboard_sheet, dashboard_cell),
+            }
+            <= _reachable(graph, (table_sheet, baseline_input_cell))
+            and {
+                (model_sheet, model_cell),
+                (dashboard_sheet, dashboard_cell),
+            }
+            <= _reachable(graph, (table_sheet, candidate_input_cell)),
+            f"{truth['id']}: expected only one What-If Data Table r1 input reference to change with stable grid, formulas, and package boundary",
             errors,
         )
         return

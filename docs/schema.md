@@ -26,7 +26,9 @@ WCAB 0.17 adds a relationship-backed PivotTable Slicer-cache selection change
 with unchanged source/cache/report cells. WCAB 0.18 adds a connection-only
 Power Query M filter change over an unchanged local Excel Table. WCAB 0.19
 adds a stored Scenario Manager alternate-input change with unchanged visible
-worksheet cells, formulas, and calculation properties.
+worksheet cells, formulas, and calculation properties. WCAB 0.20 adds a
+one-variable What-If Data Table input-reference change with unchanged visible
+cells, ordinary formulas, calculation properties, and saved table results.
 Version 2 remains
 available in the immutable v0.2.0 and v0.3.0 releases.
 
@@ -77,6 +79,7 @@ Facts are observed directly from the fixture files by `wcab validate`.
 | `pivot_slicer_selection_changed` | `cache_id`, `source_type`, `source_sheet`, `source_ref`, `pivot_sheet`, `pivot_ref`, `pivot_output_cell`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula`, `slicer_name`, `slicer_source_name`, `slicer_pivot_table_name`, `slicer_pivot_tab_id`, `item_count`, `baseline_selected_item_index`, `candidate_selected_item_index`, `baseline_selected_value`, `candidate_selected_value` | One relationship-bound local Slicer cache retains its source/PivotCache/PivotTable bindings, stored report/dashboard cells, refresh control, and calculation properties while exactly one selected cache item moves between the declared index/value pairs. Every package member except its Slicer-cache definition remains unchanged. The validator does not create a Slicer drawing, apply a filter, refresh, calculate, render, or infer a displayed result. |
 | `power_query_m_filter_changed` | `data_mashup_part`, `source_sheet`, `source_table`, `source_ref`, `query_section`, `query_name`, `filter_column`, `baseline_filter_value`, `candidate_filter_value`, `fill_enabled`, `firewall_enabled`, `future_packages_allowed` | One package-root relationship-bound compact Data Mashup retains its local Excel Table source, metadata, permission controls, calculation properties, and every package member except its custom-XML part while one stored M `Table.SelectRows` literal changes. The validator reads a bounded generated envelope only; it does not execute M, refresh, materialize output, calculate, or infer query results. |
 | `scenario_manager_stored_input_value_changed` | `scenario_sheet`, `scenario_name`, `changing_cell`, `stable_input_cell`, `baseline_stored_value`, `candidate_stored_value`, `stable_stored_value`, `input_number_format_id`, `summary_ref`, `worksheet_input_value`, `worksheet_stable_input_value`, `result_cell`, `result_formula`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | One raw worksheet Scenario Manager declaration retains its selected/locked scenario metadata, second stored input, summary reference, visible worksheet cells, formula path, calculation properties, and every package member except its scenario-bearing worksheet while one stored `inputCells/@val` value changes. The validator does not show/apply a scenario, calculate a result, create a scenario summary, or infer client behavior. |
+| `what_if_data_table_input_reference_changed` | `table_sheet`, `master_cell`, `output_range`, `baseline_input_cell`, `candidate_input_cell`, `orientation`, `recalculation_requested`, `input_value_range`, `input_values`, `primary_input_value`, `alternate_input_value`, `scale_cell`, `scale_value`, `output_formula_cell`, `output_formula`, `model_sheet`, `model_cell`, `model_formula`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | One raw column-oriented one-variable Data Table master retains its declared output range, recalculation request, visible input grid, ordinary formulas, calculation properties, and every package member except its table-bearing worksheet while `f/@r1` moves between declared local input cells. The validator does not substitute inputs, calculate, infer table results, resolve a circular dependency, or claim client behavior. |
 | `chart_series_value_reference_changed` | `chart_sheet`, `chart_anchor`, `source_sheet`, `series_title_ref`, `category_ref`, `baseline_value_ref`, `candidate_value_ref` | One relationship-bound DrawingML chart retains its host, anchor, title/category references, source worksheet cells, and every package member except its chart part while raw `c:ser/c:val/c:numRef/c:f` moves between declared local value ranges. The validator does not calculate, refresh, or render a chart. |
 | `external_workbook_link_update_policy_changed` | `sheet`, `cell`, `formula`, `baseline_update_links`, `candidate_update_links` | The declared external-workbook formula remains unchanged while raw `workbookPr/@updateLinks` changes exactly from `never` to `always`; all other stored `workbookPr` attributes are unchanged. The validator does not resolve the source workbook. |
 | `array_formula_mode_changed` | `sheet`, `cell`, `formula`, `baseline_mode`, `candidate_mode`, `baseline_output_range`, `candidate_output_range` | The declared unchanged array anchor moves from `legacy_cse` to `dynamic`, with its stored formula text and output range exactly as declared. The validator reads the raw OOXML cell-metadata binding. |
@@ -207,6 +210,29 @@ compares the worksheet after erasing the sole mutable `@val`, and requires that
 the Inputs worksheet part is the only changed package member. It does not show
 or apply a scenario, calculate a workbook, generate a Scenario Summary, infer
 an output, or claim a particular client will act on the declaration.
+
+## What-If Data Table input reference
+
+Microsoft's [Data Table guidance](https://support.microsoft.com/en-us/excel/calculate-multiple-results-by-using-a-data-table)
+describes one- and two-variable What-If Data Tables and their row/column input
+cells. The Open XML
+[`CellFormula` reference](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.spreadsheet.cellformula?view=openxml-3.0.1)
+describes a Data Table master with `t="dataTable"`, output `ref`, input
+references, and orientation flags. A stored input reference can therefore be
+material even when ordinary formula text and visible cells are unchanged.
+
+WCAB's pair has one raw `Sensitivity!D3` master with `ref="D3:D5"`, `ca="1"`,
+and a column-oriented one-variable `r1` reference. The baseline declares
+`r1="B2"`; the candidate declares `r1="B3"`. Its `C3:C5` input grid,
+`Sensitivity!D2=Model!$B$2`, both possible input cells,
+`Model!B2=Sensitivity!$B$2*Sensitivity!$B$3*Sensitivity!$B$4`, and
+`Dashboard!B4=Model!$B$2` remain unchanged. The raw validator accepts only one
+master with the fixed generated attributes, erases only `r1` before comparing
+worksheet XML, and requires that worksheet to be the sole changed package
+member. It does not substitute temporary Data Table inputs, calculate a model
+or result, infer a table output, resolve a circular dependency, or claim
+Excel-client behavior. The declared ordinary static paths from both possible
+inputs are lower bounds, not an evaluation claim.
 
 ## External-workbook link update policy
 

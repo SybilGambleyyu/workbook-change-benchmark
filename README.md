@@ -34,7 +34,7 @@ gates, static analyzers, and agent workflows that propose workbook edits.
 
 ## Scope and non-goals
 
-Version `0.19` covers formula-to-value replacements, formula reference drift,
+Version `0.20` covers formula-to-value replacements, formula reference drift,
 value changes with downstream effects, external formula references, named
 ranges, data validation, conditional formatting, sheet visibility, direct cell
 protection, calculation settings, static cycles, portfolio dependencies,
@@ -94,6 +94,13 @@ comment/user, number-format metadata, and calculation properties remain
 unchanged. It records only the raw alternate input: it does not show or apply
 a scenario, calculate the model, generate a Scenario Summary, infer an output,
 or claim client behavior.
+It also covers a column-oriented one-variable What-If Data Table whose raw
+`Sensitivity!D3` master changes its local `f/@r1` input reference from `B2` to
+`B3` while its `D3:D5` output range, orientation, recalculation request,
+visible cells, ordinary formula text, calculation properties, and saved table
+results remain unchanged. It records the stored declaration only: it does not
+substitute input values, calculate the workbook or table, infer an output,
+resolve a circular dependency, or claim client behavior.
 It also covers a Dashboard DrawingML chart whose raw numeric-series reference
 switches from `Source!$B$2:$B$4` to `Source!$C$2:$C$4` while all source cells,
 the chart anchor, its title/category references, and every package member
@@ -251,6 +258,15 @@ WCAB's raw validator instead proves the generated `Inputs!B2` `0.08`-to-`0.16`
 alternate-value declaration, fixed scenario metadata, stable visible cells and
 formula path, and Inputs-worksheet-only package change. Neither layer shows or
 applies a scenario, calculates a result, or generates a Scenario Summary.
+For the What-If Data Table case, it requires FormulaFence's exact redacted
+one-variable `what_if_data_tables_changed` profile,
+`data_table_definition_material_changed`, and `FF034`. FormulaFence does not
+expose the table output range, local input references, or calculated table
+values. WCAB's raw validator instead proves the generated `D3:D5` master
+declaration, exact `B2`-to-`B3` `r1` transition, stable input grid and formulas,
+direct static model/dashboard lower bounds, and Sensitivity-worksheet-only
+package change. Neither layer substitutes inputs, calculates, resolves a
+circular dependency, or claims client behavior.
 For the chart-series case, it requires FormulaFence's exact redacted one-chart
 profile, `chart_definition_material_changed`, and `FF030`; FormulaFence does
 not expose the source formula or a visual result. WCAB's raw validator instead

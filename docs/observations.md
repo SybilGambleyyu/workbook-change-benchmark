@@ -228,8 +228,20 @@ the scenario name, stored values, input references, comment, or user metadata.
 WCAB's raw validator—not the adapter—then establishes the generated `B2`
 `0.08`-to-`0.16` stored transition, stable scenario metadata, visible cells,
 formula path, and Inputs-worksheet-only package change. Neither report shows or
-applies a scenario, calculates a result, or generates a Scenario Summary. For the chart-series
-case, it requires one exact `chart_definitions_changed` record and matching
+applies a scenario, calculates a result, or generates a Scenario Summary. For
+the What-If Data Table case, it requires one exact
+`what_if_data_tables_changed` record and matching `FF034`: FormulaFence's
+redacted profile must retain one Data Table, one column-oriented one-variable
+table, three declared output cells, one recalculation request, no deleted input
+reference, and no unrecognized declaration while only
+`data_table_definition_material_changed` is set. FormulaFence does not expose
+the output range, input references, or calculated table values. WCAB's raw
+validator—not the adapter—then establishes the generated `D3:D5` master,
+exact `B2`-to-`B3` `r1` transition, stable input grid and formulas, ordinary
+static model/dashboard lower bounds, and Sensitivity-worksheet-only package
+change. Neither report substitutes inputs, calculates, resolves a circular
+dependency, or claims client behavior. For the chart-series case, it requires
+one exact `chart_definitions_changed` record and matching
 `FF030`: FormulaFence's redacted profile must retain one host sheet, one
 drawing, one legacy chart, one series, three data references, no chart cache,
 and no related payloads while only `chart_definition_material_changed` is set.

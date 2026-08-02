@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.20.0 — 2026-08-03
+
+- Add a deterministic one-variable What-If Data Table case. Its raw
+  `Sensitivity!D3` master retains the output range `D3:D5`, column orientation,
+  recalculation request, visible cells, ordinary formula text, calculation
+  properties, and saved table results while `f/@r1` switches its local input
+  reference from `B2` to `B3`.
+- Add the exact `what_if_data_table_input_reference_changed` fact, a narrow
+  raw-worksheet Data Table validator, worksheet-part isolation check, stable
+  static model/dashboard lower bounds, and corruption regressions. WCAB records
+  the stored declaration only: it does not substitute inputs, recalculate a
+  table or workbook, infer output values, resolve a circular dependency, or
+  claim Excel-client behavior.
+- Extend the optional FormulaFence adapter to require the exact redacted
+  one-variable `what_if_data_tables_changed` profile and high-severity `FF034`,
+  while WCAB independently proves the generated `B2 -> B3` `r1` transition.
+
 ## 0.19.0 — 2026-08-03
 
 - Add a deterministic raw Scenario Manager case. One selected, locked

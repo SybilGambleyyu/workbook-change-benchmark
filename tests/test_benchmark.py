@@ -224,6 +224,26 @@ def _scenario_manager_stored_input_details() -> dict[str, object]:
     }
 
 
+def _what_if_data_table_input_reference_details() -> dict[str, object]:
+    profile = {
+        "present": True,
+        "data_table_count": 1,
+        "one_variable_data_table_count": 1,
+        "two_variable_data_table_count": 0,
+        "one_variable_row_oriented_count": 0,
+        "one_variable_column_oriented_count": 1,
+        "declared_output_cell_count": 3,
+        "recalculation_requested_count": 1,
+        "deleted_input_reference_count": 0,
+        "unrecognized_data_table_count": 0,
+    }
+    return {
+        "before": profile,
+        "after": profile,
+        "data_table_definition_material_changed": True,
+    }
+
+
 def _replace_power_query_m_filter_literal(path: Path, *, before: bytes, after: bytes) -> None:
     """Rewrite one test fixture's embedded M formula without changing its truth."""
 
@@ -458,6 +478,35 @@ def test_committed_manifest_matches_fixture_tree() -> None:
             "dashboard_sheet": "Dashboard",
             "dashboard_cell": "B4",
             "dashboard_formula": "=Inputs!$D$2",
+        }
+    ]
+    data_table_row = next(
+        row for row in rows if row["id"] == "structural.what_if_data_table_input_reference_changed"
+    )
+    assert data_table_row["facts"] == [
+        {
+            "kind": "what_if_data_table_input_reference_changed",
+            "table_sheet": "Sensitivity",
+            "master_cell": "D3",
+            "output_range": "D3:D5",
+            "baseline_input_cell": "B2",
+            "candidate_input_cell": "B3",
+            "orientation": "column",
+            "recalculation_requested": True,
+            "input_value_range": "C3:C5",
+            "input_values": [0.04, 0.08, 0.12],
+            "primary_input_value": 0.08,
+            "alternate_input_value": 0.12,
+            "scale_cell": "B4",
+            "scale_value": 100,
+            "output_formula_cell": "D2",
+            "output_formula": "=Model!$B$2",
+            "model_sheet": "Model",
+            "model_cell": "B2",
+            "model_formula": "=Sensitivity!$B$2*Sensitivity!$B$3*Sensitivity!$B$4",
+            "dashboard_sheet": "Dashboard",
+            "dashboard_cell": "B4",
+            "dashboard_formula": "=Model!$B$2",
         }
     ]
     external_link_policy_row = next(
@@ -1068,6 +1117,104 @@ def test_scenario_manager_stored_input_pair_changes_only_its_inputs_worksheet(
     fixture_root = tmp_path / "fixtures"
     build_all(fixture_root)
     case = fixture_root / "structural" / "scenario_manager_stored_input_changed"
+    with ZipFile(case / "baseline.xlsx") as baseline, ZipFile(case / "candidate.xlsx") as candidate:
+        assert baseline.testzip() is None
+        assert candidate.testzip() is None
+        baseline_members = {
+            entry.filename: baseline.read(entry.filename) for entry in baseline.infolist()
+        }
+        candidate_members = {
+            entry.filename: candidate.read(entry.filename) for entry in candidate.infolist()
+        }
+    assert set(baseline_members) == set(candidate_members)
+    assert [
+        member
+        for member in sorted(baseline_members)
+        if baseline_members[member] != candidate_members[member]
+    ] == ["xl/worksheets/sheet1.xml"]
+
+
+def test_validator_rejects_a_false_what_if_data_table_input_reference_fact(
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "structural" / "what_if_data_table_input_reference_changed"
+    truth_path = case / "truth.json"
+    truth = json.loads(truth_path.read_text(encoding="utf-8"))
+    truth["facts"][0]["candidate_input_cell"] = "B2"
+    truth_path.write_text(json.dumps(truth), encoding="utf-8")
+    assert validate_case(case)
+
+
+def test_validator_rejects_a_corrupted_what_if_data_table_input_reference(
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = (
+        fixture_root
+        / "structural"
+        / "what_if_data_table_input_reference_changed"
+        / "candidate.xlsx"
+    )
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    namespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    worksheet_member = "xl/worksheets/sheet1.xml"
+    worksheet = ElementTree.fromstring(members[worksheet_member])
+    formula = next(
+        item for item in worksheet.iter(f"{{{namespace}}}f") if item.get("t") == "dataTable"
+    )
+    formula.set("r1", "B2")
+    members[worksheet_member] = ElementTree.tostring(
+        worksheet, encoding="utf-8", xml_declaration=True
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_validator_rejects_an_unrelated_what_if_data_table_control_change(
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = (
+        fixture_root
+        / "structural"
+        / "what_if_data_table_input_reference_changed"
+        / "candidate.xlsx"
+    )
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    namespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    worksheet_member = "xl/worksheets/sheet1.xml"
+    worksheet = ElementTree.fromstring(members[worksheet_member])
+    formula = next(
+        item for item in worksheet.iter(f"{{{namespace}}}f") if item.get("t") == "dataTable"
+    )
+    formula.attrib.pop("ca")
+    members[worksheet_member] = ElementTree.tostring(
+        worksheet, encoding="utf-8", xml_declaration=True
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_what_if_data_table_input_reference_pair_changes_only_its_sensitivity_worksheet(
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "structural" / "what_if_data_table_input_reference_changed"
     with ZipFile(case / "baseline.xlsx") as baseline, ZipFile(case / "candidate.xlsx") as candidate:
         assert baseline.testzip() is None
         assert candidate.testzip() is None
@@ -2517,6 +2664,93 @@ def test_formulafence_adapter_requires_the_power_query_m_filter_finding(
     assert result["status"] == "missed"
     assert result["matched"] == []
     assert result["missed"] == ["power_query_m_filter_changed"]
+
+
+def test_formulafence_adapter_maps_the_exact_what_if_data_table_input_reference_change(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _what_if_data_table_input_reference_details()
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "what_if_data_tables_changed",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF034", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "structural" / "what_if_data_table_input_reference_changed"
+    )
+    assert result["status"] == "matched"
+    assert result["matched"] == ["what_if_data_table_input_reference_changed"]
+
+
+def test_formulafence_adapter_rejects_an_inexact_what_if_data_table_change(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _what_if_data_table_input_reference_details()
+        details["before"]["recalculation_requested_count"] = 0
+        details["after"]["recalculation_requested_count"] = 0
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "what_if_data_tables_changed",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF034", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "structural" / "what_if_data_table_input_reference_changed"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["what_if_data_table_input_reference_changed"]
+
+
+def test_formulafence_adapter_requires_the_what_if_data_table_finding(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "what_if_data_tables_changed",
+                    "location": None,
+                    "details": _what_if_data_table_input_reference_details(),
+                }
+            ],
+            "findings": [],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "structural" / "what_if_data_table_input_reference_changed"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["what_if_data_table_input_reference_changed"]
 
 
 def test_formulafence_adapter_maps_the_exact_scenario_manager_stored_input_change(

@@ -260,12 +260,7 @@ display-only number format within a scenario. This puts material alternate
 assumptions in a raw worksheet control declaration rather than in the visible
 grid that an ordinary cell diff usually compares.
 
-Data Tables are also an important What-If surface: Microsoft documents their
-one- and two-variable boundary and repeated recalculation behavior. However,
-the next WCAB case selects Scenario Manager because it isolates the more opaque
-stored-assumption boundary: a single scenario input can change while all
-ordinary worksheet values, formulas, and calculation settings remain unchanged.
-The fixture is deliberately one selected, locked scenario with two inputs so
+WCAB 0.19 deliberately uses one selected, locked scenario with two inputs so
 the changed value can be audited without expanding the case into scenario
 application or numerical evaluation.
 
@@ -277,6 +272,29 @@ input, and number-format metadata also remain fixed. The validator reads only
 the generated raw OOXML and checks the local formula path as a lower bound if a
 client applies the scenario. It does not show or apply a scenario, calculate a
 model, create a scenario summary, infer a result, or claim client behavior.
+
+## What-If Data Table input references without a formula edit
+
+Microsoft's [Data Table guidance](https://support.microsoft.com/en-us/excel/calculate-multiple-results-by-using-a-data-table)
+defines one- and two-variable What-If Data Tables and distinguishes their row
+and column input cells. The Open XML
+[`CellFormula` reference](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.spreadsheet.cellformula?view=openxml-3.0.1)
+identifies a `t="dataTable"` master formula and its `ref`, `r1`, `r2`, `dt2D`,
+and `dtr` controls. Excel's
+[calculation-performance guidance](https://learn.microsoft.com/en-us/office/vba/excel/concepts/excel-performance/excel-improving-calculation-performance)
+also notes that Data Tables trigger repeated recalculation and use a special
+calculation path. A review system therefore needs to notice a changed input
+reference even when ordinary cells and ordinary formula text do not change.
+
+WCAB 0.20 isolates a column-oriented one-variable declaration in an original
+three-sheet workbook. The generated `Sensitivity!D3` master has
+`t="dataTable"`, `ref="D3:D5"`, `ca="1"`, and `r1="B2"`; the candidate changes
+only `r1` to `B3`. `Sensitivity!D2=Model!$B$2`, input grid `C3:C5`, both
+possible local input values, `Model!B2`, `Dashboard!B4`, and all calculation
+properties stay fixed. The raw validator accepts only this compact shape and
+compares the worksheet after removing the single `r1` value. It does not
+substitute an input, calculate the table or workbook, infer an output,
+interpret a circular dependency, or claim Excel-client behavior.
 
 ## Chart series sources without a worksheet edit
 

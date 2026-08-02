@@ -26,7 +26,7 @@ from openpyxl.formatting.rule import CellIsRule
 from openpyxl.styles import PatternFill, Protection
 from openpyxl.workbook.defined_name import DefinedName
 from openpyxl.worksheet.datavalidation import DataValidation
-from openpyxl.worksheet.formula import ArrayFormula
+from openpyxl.worksheet.formula import ArrayFormula, DataTableFormula
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
 from .manifest import write_manifest
@@ -114,6 +114,25 @@ _SCENARIO_MANAGER_BASELINE_STORED_VALUE = "0.08"
 _SCENARIO_MANAGER_CANDIDATE_STORED_VALUE = "0.16"
 _SCENARIO_MANAGER_STABLE_STORED_VALUE = "125"
 _SCENARIO_MANAGER_INPUT_NUMBER_FORMAT_ID = 10
+_WHAT_IF_DATA_TABLE_SHEET = "Sensitivity"
+_WHAT_IF_DATA_TABLE_MODEL_SHEET = "Model"
+_WHAT_IF_DATA_TABLE_DASHBOARD_SHEET = "Dashboard"
+_WHAT_IF_DATA_TABLE_MASTER_CELL = "D3"
+_WHAT_IF_DATA_TABLE_OUTPUT_RANGE = "D3:D5"
+_WHAT_IF_DATA_TABLE_PRIMARY_INPUT_CELL = "B2"
+_WHAT_IF_DATA_TABLE_ALTERNATE_INPUT_CELL = "B3"
+_WHAT_IF_DATA_TABLE_SCALE_CELL = "B4"
+_WHAT_IF_DATA_TABLE_INPUT_VALUE_RANGE = "C3:C5"
+_WHAT_IF_DATA_TABLE_PRIMARY_INPUT_VALUE = 0.08
+_WHAT_IF_DATA_TABLE_ALTERNATE_INPUT_VALUE = 0.12
+_WHAT_IF_DATA_TABLE_SCALE_VALUE = 100
+_WHAT_IF_DATA_TABLE_GRID_VALUES = (0.04, 0.08, 0.12)
+_WHAT_IF_DATA_TABLE_OUTPUT_FORMULA_CELL = "D2"
+_WHAT_IF_DATA_TABLE_OUTPUT_FORMULA = "=Model!$B$2"
+_WHAT_IF_DATA_TABLE_MODEL_CELL = "B2"
+_WHAT_IF_DATA_TABLE_MODEL_FORMULA = "=Sensitivity!$B$2*Sensitivity!$B$3*Sensitivity!$B$4"
+_WHAT_IF_DATA_TABLE_DASHBOARD_CELL = "B4"
+_WHAT_IF_DATA_TABLE_DASHBOARD_FORMULA = "=Model!$B$2"
 _CHART_SERIES_SOURCE_SHEET = "Source"
 _CHART_SERIES_DASHBOARD_SHEET = "Dashboard"
 _CHART_SERIES_ANCHOR = "D2"
@@ -475,6 +494,50 @@ def _scenario_manager_workbook() -> Workbook:
     dashboard["A1"] = "Board scenario output"
     dashboard["A4"] = "Scenario result"
     dashboard[_SCENARIO_MANAGER_DASHBOARD_CELL] = _SCENARIO_MANAGER_DASHBOARD_FORMULA
+    return workbook
+
+
+def _what_if_data_table_workbook() -> Workbook:
+    """Build one column-oriented What-If Data Table without calculating it.
+
+    The data-table master is a raw SpreadsheetML formula control rather than
+    an ordinary Excel Table or a calculated value. Both possible input cells
+    remain part of a stable direct model path; the fixture changes only which
+    local input reference the sensitivity declaration uses.
+    """
+
+    workbook = Workbook()
+    _configure_workbook(workbook, title="WCAB What-If Data Table input fixture")
+    sensitivity = workbook.active
+    sensitivity.title = _WHAT_IF_DATA_TABLE_SHEET
+    sensitivity["A1"] = "Sensitivity controls"
+    sensitivity["A2"] = "Primary rate"
+    sensitivity[_WHAT_IF_DATA_TABLE_PRIMARY_INPUT_CELL] = _WHAT_IF_DATA_TABLE_PRIMARY_INPUT_VALUE
+    sensitivity["A3"] = "Alternative rate"
+    sensitivity[_WHAT_IF_DATA_TABLE_ALTERNATE_INPUT_CELL] = (
+        _WHAT_IF_DATA_TABLE_ALTERNATE_INPUT_VALUE
+    )
+    sensitivity["A4"] = "Scale"
+    sensitivity[_WHAT_IF_DATA_TABLE_SCALE_CELL] = _WHAT_IF_DATA_TABLE_SCALE_VALUE
+    sensitivity["C2"] = "Scenario rate"
+    sensitivity[_WHAT_IF_DATA_TABLE_OUTPUT_FORMULA_CELL] = _WHAT_IF_DATA_TABLE_OUTPUT_FORMULA
+    for coordinate, value in zip(("C3", "C4", "C5"), _WHAT_IF_DATA_TABLE_GRID_VALUES, strict=True):
+        sensitivity[coordinate] = value
+    sensitivity[_WHAT_IF_DATA_TABLE_MASTER_CELL] = DataTableFormula(
+        ref=_WHAT_IF_DATA_TABLE_OUTPUT_RANGE,
+        ca=True,
+        dt2D=False,
+        dtr=False,
+        r1=_WHAT_IF_DATA_TABLE_PRIMARY_INPUT_CELL,
+    )
+
+    model = workbook.create_sheet(_WHAT_IF_DATA_TABLE_MODEL_SHEET)
+    model["A1"] = "Sensitivity result"
+    model[_WHAT_IF_DATA_TABLE_MODEL_CELL] = _WHAT_IF_DATA_TABLE_MODEL_FORMULA
+
+    dashboard = workbook.create_sheet(_WHAT_IF_DATA_TABLE_DASHBOARD_SHEET)
+    dashboard["A1"] = "Board output"
+    dashboard[_WHAT_IF_DATA_TABLE_DASHBOARD_CELL] = _WHAT_IF_DATA_TABLE_DASHBOARD_FORMULA
     return workbook
 
 
@@ -1445,6 +1508,48 @@ def _add_scenario_manager_stored_input(path: Path, *, stored_value: str) -> None
             },
         )
         worksheet.insert(sheet_data_indexes[0] + 1, scenarios)
+        members[worksheet_member] = ElementTree.tostring(
+            worksheet, encoding="utf-8", xml_declaration=True
+        )
+
+    _rewrite_xlsx_parts(path, mutate)
+
+
+def _set_what_if_data_table_input_reference(path: Path, *, input_cell: str) -> None:
+    """Set the one generated Data Table master's local input reference.
+
+    ``f/@r1`` is raw SpreadsheetML metadata on the Data Table master. The
+    helper edits that one attribute after openpyxl serializes the ordinary
+    workbook, so the pair does not manufacture or recalculate a table result.
+    """
+
+    if input_cell not in {
+        _WHAT_IF_DATA_TABLE_PRIMARY_INPUT_CELL,
+        _WHAT_IF_DATA_TABLE_ALTERNATE_INPUT_CELL,
+    }:
+        raise ValueError(f"unsupported What-If Data Table input cell {input_cell!r}")
+
+    def mutate(members: dict[str, bytes]) -> None:
+        worksheet_member = "xl/worksheets/sheet1.xml"
+        worksheet = ElementTree.fromstring(members[worksheet_member])
+        cell_tag = f"{{{_SPREADSHEETML_NS}}}c"
+        formula_tag = f"{{{_SPREADSHEETML_NS}}}f"
+        masters = [
+            cell
+            for cell in worksheet.iter(cell_tag)
+            if cell.get("r") == _WHAT_IF_DATA_TABLE_MASTER_CELL
+        ]
+        if len(masters) != 1:
+            raise ValueError("What-If Data Table fixture lacks one master cell")
+        formulas = masters[0].findall(formula_tag)
+        if (
+            len(formulas) != 1
+            or formulas[0].get("t") != "dataTable"
+            or formulas[0].get("ref") != _WHAT_IF_DATA_TABLE_OUTPUT_RANGE
+            or formulas[0].get("r1") != _WHAT_IF_DATA_TABLE_PRIMARY_INPUT_CELL
+        ):
+            raise ValueError("What-If Data Table fixture has an unexpected master declaration")
+        formulas[0].set("r1", input_cell)
         members[worksheet_member] = ElementTree.tostring(
             worksheet, encoding="utf-8", xml_declaration=True
         )
@@ -2607,6 +2712,94 @@ def _build_structural_scenario_manager_stored_input(root: Path) -> None:
     )
 
 
+def _build_structural_what_if_data_table_input(root: Path) -> None:
+    """Build a Data Table input-reference switch without cell/result churn."""
+
+    directory = root / "structural" / "what_if_data_table_input_reference_changed"
+    directory.mkdir(parents=True, exist_ok=True)
+    baseline = directory / "baseline.xlsx"
+    candidate = directory / "candidate.xlsx"
+    _save_workbook(_what_if_data_table_workbook(), baseline)
+    _save_workbook(_what_if_data_table_workbook(), candidate)
+    _set_what_if_data_table_input_reference(
+        candidate, input_cell=_WHAT_IF_DATA_TABLE_ALTERNATE_INPUT_CELL
+    )
+    _write_json(
+        directory / "truth.json",
+        _truth(
+            case_id="structural.what_if_data_table_input_reference_changed",
+            title="A What-If Data Table switches its one-variable input cell",
+            family="structural",
+            review_expectation="block",
+            facts=[
+                {
+                    "kind": "what_if_data_table_input_reference_changed",
+                    "table_sheet": _WHAT_IF_DATA_TABLE_SHEET,
+                    "master_cell": _WHAT_IF_DATA_TABLE_MASTER_CELL,
+                    "output_range": _WHAT_IF_DATA_TABLE_OUTPUT_RANGE,
+                    "baseline_input_cell": _WHAT_IF_DATA_TABLE_PRIMARY_INPUT_CELL,
+                    "candidate_input_cell": _WHAT_IF_DATA_TABLE_ALTERNATE_INPUT_CELL,
+                    "orientation": "column",
+                    "recalculation_requested": True,
+                    "input_value_range": _WHAT_IF_DATA_TABLE_INPUT_VALUE_RANGE,
+                    "input_values": list(_WHAT_IF_DATA_TABLE_GRID_VALUES),
+                    "primary_input_value": _WHAT_IF_DATA_TABLE_PRIMARY_INPUT_VALUE,
+                    "alternate_input_value": _WHAT_IF_DATA_TABLE_ALTERNATE_INPUT_VALUE,
+                    "scale_cell": _WHAT_IF_DATA_TABLE_SCALE_CELL,
+                    "scale_value": _WHAT_IF_DATA_TABLE_SCALE_VALUE,
+                    "output_formula_cell": _WHAT_IF_DATA_TABLE_OUTPUT_FORMULA_CELL,
+                    "output_formula": _WHAT_IF_DATA_TABLE_OUTPUT_FORMULA,
+                    "model_sheet": _WHAT_IF_DATA_TABLE_MODEL_SHEET,
+                    "model_cell": _WHAT_IF_DATA_TABLE_MODEL_CELL,
+                    "model_formula": _WHAT_IF_DATA_TABLE_MODEL_FORMULA,
+                    "dashboard_sheet": _WHAT_IF_DATA_TABLE_DASHBOARD_SHEET,
+                    "dashboard_cell": _WHAT_IF_DATA_TABLE_DASHBOARD_CELL,
+                    "dashboard_formula": _WHAT_IF_DATA_TABLE_DASHBOARD_FORMULA,
+                }
+            ],
+            must_reach=[
+                {
+                    "source": {
+                        "sheet": _WHAT_IF_DATA_TABLE_SHEET,
+                        "cell": _WHAT_IF_DATA_TABLE_PRIMARY_INPUT_CELL,
+                    },
+                    "targets": [
+                        {
+                            "sheet": _WHAT_IF_DATA_TABLE_MODEL_SHEET,
+                            "cell": _WHAT_IF_DATA_TABLE_MODEL_CELL,
+                        },
+                        {
+                            "sheet": _WHAT_IF_DATA_TABLE_DASHBOARD_SHEET,
+                            "cell": _WHAT_IF_DATA_TABLE_DASHBOARD_CELL,
+                        },
+                    ],
+                },
+                {
+                    "source": {
+                        "sheet": _WHAT_IF_DATA_TABLE_SHEET,
+                        "cell": _WHAT_IF_DATA_TABLE_ALTERNATE_INPUT_CELL,
+                    },
+                    "targets": [
+                        {
+                            "sheet": _WHAT_IF_DATA_TABLE_MODEL_SHEET,
+                            "cell": _WHAT_IF_DATA_TABLE_MODEL_CELL,
+                        },
+                        {
+                            "sheet": _WHAT_IF_DATA_TABLE_DASHBOARD_SHEET,
+                            "cell": _WHAT_IF_DATA_TABLE_DASHBOARD_CELL,
+                        },
+                    ],
+                },
+            ],
+            coverage=[
+                "The pair changes only the one-variable Data Table master's raw f/@r1 input-cell reference in the Sensitivity worksheet. It does not edit the table output range, orientation, recalculation request, visible cells, ordinary formula text, calculation properties, or saved table results.",
+                "The table is a column-oriented one-variable What-If Data Table. WCAB records its stored declaration only; it does not substitute input values, recalculate the workbook or table, infer output values, resolve a circular dependency, or claim Excel-client behavior.",
+                "Both possible input cells retain ordinary static local paths to the model and dashboard. Those are lower-bound formula edges, not a proof of which temporary value Excel substitutes or of any Data Table result.",
+            ],
+        ),
+    )
+
+
 def _build_governance_external_workbook_link_update_policy(root: Path) -> None:
     """Build a pair differing only in the global external-link open policy."""
 
@@ -3008,6 +3201,7 @@ _BUILDERS: tuple[Callable[[Path], None], ...] = (
     _build_structural_pivot_slicer_selection,
     _build_structural_power_query_m_filter,
     _build_structural_scenario_manager_stored_input,
+    _build_structural_what_if_data_table_input,
     _build_structural_chart_series_reference,
     _build_structural_array_formula_mode,
     _build_structural_three_d_scope,
@@ -3044,6 +3238,7 @@ CASE_IDS = (
     "structural.pivot_slicer_selection_changed",
     "structural.power_query_m_filter_changed",
     "structural.scenario_manager_stored_input_changed",
+    "structural.what_if_data_table_input_reference_changed",
     "structural.chart_series_reference_changed",
     "structural.array_formula_mode_changed",
     "structural.three_d_scope_expansion",
