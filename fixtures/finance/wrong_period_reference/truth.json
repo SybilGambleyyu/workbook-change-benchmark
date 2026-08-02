@@ -1,0 +1,40 @@
+{
+  "coverage": [
+    "The benchmark asserts the reference drift, not the business correctness of every formula."
+  ],
+  "facts": [
+    {
+      "cell": "C8",
+      "kind": "formula_changed",
+      "sheet": "Revenue"
+    }
+  ],
+  "family": "finance",
+  "id": "finance.wrong_period_reference",
+  "must_reach": [
+    {
+      "source": {
+        "cell": "C8",
+        "sheet": "Revenue"
+      },
+      "targets": [
+        {
+          "cell": "C10",
+          "sheet": "Revenue"
+        },
+        {
+          "cell": "C5",
+          "sheet": "Summary"
+        },
+        {
+          "cell": "B4",
+          "sheet": "Dashboard"
+        }
+      ]
+    }
+  ],
+  "review_expectation": "block",
+  "schema_version": 1,
+  "title": "Revenue formula uses a prior-period units reference",
+  "topology": "pair"
+}

@@ -1,0 +1,22 @@
+{
+  "coverage": [
+    "The formula text is intentionally unchanged; the observable risk is tab-order scope."
+  ],
+  "facts": [
+    {
+      "after_sheet": "Jan",
+      "before_sheet": "Feb",
+      "formula_cell": "B5",
+      "formula_sheet": "Summary",
+      "inserted_sheet": "FebAdjustment",
+      "kind": "three_d_scope_changed"
+    }
+  ],
+  "family": "structural",
+  "id": "structural.three_d_scope_expansion",
+  "must_reach": [],
+  "review_expectation": "block",
+  "schema_version": 1,
+  "title": "A new period silently enters an unchanged 3-D formula span",
+  "topology": "pair"
+}

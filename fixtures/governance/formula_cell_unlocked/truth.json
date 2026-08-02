@@ -1,0 +1,19 @@
+{
+  "coverage": [
+    "This is a direct cell-protection assertion; style inheritance and allowed edit ranges are out of scope."
+  ],
+  "facts": [
+    {
+      "cell": "D10",
+      "kind": "formula_cell_unlocked",
+      "sheet": "Controls"
+    }
+  ],
+  "family": "governance",
+  "id": "governance.formula_cell_unlocked",
+  "must_reach": [],
+  "review_expectation": "block",
+  "schema_version": 1,
+  "title": "A protected calculated cell is explicitly unlocked",
+  "topology": "pair"
+}

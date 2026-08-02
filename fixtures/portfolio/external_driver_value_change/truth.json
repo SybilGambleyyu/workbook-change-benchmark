@@ -1,0 +1,27 @@
+{
+  "coverage": [
+    "The target workbook is present only as a local sibling; no network or filesystem path resolution is permitted."
+  ],
+  "facts": [
+    {
+      "cell": "B2",
+      "kind": "portfolio_value_changed",
+      "sheet": "Inputs",
+      "workbook": "drivers.xlsx"
+    },
+    {
+      "cell": "B2",
+      "kind": "portfolio_external_reference",
+      "sheet": "Summary",
+      "target_workbook": "drivers.xlsx",
+      "workbook": "model.xlsx"
+    }
+  ],
+  "family": "portfolio",
+  "id": "portfolio.external_driver_value_change",
+  "must_reach": [],
+  "review_expectation": "review",
+  "schema_version": 1,
+  "title": "An upstream workbook driver changes while a downstream workbook consumes it",
+  "topology": "portfolio"
+}

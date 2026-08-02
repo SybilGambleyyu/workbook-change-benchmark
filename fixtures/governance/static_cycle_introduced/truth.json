@@ -1,0 +1,27 @@
+{
+  "coverage": [
+    "The cycle is direct and static; iterative calculation settings and dynamic references are out of scope."
+  ],
+  "facts": [
+    {
+      "cells": [
+        {
+          "cell": "D10",
+          "sheet": "Controls"
+        },
+        {
+          "cell": "D11",
+          "sheet": "Controls"
+        }
+      ],
+      "kind": "static_cycle_introduced"
+    }
+  ],
+  "family": "governance",
+  "id": "governance.static_cycle_introduced",
+  "must_reach": [],
+  "review_expectation": "block",
+  "schema_version": 1,
+  "title": "Two direct formulas form a static cycle",
+  "topology": "pair"
+}

@@ -1,0 +1,20 @@
+{
+  "coverage": [
+    "The contract observes validation presence, not whether a future user enters an invalid value."
+  ],
+  "facts": [
+    {
+      "baseline_count": 1,
+      "candidate_count": 0,
+      "kind": "data_validation_count_changed",
+      "sheet": "Operations"
+    }
+  ],
+  "family": "operations",
+  "id": "operations.data_validation_removed",
+  "must_reach": [],
+  "review_expectation": "block",
+  "schema_version": 1,
+  "title": "Input validation is removed from an operational tracker",
+  "topology": "pair"
+}

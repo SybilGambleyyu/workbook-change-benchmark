@@ -1,0 +1,17 @@
+{
+  "coverage": [
+    "Calculation metadata is evidence of save state, not proof that any cached result is wrong."
+  ],
+  "facts": [
+    {
+      "kind": "manual_calculation_incomplete"
+    }
+  ],
+  "family": "governance",
+  "id": "governance.manual_calculation_incomplete",
+  "must_reach": [],
+  "review_expectation": "block",
+  "schema_version": 1,
+  "title": "A formula workbook records incomplete manual calculation",
+  "topology": "pair"
+}

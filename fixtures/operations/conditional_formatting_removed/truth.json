@@ -1,0 +1,20 @@
+{
+  "coverage": [
+    "The benchmark observes the control removal but does not judge the intended visual design."
+  ],
+  "facts": [
+    {
+      "baseline_count": 1,
+      "candidate_count": 0,
+      "kind": "conditional_formatting_count_changed",
+      "sheet": "Operations"
+    }
+  ],
+  "family": "operations",
+  "id": "operations.conditional_formatting_removed",
+  "must_reach": [],
+  "review_expectation": "review",
+  "schema_version": 1,
+  "title": "A material exception highlight is removed",
+  "topology": "pair"
+}

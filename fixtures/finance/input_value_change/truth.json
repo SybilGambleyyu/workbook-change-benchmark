@@ -1,0 +1,48 @@
+{
+  "coverage": [
+    "An input change is not inherently an error; it remains material review evidence."
+  ],
+  "facts": [
+    {
+      "cell": "C2",
+      "kind": "value_changed",
+      "sheet": "Assumptions"
+    }
+  ],
+  "family": "finance",
+  "id": "finance.input_value_change",
+  "must_reach": [
+    {
+      "source": {
+        "cell": "C2",
+        "sheet": "Assumptions"
+      },
+      "targets": [
+        {
+          "cell": "C5",
+          "sheet": "Revenue"
+        },
+        {
+          "cell": "C8",
+          "sheet": "Revenue"
+        },
+        {
+          "cell": "C10",
+          "sheet": "Revenue"
+        },
+        {
+          "cell": "C6",
+          "sheet": "Summary"
+        },
+        {
+          "cell": "B4",
+          "sheet": "Dashboard"
+        }
+      ]
+    }
+  ],
+  "review_expectation": "review",
+  "schema_version": 1,
+  "title": "Approved input changes and propagates into outputs",
+  "topology": "pair"
+}

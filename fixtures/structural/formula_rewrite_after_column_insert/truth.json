@@ -1,0 +1,27 @@
+{
+  "coverage": [
+    "The fixture declares equivalent logical input positions but does not prove general Excel semantic equivalence."
+  ],
+  "facts": [
+    {
+      "baseline": {
+        "cell": "D5",
+        "formula": "=B5*C5",
+        "sheet": "Model"
+      },
+      "candidate": {
+        "cell": "E5",
+        "formula": "=B5*D5",
+        "sheet": "Model"
+      },
+      "kind": "structural_formula_rewrite"
+    }
+  ],
+  "family": "structural",
+  "id": "structural.formula_rewrite_after_column_insert",
+  "must_reach": [],
+  "review_expectation": "review",
+  "schema_version": 1,
+  "title": "A column insertion rewrites formulas while retaining the declared inputs",
+  "topology": "pair"
+}

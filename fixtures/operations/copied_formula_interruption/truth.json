@@ -1,0 +1,19 @@
+{
+  "coverage": [
+    "Immediate formula peers provide the copied-block context; no formula execution is required."
+  ],
+  "facts": [
+    {
+      "cell": "F7",
+      "kind": "formula_to_value",
+      "sheet": "Operations"
+    }
+  ],
+  "family": "operations",
+  "id": "operations.copied_formula_interruption",
+  "must_reach": [],
+  "review_expectation": "block",
+  "schema_version": 1,
+  "title": "One copied margin formula is replaced by a manual number",
+  "topology": "pair"
+}

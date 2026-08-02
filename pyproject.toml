@@ -1,0 +1,46 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "workbook-change-benchmark"
+version = "0.1.0"
+description = "Reproducible paired-workbook fixtures for spreadsheet change-assurance tools."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "SybilGambleyyu" }]
+keywords = ["excel", "spreadsheet", "benchmark", "testing", "audit", "ci"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Software Development :: Testing",
+]
+dependencies = ["openpyxl>=3.1.5,<4"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<10", "ruff>=0.8,<1"]
+
+[project.scripts]
+wcab = "wcab.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/wcab"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+# The formatter cannot sensibly wrap workbook formulas, URLs, or explanatory
+# truth-contract strings.  Keep structural linting on, while treating those
+# immutable literals as data rather than style violations.
+ignore = ["E501"]

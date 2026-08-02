@@ -1,0 +1,18 @@
+{
+  "coverage": [
+    "The assertion compares the defined-name destination; name resolution beyond this fixture is out of scope."
+  ],
+  "facts": [
+    {
+      "kind": "defined_name_changed",
+      "name": "DiscountRate"
+    }
+  ],
+  "family": "finance",
+  "id": "finance.defined_name_redirect",
+  "must_reach": [],
+  "review_expectation": "block",
+  "schema_version": 1,
+  "title": "A named rate redirects to a different assumption",
+  "topology": "pair"
+}

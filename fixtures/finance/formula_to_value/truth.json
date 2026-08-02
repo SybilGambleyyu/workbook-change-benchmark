@@ -1,0 +1,44 @@
+{
+  "coverage": [
+    "Static dependency lower bound; numerical recalculation is out of scope."
+  ],
+  "facts": [
+    {
+      "cell": "C8",
+      "kind": "formula_to_value",
+      "sheet": "Revenue"
+    }
+  ],
+  "family": "finance",
+  "id": "finance.formula_to_value",
+  "must_reach": [
+    {
+      "source": {
+        "cell": "C8",
+        "sheet": "Revenue"
+      },
+      "targets": [
+        {
+          "cell": "C10",
+          "sheet": "Revenue"
+        },
+        {
+          "cell": "C5",
+          "sheet": "Summary"
+        },
+        {
+          "cell": "C6",
+          "sheet": "Summary"
+        },
+        {
+          "cell": "B4",
+          "sheet": "Dashboard"
+        }
+      ]
+    }
+  ],
+  "review_expectation": "block",
+  "schema_version": 1,
+  "title": "Revenue formula is replaced with a hard-coded value",
+  "topology": "pair"
+}

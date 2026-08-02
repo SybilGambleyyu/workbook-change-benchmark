@@ -1,0 +1,24 @@
+{
+  "coverage": [
+    "The external workbook is intentionally absent and must not be opened by a benchmark tool."
+  ],
+  "facts": [
+    {
+      "cell": "C8",
+      "kind": "formula_changed",
+      "sheet": "Summary"
+    },
+    {
+      "cell": "C8",
+      "kind": "external_formula_added",
+      "sheet": "Summary"
+    }
+  ],
+  "family": "finance",
+  "id": "finance.external_formula_reference",
+  "must_reach": [],
+  "review_expectation": "block",
+  "schema_version": 1,
+  "title": "An internal driver is replaced by an external workbook reference",
+  "topology": "pair"
+}
