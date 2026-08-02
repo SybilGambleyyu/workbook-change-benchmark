@@ -110,6 +110,18 @@ def _external_data_connection_refresh_on_load(path: Path, connection_id: int) ->
     return {"0": False, "1": True}.get(flag)
 
 
+def _workbook_properties(path: Path) -> dict[str, str] | None:
+    """Read the stored ``workbookPr`` attributes without loading link targets."""
+
+    try:
+        with ZipFile(path) as archive:
+            workbook = ElementTree.fromstring(archive.read("xl/workbook.xml"))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    properties = workbook.find(f"{{{_SPREADSHEETML_NS}}}workbookPr")
+    return None if properties is None else dict(properties.attrib)
+
+
 def _relationship_target(
     relationships: ElementTree.Element,
     relationship_id: str,
@@ -479,6 +491,59 @@ def _validate_fact(
             and before_refresh_on_load is fact.get("baseline_refresh_on_load")
             and after_refresh_on_load is fact.get("candidate_refresh_on_load"),
             f"{truth['id']}: expected connection {connection_id!r} refresh-on-open false -> true",
+            errors,
+        )
+        return
+
+    if kind == "external_workbook_link_update_policy_changed":
+        sheet_name = fact.get("sheet")
+        coordinate = fact.get("cell")
+        formula = fact.get("formula")
+        before_properties = _workbook_properties(baseline_path)
+        after_properties = _workbook_properties(candidate_path)
+        before_formula = (
+            baseline[sheet_name][coordinate]
+            if isinstance(sheet_name, str)
+            and isinstance(coordinate, str)
+            and sheet_name in baseline.sheetnames
+            else None
+        )
+        after_formula = (
+            candidate[sheet_name][coordinate]
+            if isinstance(sheet_name, str)
+            and isinstance(coordinate, str)
+            and sheet_name in candidate.sheetnames
+            else None
+        )
+        before_without_policy = (
+            {key: value for key, value in before_properties.items() if key != "updateLinks"}
+            if before_properties is not None
+            else None
+        )
+        after_without_policy = (
+            {key: value for key, value in after_properties.items() if key != "updateLinks"}
+            if after_properties is not None
+            else None
+        )
+        _assert(
+            isinstance(sheet_name, str)
+            and isinstance(coordinate, str)
+            and isinstance(formula, str)
+            and "[" in formula
+            and before_formula is not None
+            and after_formula is not None
+            and _cell_kind(before_formula) == "formula"
+            and _cell_kind(after_formula) == "formula"
+            and before_formula.value == formula
+            and after_formula.value == formula
+            and fact.get("baseline_update_links") == "never"
+            and fact.get("candidate_update_links") == "always"
+            and before_properties is not None
+            and after_properties is not None
+            and before_properties.get("updateLinks") == fact.get("baseline_update_links")
+            and after_properties.get("updateLinks") == fact.get("candidate_update_links")
+            and before_without_policy == after_without_policy,
+            f"{truth['id']}: expected unchanged {sheet_name}!{coordinate} external formula and workbook updateLinks never -> always only",
             errors,
         )
         return

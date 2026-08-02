@@ -38,6 +38,7 @@ _PACKAGE_RELATIONSHIPS_NS = "http://schemas.openxmlformats.org/package/2006/rela
 _DOCUMENT_RELATIONSHIPS_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 _CONTENT_TYPES_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
 _DYNAMIC_ARRAY_NS = "http://schemas.microsoft.com/office/spreadsheetml/2017/dynamicarray"
+_EXTERNAL_WORKBOOK_LINK_FORMULA = "='[WCABSource.xlsx]Inputs'!$B$2"
 
 
 def _configure_workbook(workbook: Workbook, *, title: str) -> None:
@@ -406,6 +407,27 @@ def _external_data_refresh_workbook() -> Workbook:
     return workbook
 
 
+def _external_workbook_link_policy_workbook() -> Workbook:
+    """Build a workbook with one unchanged, synthetic external-link formula.
+
+    The source workbook intentionally does not exist. The paired case changes
+    only the raw workbook-open policy, so neither generation nor validation
+    can resolve the link, execute its formula, or claim a saved result.
+    """
+
+    workbook = Workbook()
+    _configure_workbook(workbook, title="WCAB external workbook link policy fixture")
+    model = workbook.active
+    model.title = "LinkedModel"
+    model["A1"] = "Synthetic external workbook driver"
+    model["B2"] = _EXTERNAL_WORKBOOK_LINK_FORMULA
+
+    dashboard = workbook.create_sheet("Dashboard")
+    dashboard["A1"] = "Board output"
+    dashboard["B4"] = "=LinkedModel!$B$2"
+    return workbook
+
+
 def _array_formula_semantics_workbook() -> Workbook:
     """Build a fixed legacy CSE array with a direct downstream consumer.
 
@@ -551,6 +573,33 @@ def _add_external_data_connection(path: Path, *, refresh_on_load: bool) -> None:
             {"url": "https://example.invalid/wcab-external-data-refresh"},
         )
         members["xl/connections.xml"] = serialize(connections)
+
+    _rewrite_xlsx_parts(path, mutate)
+
+
+def _set_external_workbook_link_update_policy(path: Path, *, update_links: str) -> None:
+    """Set the stored workbook-open policy for external-workbook links.
+
+    ``workbookPr/@updateLinks`` is distinct from the relationship-backed
+    connection control used by the earlier external-data case. The allowed
+    values here deliberately make the generated transition unambiguous:
+    never update linked workbooks at open versus always update them at open.
+    """
+
+    if update_links not in {"never", "always"}:
+        raise ValueError(f"unsupported external-workbook update policy {update_links!r}")
+
+    def mutate(members: dict[str, bytes]) -> None:
+        workbook = ElementTree.fromstring(members["xl/workbook.xml"])
+        properties_tag = f"{{{_SPREADSHEETML_NS}}}workbookPr"
+        properties = workbook.find(properties_tag)
+        if properties is None:
+            properties = ElementTree.Element(properties_tag)
+            workbook.insert(0, properties)
+        properties.set("updateLinks", update_links)
+        members["xl/workbook.xml"] = ElementTree.tostring(
+            workbook, encoding="utf-8", xml_declaration=True
+        )
 
     _rewrite_xlsx_parts(path, mutate)
 
@@ -910,6 +959,49 @@ def _build_governance_external_data_refresh(root: Path) -> None:
     )
 
 
+def _build_governance_external_workbook_link_update_policy(root: Path) -> None:
+    """Build a pair differing only in the global external-link open policy."""
+
+    directory = root / "governance" / "external_workbook_link_update_on_open"
+    directory.mkdir(parents=True, exist_ok=True)
+    baseline = directory / "baseline.xlsx"
+    candidate = directory / "candidate.xlsx"
+    _save_workbook(_external_workbook_link_policy_workbook(), baseline)
+    _save_workbook(_external_workbook_link_policy_workbook(), candidate)
+    _set_external_workbook_link_update_policy(baseline, update_links="never")
+    _set_external_workbook_link_update_policy(candidate, update_links="always")
+    _write_json(
+        directory / "truth.json",
+        _truth(
+            case_id="governance.external_workbook_link_update_on_open",
+            title="An external-workbook link switches from never to always updating on open",
+            family="governance",
+            review_expectation="block",
+            facts=[
+                {
+                    "kind": "external_workbook_link_update_policy_changed",
+                    "sheet": "LinkedModel",
+                    "cell": "B2",
+                    "formula": _EXTERNAL_WORKBOOK_LINK_FORMULA,
+                    "baseline_update_links": "never",
+                    "candidate_update_links": "always",
+                }
+            ],
+            must_reach=[
+                {
+                    "source": {"sheet": "LinkedModel", "cell": "B2"},
+                    "targets": [{"sheet": "Dashboard", "cell": "B4"}],
+                }
+            ],
+            coverage=[
+                "The external workbook name is synthetic and absent; the benchmark never opens, resolves, refreshes, or authenticates to it.",
+                "The observed contract is only workbookPr/@updateLinks. It does not establish source reachability, trust, changed source data, a returned value, or recalculation success.",
+                "The external-link formula and its local downstream reference remain unchanged; the validator compares stored XML and formula text without executing either formula.",
+            ],
+        ),
+    )
+
+
 def _build_structural_array_formula_mode(root: Path) -> None:
     """Build a legacy-CSE to dynamic-array transition without formula text churn."""
 
@@ -1214,6 +1306,7 @@ _BUILDERS: tuple[Callable[[Path], None], ...] = (
     _build_governance_manual_calculation,
     _build_governance_static_cycle,
     _build_governance_external_data_refresh,
+    _build_governance_external_workbook_link_update_policy,
     _build_structural_array_formula_mode,
     _build_structural_three_d_scope,
     _build_structural_formula_rewrite,
@@ -1238,6 +1331,7 @@ CASE_IDS = (
     "governance.manual_calculation_incomplete",
     "governance.static_cycle_introduced",
     "governance.external_data_refresh_on_open",
+    "governance.external_workbook_link_update_on_open",
     "structural.array_formula_mode_changed",
     "structural.three_d_scope_expansion",
     "structural.formula_rewrite_after_column_insert",

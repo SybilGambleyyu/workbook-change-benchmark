@@ -8,9 +8,10 @@ Version 3 adds `coverage_expectations`: machine-matchable disclosures for
 important analysis boundaries. WCAB 0.5 extends that same stable envelope with
 cases where an unchanged `INDIRECT` or `OFFSET` formula receives a changed
 selector, WCAB 0.6 adds a relationship-backed external-data refresh-on-open
-fact, and WCAB 0.7 adds an unchanged anchor formula that moves from fixed
-legacy-CSE to dynamic-array semantics. Version 2 remains available in the
-immutable v0.2.0 and v0.3.0 releases.
+fact, WCAB 0.7 adds an unchanged anchor formula that moves from fixed
+legacy-CSE to dynamic-array semantics, and WCAB 0.8 adds an unchanged
+external-workbook formula whose stored open-time link-update policy changes.
+Version 2 remains available in the immutable v0.2.0 and v0.3.0 releases.
 
 ```json
 {
@@ -49,6 +50,7 @@ Facts are observed directly from the fixture files by `wcab validate`.
 | `formula_cell_unlocked` | `sheet`, `cell` | A formula cell is explicitly unlocked while its sheet remains protected. |
 | `manual_calculation_incomplete` | none | Candidate calculation metadata is `manual` and records incomplete calculation. |
 | `external_data_connection_refresh_on_load_changed` | `connection_id`, `baseline_refresh_on_load`, `candidate_refresh_on_load` | The relationship-backed connection with this workbook-local ID explicitly changes `refreshOnLoad` from `false` to `true`. The validator reads raw OOXML only. |
+| `external_workbook_link_update_policy_changed` | `sheet`, `cell`, `formula`, `baseline_update_links`, `candidate_update_links` | The declared external-workbook formula remains unchanged while raw `workbookPr/@updateLinks` changes exactly from `never` to `always`; all other stored `workbookPr` attributes are unchanged. The validator does not resolve the source workbook. |
 | `array_formula_mode_changed` | `sheet`, `cell`, `formula`, `baseline_mode`, `candidate_mode`, `baseline_output_range`, `candidate_output_range` | The declared unchanged array anchor moves from `legacy_cse` to `dynamic`, with its stored formula text and output range exactly as declared. The validator reads the raw OOXML cell-metadata binding. |
 | `static_cycle_introduced` | `cells` | Every declared direct A1 cell reaches itself in the local static dependency graph. |
 | `three_d_scope_changed` | `formula_sheet`, `formula_cell`, `inserted_sheet`, `after_sheet`, `before_sheet` | Formula text remains unchanged while a sheet is inserted inside the declared tab span. |
@@ -77,6 +79,23 @@ part. It does not open a connection, test credentials or Trust Center policy,
 retrieve data, calculate formulas, or infer a downstream result. Connection
 paths, URLs, names, commands, and credentials are deliberately not truth
 fields.
+
+## External-workbook link update policy
+
+Open XML defines [`workbookPr/@updateLinks`](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.spreadsheet.workbookproperties?view=openxml-3.0.1)
+as the behavior for updating external links when the workbook opens. This is a
+workbook-wide control, distinct from the connection-level `refreshOnLoad`
+attribute described above. Microsoft also documents the user-facing external
+workbook-link startup choices in its
+[workbook-link guidance](https://support.microsoft.com/en-us/excel/manage-workbook-links).
+
+WCAB's policy case keeps `LinkedModel!B2` and its local `Dashboard!B4`
+consumer unchanged while changing the explicit stored policy from `never` to
+`always`. `WCABSource.xlsx` is synthetic and absent by design. The raw validator
+requires the exact policy values, matching formula text, and equal non-policy
+`workbookPr` attributes. It does not open, resolve, authenticate to, trust,
+refresh, or calculate the external source, and it does not claim an updated
+cached result or a successful workbook recalculation.
 
 ## Array-formula mode
 

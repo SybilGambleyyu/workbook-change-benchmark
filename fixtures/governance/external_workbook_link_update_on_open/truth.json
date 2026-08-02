@@ -1,0 +1,38 @@
+{
+  "coverage": [
+    "The external workbook name is synthetic and absent; the benchmark never opens, resolves, refreshes, or authenticates to it.",
+    "The observed contract is only workbookPr/@updateLinks. It does not establish source reachability, trust, changed source data, a returned value, or recalculation success.",
+    "The external-link formula and its local downstream reference remain unchanged; the validator compares stored XML and formula text without executing either formula."
+  ],
+  "coverage_expectations": [],
+  "facts": [
+    {
+      "baseline_update_links": "never",
+      "candidate_update_links": "always",
+      "cell": "B2",
+      "formula": "='[WCABSource.xlsx]Inputs'!$B$2",
+      "kind": "external_workbook_link_update_policy_changed",
+      "sheet": "LinkedModel"
+    }
+  ],
+  "family": "governance",
+  "id": "governance.external_workbook_link_update_on_open",
+  "must_reach": [
+    {
+      "source": {
+        "cell": "B2",
+        "sheet": "LinkedModel"
+      },
+      "targets": [
+        {
+          "cell": "B4",
+          "sheet": "Dashboard"
+        }
+      ]
+    }
+  ],
+  "review_expectation": "block",
+  "schema_version": 3,
+  "title": "An external-workbook link switches from never to always updating on open",
+  "topology": "pair"
+}

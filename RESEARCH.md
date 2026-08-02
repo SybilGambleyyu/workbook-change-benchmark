@@ -53,6 +53,24 @@ formula can remain unchanged while the Table's stored range grows. WCAB schema
 version 2 therefore adds a generated Table-expansion case that checks those
 observable facts without evaluating a formula or asserting a result value.
 
+## External-workbook link startup policy
+
+Microsoft's [workbook-link guidance](https://support.microsoft.com/en-us/excel/manage-workbook-links)
+documents startup choices for external workbook links, including always
+refreshing them, never refreshing them, and asking the user. The Open XML
+[`workbookPr` specification](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.spreadsheet.workbookproperties?view=openxml-3.0.1)
+identifies `updateLinks` as the stored behavior for updating external links
+when a workbook opens. This is distinct from a query, connection, or pivot
+refresh switch: an unchanged formula that refers to a separate workbook can
+start attempting an update solely because this workbook-wide policy changes.
+
+WCAB 0.8 therefore preserves one original synthetic external-link formula and
+its local downstream consumer while changing only `workbookPr/@updateLinks`
+from `never` to `always`. The named source workbook is deliberately absent;
+the validator reads local OOXML and formula text only. It does not resolve the
+link, test source availability or trust, retrieve a value, or claim that Excel
+successfully recalculates the workbook.
+
 ## Array-formula semantics
 
 Microsoft's [dynamic-array versus legacy-CSE guidance](https://support.microsoft.com/en-US/Excel/dynamic-array-formulas-vs-legacy-cse-array-formulas)

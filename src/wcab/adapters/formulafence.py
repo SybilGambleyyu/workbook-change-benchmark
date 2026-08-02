@@ -39,6 +39,10 @@ _FACT_TO_CHANGE: dict[str, tuple[str, str | None]] = {
         "external_data_connections_changed",
         None,
     ),
+    "external_workbook_link_update_policy_changed": (
+        "external_data_refresh_settings_changed",
+        None,
+    ),
     "static_cycle_introduced": ("formula_changed", None),
     "three_d_scope_changed": ("three_d_reference_scope_changed", "formula_location"),
     "structured_table_scope_changed": ("table_definition_changed", None),
@@ -222,6 +226,30 @@ def _external_data_connection_refresh_on_load_observed(
     )
 
 
+def _external_workbook_link_update_policy_observed(
+    change: dict[str, Any], fact: dict[str, Any]
+) -> bool:
+    """Require FormulaFence's exact global external-link policy transition."""
+
+    if change.get("kind") != "external_data_refresh_settings_changed":
+        return False
+    before_update_links = fact.get("baseline_update_links")
+    after_update_links = fact.get("candidate_update_links")
+    if before_update_links != "never" or after_update_links != "always":
+        return False
+    details = change.get("details")
+    if not isinstance(details, dict):
+        return False
+    expected_before = {
+        "update_links": before_update_links,
+        "allow_refresh_query": False,
+        "refresh_all_connections": False,
+        "save_external_link_values": True,
+    }
+    expected_after = {**expected_before, "update_links": after_update_links}
+    return details.get("before") == expected_before and details.get("after") == expected_after
+
+
 def _array_formula_mode_observed(change: dict[str, Any], fact: dict[str, Any]) -> bool:
     """Require FormulaFence to identify this exact CSE-to-dynamic transition."""
 
@@ -360,6 +388,12 @@ def evaluate_diff_case(case_dir: str | Path, *, executable: str = "formulafence"
         if kind == "external_data_connection_refresh_on_load_changed":
             observed = any(
                 _external_data_connection_refresh_on_load_observed(change, fact)
+                for change in changes
+                if isinstance(change, dict)
+            )
+        if kind == "external_workbook_link_update_policy_changed":
+            observed = any(
+                _external_workbook_link_update_policy_observed(change, fact)
                 for change in changes
                 if isinstance(change, dict)
             )

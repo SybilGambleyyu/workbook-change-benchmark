@@ -180,7 +180,10 @@ native `value_changed` record and the candidate profile's
 `dynamic_reference_cells` feature. For the external-data refresh case, it
 requires FormulaFence's `external_data_connections_changed` details to contain
 the exact connection ID and `refresh_on_load` false-to-true transition; the
-stored control is a fact, not a coverage declaration. For the array-mode case,
+stored control is a fact, not a coverage declaration. For the external-workbook
+link policy case, it requires the exact `external_data_refresh_settings_changed`
+details: `update_links` moves from `never` to `always`, while the three other
+workbook-wide refresh controls retain their defaults. For the array-mode case,
 it requires `array_formula_mode_changed` at the exact anchor with the declared
 legacy-CSE and dynamic modes plus the declared output range; a generic array
 change is not enough. The adapter leaves `review` as `null`: FormulaFence

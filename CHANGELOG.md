@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.8.0 — 2026-08-02
+
+- Add a deterministic external-workbook link startup-policy case. Its synthetic
+  external formula and downstream local reference stay unchanged while
+  `workbookPr/@updateLinks` changes from `never` to `always`.
+- Add the exact `external_workbook_link_update_policy_changed` fact, raw-OOXML
+  validator, and corruption regression coverage. The source workbook is absent
+  by design; WCAB does not resolve, refresh, authenticate to, or calculate it.
+- Extend the optional FormulaFence adapter to require the exact isolated
+  `FF023` external-link policy transition, rejecting a report that combines it
+  with another workbook-wide refresh-control change.
+
 ## 0.7.0 — 2026-08-02
 
 - Add a deterministic legacy-CSE to dynamic-array formula-mode case. The
