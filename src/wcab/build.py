@@ -176,6 +176,10 @@ _IGNORED_ERROR_SUPPRESSION_ADJACENT_CELL = "B4"
 _IGNORED_ERROR_SUPPRESSION_ADJACENT_VALUE = 30
 _IGNORED_ERROR_SUPPRESSION_DOWNSTREAM_CELL = "C5"
 _IGNORED_ERROR_SUPPRESSION_DOWNSTREAM_FORMULA = "=B5"
+_WORKBOOK_STRUCTURE_PROTECTION_INPUT_SHEET = "Inputs"
+_WORKBOOK_STRUCTURE_PROTECTION_HIDDEN_SHEET = "ReviewControls"
+_WORKBOOK_STRUCTURE_PROTECTION_FORMULA_CELL = "D2"
+_WORKBOOK_STRUCTURE_PROTECTION_FORMULA = "=B2*C2"
 _CHART_SERIES_SOURCE_SHEET = "Source"
 _CHART_SERIES_DASHBOARD_SHEET = "Dashboard"
 _CHART_SERIES_ANCHOR = "D2"
@@ -562,6 +566,30 @@ def _governance_workbook() -> Workbook:
     hidden = workbook.create_sheet("ReviewControls")
     hidden.sheet_state = "hidden"
     hidden["A1"] = "Internal review notes"
+    return workbook
+
+
+def _workbook_structure_protection_workbook() -> Workbook:
+    """Build a structural-lock fixture without workbook encryption.
+
+    The pair intentionally retains a hidden review-control sheet and one small
+    formula context.  Only the raw workbook-level ``lockStructure`` control
+    will change, so the case records a structural-governance change without
+    asserting a password, authorization, or client-side action outcome.
+    """
+
+    workbook = Workbook()
+    _configure_workbook(workbook, title="WCAB workbook-structure protection fixture")
+    inputs = workbook.active
+    inputs.title = _WORKBOOK_STRUCTURE_PROTECTION_INPUT_SHEET
+    inputs["A1"] = "Approved estimate"
+    inputs["B2"] = 12
+    inputs["C2"] = 5
+    inputs[_WORKBOOK_STRUCTURE_PROTECTION_FORMULA_CELL] = _WORKBOOK_STRUCTURE_PROTECTION_FORMULA
+    review_controls = workbook.create_sheet(_WORKBOOK_STRUCTURE_PROTECTION_HIDDEN_SHEET)
+    review_controls.sheet_state = "hidden"
+    review_controls["A1"] = "Internal review notes"
+    workbook.security.lockStructure = True
     return workbook
 
 
@@ -2729,6 +2757,39 @@ def _build_governance_protection(root: Path) -> None:
     _write_pair(root / "governance" / "formula_cell_unlocked", _governance_workbook, mutate, truth)
 
 
+def _build_governance_workbook_structure_protection(root: Path) -> None:
+    def mutate(workbook: Workbook) -> None:
+        workbook.security.lockStructure = False
+
+    truth = _truth(
+        case_id="governance.workbook_structure_lock_removed",
+        title="A workbook structure lock is disabled",
+        family="governance",
+        review_expectation="block",
+        facts=[
+            {
+                "kind": "workbook_structure_lock_removed",
+                "baseline_lock_structure": True,
+                "candidate_lock_structure": False,
+                "hidden_sheet": _WORKBOOK_STRUCTURE_PROTECTION_HIDDEN_SHEET,
+                "hidden_sheet_state": "hidden",
+                "formula_sheet": _WORKBOOK_STRUCTURE_PROTECTION_INPUT_SHEET,
+                "formula_cell": _WORKBOOK_STRUCTURE_PROTECTION_FORMULA_CELL,
+                "formula": _WORKBOOK_STRUCTURE_PROTECTION_FORMULA,
+            }
+        ],
+        coverage=[
+            "This is a stored workbook-structure control assertion, not a password, encryption, authorization, or client-action test."
+        ],
+    )
+    _write_pair(
+        root / "governance" / "workbook_structure_lock_removed",
+        _workbook_structure_protection_workbook,
+        mutate,
+        truth,
+    )
+
+
 def _build_governance_manual_calculation(root: Path) -> None:
     def mutate(workbook: Workbook) -> None:
         workbook.calculation.calcMode = "manual"
@@ -3768,6 +3829,7 @@ _BUILDERS: tuple[Callable[[Path], None], ...] = (
     _build_operations_auto_filter_criteria,
     _build_governance_visibility,
     _build_governance_protection,
+    _build_governance_workbook_structure_protection,
     _build_governance_manual_calculation,
     _build_governance_iterative_calculation,
     _build_governance_precision_as_displayed,
@@ -3809,6 +3871,7 @@ CASE_IDS = (
     "operations.auto_filter_criteria_changed",
     "governance.hidden_sheet_revealed",
     "governance.formula_cell_unlocked",
+    "governance.workbook_structure_lock_removed",
     "governance.manual_calculation_incomplete",
     "governance.iterative_calculation_enabled",
     "governance.precision_as_displayed_enabled",

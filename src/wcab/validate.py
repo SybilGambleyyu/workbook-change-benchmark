@@ -1773,6 +1773,42 @@ def _workbook_without_date_system_controls(path: Path) -> bytes | None:
     return ElementTree.tostring(workbook, encoding="utf-8", xml_declaration=True)
 
 
+def _workbook_structure_protection_state(
+    path: Path,
+) -> tuple[bool, tuple[tuple[str, str], ...]] | None:
+    """Read WCAB's explicit workbook-structure lock and its compact attributes."""
+
+    try:
+        with ZipFile(path) as archive:
+            workbook = ElementTree.fromstring(archive.read("xl/workbook.xml"))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    protection = workbook.find(f"{{{_SPREADSHEETML_NS}}}workbookProtection")
+    if protection is None:
+        return None
+    lock_structure = _ooxml_boolean(protection.get("lockStructure"))
+    return (
+        (lock_structure, tuple(sorted(protection.attrib.items())))
+        if lock_structure is not None
+        else None
+    )
+
+
+def _workbook_without_structure_lock(path: Path) -> bytes | None:
+    """Return raw workbook XML with only WCAB's ``lockStructure`` control removed."""
+
+    try:
+        with ZipFile(path) as archive:
+            workbook = ElementTree.fromstring(archive.read("xl/workbook.xml"))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    protection = workbook.find(f"{{{_SPREADSHEETML_NS}}}workbookProtection")
+    if protection is None or "lockStructure" not in protection.attrib:
+        return None
+    protection.attrib.pop("lockStructure")
+    return ElementTree.tostring(workbook, encoding="utf-8", xml_declaration=True)
+
+
 def _xlsx_member_differences(baseline_path: Path, candidate_path: Path) -> set[str] | None:
     """Return changed member names when two small fixture archives align."""
 
@@ -2071,6 +2107,55 @@ def _validate_fact(
                 f"{truth['id']}: expected protected formula {sheet_name}!{coordinate} to be explicitly unlocked",
                 errors,
             )
+        return
+
+    if kind == "workbook_structure_lock_removed":
+        hidden_sheet = fact.get("hidden_sheet")
+        hidden_sheet_state = fact.get("hidden_sheet_state")
+        formula_sheet = fact.get("formula_sheet")
+        formula_cell = fact.get("formula_cell")
+        formula = fact.get("formula")
+        before_structure_state = _workbook_structure_protection_state(baseline_path)
+        after_structure_state = _workbook_structure_protection_state(candidate_path)
+        before_formula = (
+            _raw_cell_state(baseline_path, formula_sheet, formula_cell)
+            if isinstance(formula_sheet, str) and isinstance(formula_cell, str)
+            else None
+        )
+        after_formula = (
+            _raw_cell_state(candidate_path, formula_sheet, formula_cell)
+            if isinstance(formula_sheet, str) and isinstance(formula_cell, str)
+            else None
+        )
+        _assert(
+            fact.get("baseline_lock_structure") is True
+            and fact.get("candidate_lock_structure") is False
+            and hidden_sheet == "ReviewControls"
+            and hidden_sheet_state == "hidden"
+            and formula_sheet == "Inputs"
+            and formula_cell == "D2"
+            and formula == "=B2*C2"
+            and hidden_sheet in baseline.sheetnames
+            and hidden_sheet in candidate.sheetnames
+            and formula_sheet in baseline.sheetnames
+            and formula_sheet in candidate.sheetnames
+            and before_structure_state == (True, (("lockStructure", "1"),))
+            and after_structure_state == (False, (("lockStructure", "0"),))
+            and bool(baseline.security.lockStructure)
+            and not bool(candidate.security.lockStructure)
+            and baseline[hidden_sheet].sheet_state == hidden_sheet_state
+            and candidate[hidden_sheet].sheet_state == hidden_sheet_state
+            and before_formula is not None
+            and after_formula is not None
+            and before_formula == after_formula
+            and before_formula[3] == formula
+            and _workbook_without_structure_lock(baseline_path)
+            == _workbook_without_structure_lock(candidate_path)
+            and _xlsx_member_differences(baseline_path, candidate_path) == {"xl/workbook.xml"}
+            and _calculation_properties(baseline_path) == _calculation_properties(candidate_path),
+            f"{truth['id']}: expected only workbookProtection lockStructure true -> false with stable hidden-sheet and formula context",
+            errors,
+        )
         return
 
     if kind == "defined_name_changed":

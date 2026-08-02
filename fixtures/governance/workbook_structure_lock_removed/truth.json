@@ -1,0 +1,25 @@
+{
+  "coverage": [
+    "This is a stored workbook-structure control assertion, not a password, encryption, authorization, or client-action test."
+  ],
+  "coverage_expectations": [],
+  "facts": [
+    {
+      "baseline_lock_structure": true,
+      "candidate_lock_structure": false,
+      "formula": "=B2*C2",
+      "formula_cell": "D2",
+      "formula_sheet": "Inputs",
+      "hidden_sheet": "ReviewControls",
+      "hidden_sheet_state": "hidden",
+      "kind": "workbook_structure_lock_removed"
+    }
+  ],
+  "family": "governance",
+  "id": "governance.workbook_structure_lock_removed",
+  "must_reach": [],
+  "review_expectation": "block",
+  "schema_version": 3,
+  "title": "A workbook structure lock is disabled",
+  "topology": "pair"
+}

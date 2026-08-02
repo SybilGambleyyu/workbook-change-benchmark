@@ -277,8 +277,16 @@ raw validator—not the adapter—then establishes the generated `Operations!B5`
 target, `formulaRange=1` flag, stable cells/formulas, and worksheet-only
 package change. Neither report determines whether Excel would show a warning,
 evaluates a formula, renders an indicator, or claims client behavior. For the
-chart-series case, it requires
-one exact `chart_definitions_changed` record and matching
+workbook-structure case, it requires one exact `workbook_protection_changed`
+record and matching `FF022`: FormulaFence's non-secret before profile must have
+only `lock_structure=true`, while the after profile has all three workbook
+locks false and neither side reports a credential or opaque metadata. WCAB's
+raw validator—not the adapter—then establishes the generated
+`workbookProtection/@lockStructure` `1`-to-`0` transition, stable hidden-sheet
+and formula context, and workbook-XML-only package change. Neither report
+tests a password, encryption, authentication, authorization, or client action.
+For the chart-series case, it requires one exact
+`chart_definitions_changed` record and matching
 `FF030`: FormulaFence's redacted profile must retain one host sheet, one
 drawing, one legacy chart, one series, three data references, no chart cache,
 and no related payloads while only `chart_definition_material_changed` is set.

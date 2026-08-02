@@ -38,7 +38,9 @@ number-format transition with unchanged target style index, raw numeric value,
 formula context, calculation properties, and every package member except
 `styles.xml`. WCAB 0.24 adds a worksheet-local ignored-error rule with
 unchanged ordinary cells, formula context, calculation properties, and every
-package member except its worksheet XML.
+package member except its worksheet XML. WCAB 0.25 adds a raw workbook
+structure-lock transition with unchanged hidden-sheet/formula context and every
+package member except `xl/workbook.xml`.
 Version 2 remains
 available in the immutable v0.2.0 and v0.3.0 releases.
 
@@ -82,6 +84,7 @@ Facts are observed directly from the fixture files by `wcab validate`.
 | `auto_filter_criteria_changed` | `sheet`, `filter_ref`, `filter_column_id`, `baseline_filter_value`, `candidate_filter_value`, `subtotal_cell`, `subtotal_formula`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | One raw worksheet AutoFilter list criterion changes while its filter shell, formulas, direct dependency edge, and every package member except the report worksheet remain unchanged. The validator does not apply the filter or calculate a result. |
 | `sheet_visibility_changed` | `sheet`, `baseline_state`, `candidate_state` | The stored sheet state changes. |
 | `formula_cell_unlocked` | `sheet`, `cell` | A formula cell is explicitly unlocked while its sheet remains protected. |
+| `workbook_structure_lock_removed` | `baseline_lock_structure`, `candidate_lock_structure`, `hidden_sheet`, `hidden_sheet_state`, `formula_sheet`, `formula_cell`, `formula` | Raw `workbookProtection/@lockStructure` changes exactly from `true` to `false` while the declared hidden-sheet state, formula, calculation properties, and every package member except `xl/workbook.xml` remain unchanged. The validator does not test a password, encryption, authorization, or client behavior. |
 | `manual_calculation_incomplete` | none | Candidate calculation metadata is `manual` and records incomplete calculation. |
 | `iterative_calculation_enabled` | `sheet`, `cell`, `formula`, `baseline_iterate`, `candidate_iterate`, `iteration_count`, `iteration_delta` | The declared direct self-referencing formula remains unchanged while raw `calcPr/@iterate` changes exactly from `false` to `true`; the explicit count and delta remain the declared values, and all non-iteration calculation attributes are unchanged. The validator does not calculate the model. |
 | `precision_as_displayed_enabled` | `input_sheet`, `input_cell`, `input_value`, `number_format`, `formula_sheet`, `formula_cell`, `formula`, `baseline_full_precision`, `candidate_full_precision` | The declared stored input, number format, and formula remain unchanged while raw `calcPr/@fullPrecision` changes exactly from `true` to `false`; all other `calcPr` attributes are unchanged. The validator does not calculate, open, or save the workbook. |
@@ -175,6 +178,24 @@ that worksheet to be the only changed package member. It does not determine
 whether Excel would show a warning, evaluate the formula, infer a displayed
 indicator, decide whether the warning is warranted, change application-level
 settings, calculate a workbook, or claim Excel-client behavior.
+
+## Workbook-structure protection
+
+Microsoft's [Protect a workbook guidance](https://support.microsoft.com/en-us/office/protect-a-workbook-7e365a4d-3e89-4616-84ca-1931257c1517)
+distinguishes structural protection from file and worksheet protection, and
+states that a protected structure restricts adding, moving, deleting, hiding,
+unhiding, and renaming worksheets. It also makes the password optional. The
+Office Open XML [`workbookProtection` specification](https://learn.microsoft.com/en-us/openspecs/office_standards/ms-oe376/ae53f189-04e6-45e6-acb2-7f61fecabee4)
+defines the stored workbook-level protection element. This makes the raw
+structure control review-material even if ordinary worksheet cells stay fixed.
+
+WCAB 0.25 keeps the hidden `ReviewControls` sheet and
+`Inputs!D2=B2*C2` formula unchanged. Its baseline has exactly
+`workbookProtection/@lockStructure="1"`; the candidate has exactly `"0"`.
+The validator compares raw workbook XML after removing only that attribute and
+requires `xl/workbook.xml` to be the only changed package member. It does not
+test a password, encryption, authentication, authorization, whether a hidden
+sheet is exposed, or whether a particular client enables a sheet operation.
 
 ## Static impact lower bounds
 

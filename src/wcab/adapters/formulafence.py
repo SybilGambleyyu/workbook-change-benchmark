@@ -38,6 +38,7 @@ _FACT_TO_CHANGE: dict[str, tuple[str, str | None]] = {
     "auto_filter_criteria_changed": ("filter_visibility_controls_changed", None),
     "sheet_visibility_changed": ("sheet_visibility_changed", None),
     "formula_cell_unlocked": ("cell_protection_assignments_changed", None),
+    "workbook_structure_lock_removed": ("workbook_protection_changed", None),
     "manual_calculation_incomplete": ("calculation_settings_changed", None),
     "iterative_calculation_enabled": ("calculation_settings_changed", None),
     "precision_as_displayed_enabled": ("calculation_settings_changed", None),
@@ -1079,6 +1080,64 @@ def _ignored_error_formula_range_suppression_finding_observed(
     )
 
 
+def _workbook_structure_lock_removed_details_observed(details: Any, fact: dict[str, Any]) -> bool:
+    """Require FormulaFence's exact workbook-structure protection evidence.
+
+    FormulaFence intentionally omits passwords and verifier material. WCAB's
+    raw validator independently establishes the generated ``lockStructure``
+    transition, stable hidden-sheet context, formula, and package boundary;
+    this adapter requires the exact non-secret profile and FF022.
+    """
+
+    if (
+        fact.get("baseline_lock_structure") is not True
+        or fact.get("candidate_lock_structure") is not False
+        or fact.get("hidden_sheet") != "ReviewControls"
+        or fact.get("hidden_sheet_state") != "hidden"
+        or fact.get("formula_sheet") != "Inputs"
+        or fact.get("formula_cell") != "D2"
+        or fact.get("formula") != "=B2*C2"
+        or not isinstance(details, dict)
+    ):
+        return False
+    credential = {
+        "configured": False,
+        "has_legacy_verifier": False,
+        "has_modern_verifier": False,
+        "algorithm": None,
+        "spin_count": None,
+    }
+    before = {
+        "enabled": True,
+        "lock_structure": True,
+        "lock_windows": False,
+        "lock_revision": False,
+        "workbook_credential": credential,
+        "revisions_credential": credential,
+        "opaque_metadata": {"present": False, "count": 0},
+    }
+    after = {**before, "enabled": False, "lock_structure": False}
+    return details == {"before": before, "after": after}
+
+
+def _workbook_structure_lock_removed_observed(change: dict[str, Any], fact: dict[str, Any]) -> bool:
+    """Match FormulaFence's stored workbook-protection change record."""
+
+    return change.get("kind") == "workbook_protection_changed" and (
+        _workbook_structure_lock_removed_details_observed(change.get("details"), fact)
+    )
+
+
+def _workbook_structure_lock_removed_finding_observed(
+    finding: dict[str, Any], fact: dict[str, Any]
+) -> bool:
+    """Require FormulaFence's matching high-severity protection finding."""
+
+    return finding.get("rule_id") == "FF022" and _workbook_structure_lock_removed_details_observed(
+        finding.get("details"), fact
+    )
+
+
 def _what_if_data_table_input_reference_details_observed(
     details: Any, fact: dict[str, Any]
 ) -> bool:
@@ -1500,6 +1559,16 @@ def evaluate_diff_case(case_dir: str | Path, *, executable: str = "formulafence"
                 if isinstance(change, dict)
             ) and any(
                 _ignored_error_formula_range_suppression_finding_observed(finding, fact)
+                for finding in findings
+                if isinstance(finding, dict)
+            )
+        if kind == "workbook_structure_lock_removed":
+            observed = any(
+                _workbook_structure_lock_removed_observed(change, fact)
+                for change in changes
+                if isinstance(change, dict)
+            ) and any(
+                _workbook_structure_lock_removed_finding_observed(finding, fact)
                 for finding in findings
                 if isinstance(finding, dict)
             )

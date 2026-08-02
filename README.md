@@ -34,11 +34,11 @@ gates, static analyzers, and agent workflows that propose workbook edits.
 
 ## Scope and non-goals
 
-Version `0.24` covers formula-to-value replacements, formula reference drift,
+Version `0.25` covers formula-to-value replacements, formula reference drift,
 value changes with downstream effects, external formula references, named
 ranges, data validation, conditional formatting, sheet visibility, direct cell
-protection, calculation settings, static cycles, portfolio dependencies,
-formula refactors, 3-D-reference scope changes, and Excel Table scope changes
+and workbook-structure protection, calculation settings, static cycles,
+portfolio dependencies, formula refactors, 3-D-reference scope changes, and Excel Table scope changes
 that leave a structured-reference formula textually unchanged. It also covers
 new `INDIRECT` references whose dependency target comes from workbook text,
 unchanged `INDIRECT` and `OFFSET` formulas whose address or displacement driver
@@ -55,6 +55,11 @@ It also covers a workbook-wide 1900-to-1904 date-system control change while
 an explicit compatibility control, a raw numeric serial, its date number
 format, and local formulas remain unchanged. It does not infer an Excel-client
 display or calculate a converted date.
+It also covers a workbook structure lock changing from enabled to disabled
+while a hidden `ReviewControls` sheet and `Inputs!D2=B2*C2` formula remain
+unchanged. It records only raw `workbookProtection/@lockStructure`: it does not
+test a password, encryption, authentication, authorization, or whether a client
+will permit a particular sheet operation.
 It also covers an active worksheet AutoFilter criterion moving from `North` to
 `South` while `Report!D2=SUBTOTAL(109,B2:B5)` and its `Dashboard!B4` consumer
 remain unchanged. It records the stored control only: it does not apply a
@@ -326,6 +331,12 @@ proves the generated `Operations!B5` target, `formulaRange=1` flag, stable
 formula context, and worksheet-only package change. Neither layer determines
 whether Excel would show a warning, evaluates a formula, renders an indicator,
 or claims client behavior.
+For the workbook-structure case, it requires FormulaFence's exact
+`workbook_protection_changed` transition and `FF022`. FormulaFence reports the
+non-secret structure-lock state while omitting verifier material; WCAB's raw
+validator independently proves `lockStructure=1` to `0`, stable hidden-sheet
+and formula context, and the workbook-XML-only package change. Neither layer
+tests a password, encryption, authorization, or Excel-client behavior.
 For the chart-series case, it requires FormulaFence's exact redacted one-chart
 profile, `chart_definition_material_changed`, and `FF030`; FormulaFence does
 not expose the source formula or a visual result. WCAB's raw validator instead

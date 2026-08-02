@@ -399,6 +399,26 @@ changed package member. It does not evaluate the formula, predict an Excel
 warning or indicator, decide whether suppression is justified, change
 application-level error checking, calculate, or claim client behavior.
 
+## Workbook-structure protection can change operational controls without a cell edit
+
+Microsoft's [Protect a workbook guidance](https://support.microsoft.com/en-us/office/protect-a-workbook-7e365a4d-3e89-4616-84ca-1931257c1517)
+states that protecting workbook structure controls adding, moving, deleting,
+hiding, unhiding, and renaming worksheets, and distinguishes that control from
+file and worksheet protection. Its password is optional. The Office Open XML
+[`workbookProtection` specification](https://learn.microsoft.com/en-us/openspecs/office_standards/ms-oe376/ae53f189-04e6-45e6-acb2-7f61fecabee4)
+identifies the stored workbook-level protection element. Those sources motivate
+a narrow review case for a governance setting that ordinary cell diffs can
+miss, without mistaking it for encryption or access control.
+
+WCAB 0.25 keeps a hidden `ReviewControls` sheet and
+`Inputs!D2=B2*C2` formula fixed while its raw
+`workbookProtection/@lockStructure` moves exactly from `1` to `0`. The
+validator strips only that attribute when comparing `xl/workbook.xml`, requires
+that member to be the sole package difference, and checks the stable hidden
+sheet and formula context. It does not test a password, encryption,
+authentication, authorization, whether a hidden sheet becomes exposed, or an
+Excel client's sheet-operation behavior.
+
 ## Chart series sources without a worksheet edit
 
 Microsoft's [chart-series guidance](https://support.microsoft.com/en-US/Excel/rename-a-data-series)

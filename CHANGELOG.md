@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.25.0 — 2026-08-03
+
+- Add a deterministic workbook-structure-protection case. It retains a hidden
+  `ReviewControls` sheet and `Inputs!D2=B2*C2` formula while raw
+  `workbookProtection/@lockStructure` moves from `1` to `0`; every package
+  member except `xl/workbook.xml` remains unchanged.
+- Add the exact `workbook_structure_lock_removed` fact, a narrow raw
+  workbook-protection validator, workbook-XML-only package isolation check,
+  and corruption regressions. WCAB records a stored operational control only:
+  it does not test a password, encryption, authentication, authorization, or
+  Excel-client sheet-operation behavior.
+- Extend the optional FormulaFence adapter to require the exact non-secret
+  `workbook_protection_changed` transition and high-severity `FF022`, while
+  WCAB independently proves the raw control, stable hidden-sheet/formula
+  context, and package boundary.
+
 ## 0.24.0 — 2026-08-03
 
 - Add a deterministic stored Excel error-checking suppression case. Its

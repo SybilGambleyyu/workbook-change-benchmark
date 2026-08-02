@@ -1,6 +1,6 @@
 # Validation record
 
-This record describes the WCAB 0.24.0 / schema-version-3 validation run on
+This record describes the WCAB 0.25.0 / schema-version-3 validation run on
 2026-08-03. It is reproducible from this repository; no network service or
 private workbook is required.
 
@@ -32,16 +32,16 @@ wcab validate --fixtures fixtures
 
 Results:
 
-- 39 cases: 38 paired-workbook cases and one directory portfolio case.
-- 41 observable truth facts across 31 `block` and eight `review` cases.
+- 40 cases: 39 paired-workbook cases and one directory portfolio case.
+- 42 observable truth facts across 32 `block` and eight `review` cases.
 - Three scoreable coverage expectations: one newly introduced `INDIRECT`
   boundary and two unchanged-formula selector changes (`INDIRECT` address text
   and `OFFSET` column displacement).
-- 120 generated fixture files: 80 workbooks, 39 truth manifests, and one JSONL
+- 123 generated fixture files: 82 workbooks, 40 truth manifests, and one JSONL
   case catalogue, all generated from source.
-- One hundred fifty unit tests passed locally under Python 3.13, including
+- One hundred fifty-seven unit tests passed locally under Python 3.13, including
   independent regeneration and byte-for-byte fixture-tree equality.
-- The fixture validator accepted all 39 cases.
+- The fixture validator accepted all 40 cases.
 - The external-data pair has identical package members except for
   `xl/connections.xml`; both archives pass ZIP integrity checks and remain
   readable by openpyxl. Its relationship-backed source is a non-routable
@@ -130,6 +130,14 @@ Results:
   removing only that declaration. It does not determine whether Excel would
   show a warning, evaluate the formula, render an indicator, decide whether the
   warning is justified, calculate a workbook, or claim client behavior.
+- The workbook-structure-protection pair has identical package members except
+  for `xl/workbook.xml`; both archives pass ZIP integrity checks and remain
+  readable by openpyxl. Its hidden `ReviewControls` sheet and
+  `Inputs!D2=B2*C2` formula remain unchanged while raw
+  `workbookProtection/@lockStructure` moves from `1` to `0`. The validator
+  compares the workbook XML after removing only that attribute. It did not test
+  a password, encryption, authentication, authorization, exposure of a hidden
+  sheet, or a particular Excel client's sheet-operation behavior.
 - The chart-series pair has identical package members except for
   `xl/charts/chart1.xml`; both archives pass ZIP integrity checks and remain
   readable by openpyxl. Its `Dashboard!D2` anchor, title/category references,
@@ -183,7 +191,7 @@ Results:
 
 ## Distribution supplement
 
-The 0.24.0 release retains the one-row-per-case `manifest.jsonl` catalogue and
+The 0.25.0 release retains the one-row-per-case `manifest.jsonl` catalogue and
 the tool-neutral observation protocol at version 2. Each catalogue row retains
 the schema-version-3 truth contract and includes byte counts and SHA-256
 digests for the workbooks it names.
@@ -191,11 +199,11 @@ digests for the workbooks it names.
 Commands:
 
 ```bash
-python -m build --outdir /tmp/wcab-v024-dist
-twine check /tmp/wcab-v024-dist/*
+python -m build --outdir /tmp/wcab-v025-dist
+twine check /tmp/wcab-v025-dist/*
 python -m venv /tmp/wcab-wheel-test
 /tmp/wcab-wheel-test/bin/python -m pip install \
-  /tmp/wcab-v024-dist/workbook_change_benchmark-0.24.0-py3-none-any.whl
+  /tmp/wcab-v025-dist/workbook_change_benchmark-0.25.0-py3-none-any.whl
 /tmp/wcab-wheel-test/bin/wcab validate --fixtures fixtures
 /tmp/wcab-wheel-test/bin/wcab manifest --fixtures fixtures --output /tmp/manifest.jsonl
 cmp fixtures/manifest.jsonl /tmp/manifest.jsonl
@@ -212,14 +220,14 @@ Results:
   their uploaded assets in the GitHub release, avoiding a self-referential
   source-distribution checksum in this record.
 - Fresh Python 3.13 wheel and source-distribution installations both reported
-  version 0.24.0 and validated all 39 fixtures; the wheel emitted
+  version 0.25.0 and validated all 40 fixtures; the wheel emitted
   byte-identical JSONL output.
-- The full 150-test suite, lint, and format checks passed locally under Python
+- The full 157-test suite, lint, and format checks passed locally under Python
   3.13.
 - The generated unsupported template scored as zero analyzed coverage, zero
   expected-fact recall, and zero coverage-disclosure recall, confirming that
   unsupported cases cannot become a pass.
-- The FormulaFence normalizer emitted 40 matched facts, one intentionally
+- The FormulaFence normalizer emitted 41 matched facts, one intentionally
   unmapped fact, three matched coverage declarations, and no invented review
   disposition.
 
@@ -234,9 +242,9 @@ wcab formulafence --fixtures fixtures --strict
 
 Results:
 
-- All 40 currently mappable diff/portfolio facts were observed.
+- All 41 currently mappable diff/portfolio facts were observed.
 - All three mappable coverage expectations were matched; no mapped fact,
-  coverage expectation, or targeted lint rule was missed across all 39 cases.
+  coverage expectation, or targeted lint rule was missed across all 40 cases.
 - The schema-version-2 structured Table scope case was observed as a
   `table_definition_changed` diff, even though its summary formula text stays
   unchanged.
@@ -345,6 +353,13 @@ Results:
   and worksheet-only package change. Neither report determined whether Excel
   would show a warning, evaluated a formula, rendered an indicator, or claimed
   client behavior.
+- The WCAB 0.25 workbook-structure case was observed as one exact
+  `workbook_protection_changed` record and `FF022`. FormulaFence's non-secret
+  profile moved from `lock_structure=true` to all workbook locks false, with no
+  credential or opaque metadata on either side. WCAB independently established
+  the raw `lockStructure=1`-to-`0` transition, stable hidden-sheet/formula
+  context, and workbook-XML-only package change. Neither report tested a
+  password, encryption, authentication, authorization, or client action.
 - The WCAB 0.15 chart-series case was observed as one exact
   `chart_definitions_changed` record and `FF030`. FormulaFence's redacted
   profile retained one host sheet, drawing, legacy chart, and series; three

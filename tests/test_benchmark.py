@@ -370,6 +370,26 @@ def _ignored_error_formula_range_suppression_details() -> dict[str, object]:
     }
 
 
+def _workbook_structure_lock_removed_details() -> dict[str, object]:
+    credential = {
+        "configured": False,
+        "has_legacy_verifier": False,
+        "has_modern_verifier": False,
+        "algorithm": None,
+        "spin_count": None,
+    }
+    before = {
+        "enabled": True,
+        "lock_structure": True,
+        "lock_windows": False,
+        "lock_revision": False,
+        "workbook_credential": credential,
+        "revisions_credential": credential,
+        "opaque_metadata": {"present": False, "count": 0},
+    }
+    return {"before": before, "after": {**before, "enabled": False, "lock_structure": False}}
+
+
 def _replace_power_query_m_filter_literal(path: Path, *, before: bytes, after: bytes) -> None:
     """Rewrite one test fixture's embedded M formula without changing its truth."""
 
@@ -565,6 +585,21 @@ def test_committed_manifest_matches_fixture_tree() -> None:
             "adjacent_populated_value": 30,
             "downstream_formula_cell": "C5",
             "downstream_formula": "=B5",
+        }
+    ]
+    workbook_structure_protection_row = next(
+        row for row in rows if row["id"] == "governance.workbook_structure_lock_removed"
+    )
+    assert workbook_structure_protection_row["facts"] == [
+        {
+            "kind": "workbook_structure_lock_removed",
+            "baseline_lock_structure": True,
+            "candidate_lock_structure": False,
+            "hidden_sheet": "ReviewControls",
+            "hidden_sheet_state": "hidden",
+            "formula_sheet": "Inputs",
+            "formula_cell": "D2",
+            "formula": "=B2*C2",
         }
     ]
     external_data_row = next(
@@ -1582,6 +1617,84 @@ def test_ignored_error_suppression_pair_changes_only_its_operations_worksheet(
         for member in sorted(baseline_members)
         if baseline_members[member] != candidate_members[member]
     ] == ["xl/worksheets/sheet1.xml"]
+
+
+def test_validator_rejects_a_false_workbook_structure_lock_fact(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "governance" / "workbook_structure_lock_removed"
+    truth_path = case / "truth.json"
+    truth = json.loads(truth_path.read_text(encoding="utf-8"))
+    truth["facts"][0]["candidate_lock_structure"] = True
+    truth_path.write_text(json.dumps(truth), encoding="utf-8")
+    assert validate_case(case)
+
+
+def test_validator_rejects_a_corrupted_workbook_structure_lock(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = fixture_root / "governance" / "workbook_structure_lock_removed" / "candidate.xlsx"
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    namespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    workbook_member = "xl/workbook.xml"
+    workbook = ElementTree.fromstring(members[workbook_member])
+    protection = workbook.find(f"{{{namespace}}}workbookProtection")
+    assert protection is not None
+    protection.set("lockStructure", "1")
+    members[workbook_member] = ElementTree.tostring(
+        workbook, encoding="utf-8", xml_declaration=True
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_validator_rejects_an_unrelated_workbook_protection_change(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = fixture_root / "governance" / "workbook_structure_lock_removed" / "candidate.xlsx"
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    namespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    workbook_member = "xl/workbook.xml"
+    workbook = ElementTree.fromstring(members[workbook_member])
+    protection = workbook.find(f"{{{namespace}}}workbookProtection")
+    assert protection is not None
+    protection.set("lockWindows", "1")
+    members[workbook_member] = ElementTree.tostring(
+        workbook, encoding="utf-8", xml_declaration=True
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_workbook_structure_protection_pair_changes_only_workbook_xml(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "governance" / "workbook_structure_lock_removed"
+    with ZipFile(case / "baseline.xlsx") as baseline, ZipFile(case / "candidate.xlsx") as candidate:
+        assert baseline.testzip() is None
+        assert candidate.testzip() is None
+        baseline_members = {
+            entry.filename: baseline.read(entry.filename) for entry in baseline.infolist()
+        }
+        candidate_members = {
+            entry.filename: candidate.read(entry.filename) for entry in candidate.infolist()
+        }
+    assert set(baseline_members) == set(candidate_members)
+    assert [
+        member
+        for member in sorted(baseline_members)
+        if baseline_members[member] != candidate_members[member]
+    ] == ["xl/workbook.xml"]
 
 
 def test_validator_rejects_a_false_scenario_manager_stored_input_fact(tmp_path: Path) -> None:
@@ -3228,6 +3341,92 @@ def test_formulafence_adapter_requires_the_ignored_error_suppression_finding(
     assert result["status"] == "missed"
     assert result["matched"] == []
     assert result["missed"] == ["ignored_error_rule_added"]
+
+
+def test_formulafence_adapter_maps_the_exact_workbook_structure_lock_removed(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _workbook_structure_lock_removed_details()
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "workbook_protection_changed",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF022", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "workbook_structure_lock_removed"
+    )
+    assert result["status"] == "matched"
+    assert result["matched"] == ["workbook_structure_lock_removed"]
+
+
+def test_formulafence_adapter_rejects_an_inexact_workbook_structure_lock_removed(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _workbook_structure_lock_removed_details()
+        details["after"]["lock_windows"] = True
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "workbook_protection_changed",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF022", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "workbook_structure_lock_removed"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["workbook_structure_lock_removed"]
+
+
+def test_formulafence_adapter_requires_the_workbook_structure_lock_finding(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "workbook_protection_changed",
+                    "location": None,
+                    "details": _workbook_structure_lock_removed_details(),
+                }
+            ],
+            "findings": [],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "workbook_structure_lock_removed"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["workbook_structure_lock_removed"]
 
 
 def test_formulafence_adapter_maps_the_exact_pivot_cache_refresh_change(
