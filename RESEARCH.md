@@ -165,6 +165,28 @@ package-member boundary. It does not apply a filter, calculate the subtotal,
 infer which rows a client shows, or claim a displayed, copied, charted, or
 printed result.
 
+## PivotTable cache refresh requests without a cell edit
+
+Microsoft documents an option to [refresh PivotTable data when a workbook
+opens](https://support.microsoft.com/en-us/excel/refresh-pivottable-data), and
+its [PivotTable overview](https://support.microsoft.com/en-us/excel/overview-of-pivottables-and-pivotcharts)
+explains that PivotTables keep a cache that can be shared. The Open XML
+[`PivotCacheDefinition` reference](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.spreadsheet.pivotcachedefinition?view=openxml-3.0.1)
+identifies `refreshOnLoad` as the stored instruction for whether an application
+refreshes that cache when the workbook opens. This leaves a material review
+surface outside worksheet-cell diffs: the request can change without a formula,
+source value, or stored display value changing.
+
+WCAB 0.14 isolates this control in an original synthetic package with one local
+worksheet cache. `Source!A1:B5` binds through a raw PivotCache/PivotTable
+relationship graph to `Report!A1:B2`; its stored `Report!B2` is directly
+referenced by `Dashboard!B4`. The pair changes only
+`pivotCacheDefinition/@refreshOnLoad` from false to true. The raw validator
+checks the relationship binding, source declaration, stored report/dashboard
+cells, and package-member isolation. It does not open Excel, refresh data,
+calculate or render the PivotTable, infer a new report result, or claim that a
+client honors the setting.
+
 ## Array-formula semantics
 
 Microsoft's [dynamic-array versus legacy-CSE guidance](https://support.microsoft.com/en-US/Excel/dynamic-array-formulas-vs-legacy-cse-array-formulas)

@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.14.0 — 2026-08-03
+
+- Add a deterministic relationship-backed PivotTable cache case. Its local
+  worksheet source, stored `Report!A1:B2` display cells, and
+  `Dashboard!B4=Report!$B$2` consumer remain unchanged while raw
+  `pivotCacheDefinition/@refreshOnLoad` moves from false to true.
+- Add the exact `pivot_cache_refresh_on_load_changed` fact, raw-OOXML graph
+  validator, package-member isolation check, and corruption regressions. WCAB
+  records a stored open-time request only: it does not open Excel, refresh the
+  cache, calculate or render the PivotTable, or claim a changed report value.
+- Extend the optional FormulaFence adapter to require its exact redacted
+  `pivot_cache_refresh_controls_changed` evidence and high-severity `FF023`,
+  while WCAB independently proves the local source and PivotTable binding.
+
 ## 0.13.0 — 2026-08-03
 
 - Add a deterministic active-AutoFilter case. Its worksheet `Report!A1:B5`

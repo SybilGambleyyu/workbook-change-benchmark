@@ -59,6 +59,12 @@ _AUTO_FILTER_BASELINE_VALUE = "North"
 _AUTO_FILTER_CANDIDATE_VALUE = "South"
 _AUTO_FILTER_SUBTOTAL_FORMULA = "=SUBTOTAL(109,B2:B5)"
 _AUTO_FILTER_DASHBOARD_FORMULA = "=Report!$D$2"
+_PIVOT_CACHE_ID = 1
+_PIVOT_CACHE_SOURCE_SHEET = "Source"
+_PIVOT_CACHE_SOURCE_REF = "A1:B5"
+_PIVOT_REPORT_SHEET = "Report"
+_PIVOT_REPORT_REF = "A1:B2"
+_PIVOT_CACHE_DASHBOARD_FORMULA = "=Report!$B$2"
 
 
 def _configure_workbook(workbook: Workbook, *, title: str) -> None:
@@ -454,6 +460,36 @@ def _external_data_refresh_workbook() -> Workbook:
     return workbook
 
 
+def _pivot_cache_refresh_workbook() -> Workbook:
+    """Build an ordinary workbook around one raw PivotCache control.
+
+    The raw PivotTable package is added after saving because openpyxl preserves
+    PivotTable parts but does not create them. The source data, stored report
+    cells, and direct dashboard consumer stay fixed across the pair: WCAB
+    records only the cache's stored refresh-on-open request, never a rendered
+    PivotTable result.
+    """
+
+    workbook = Workbook()
+    _configure_workbook(workbook, title="WCAB PivotCache refresh fixture")
+    source = workbook.active
+    source.title = _PIVOT_CACHE_SOURCE_SHEET
+    source.append(["Region", "Amount"])
+    for region, amount in (("North", 100), ("North", 200), ("South", 300), ("South", 400)):
+        source.append([region, amount])
+
+    report = workbook.create_sheet(_PIVOT_REPORT_SHEET)
+    report["A1"] = "Region"
+    report["B1"] = "Pivot amount"
+    report["A2"] = "North"
+    report["B2"] = 300
+
+    dashboard = workbook.create_sheet("Dashboard")
+    dashboard["A4"] = "Reported pivot amount"
+    dashboard["B4"] = _PIVOT_CACHE_DASHBOARD_FORMULA
+    return workbook
+
+
 def _external_workbook_link_policy_workbook() -> Workbook:
     """Build a workbook with one unchanged, synthetic external-link formula.
 
@@ -796,6 +832,290 @@ def _add_external_data_connection(path: Path, *, refresh_on_load: bool) -> None:
             {"url": "https://example.invalid/wcab-external-data-refresh"},
         )
         members["xl/connections.xml"] = serialize(connections)
+
+    _rewrite_xlsx_parts(path, mutate)
+
+
+def _add_pivot_cache_refresh_control(path: Path, *, refresh_on_load: bool) -> None:
+    """Attach one small PivotTable/PivotCache graph with a raw open-time flag.
+
+    The fixture has a local worksheet source and no external provider. It is a
+    compact, relationship-backed package shape that openpyxl can read, but this
+    generator never asks Excel or openpyxl to refresh, render, or calculate the
+    PivotTable. The sole baseline/candidate distinction is
+    ``pivotCacheDefinition/@refreshOnLoad``.
+    """
+
+    def serialize(root: ElementTree.Element) -> bytes:
+        return ElementTree.tostring(root, encoding="utf-8", xml_declaration=True)
+
+    def mutate(members: dict[str, bytes]) -> None:
+        workbook = ElementTree.fromstring(members["xl/workbook.xml"])
+        sheets = workbook.find(f"{{{_SPREADSHEETML_NS}}}sheets")
+        sheet_tag = f"{{{_SPREADSHEETML_NS}}}sheet"
+        relationship_id_attribute = f"{{{_DOCUMENT_RELATIONSHIPS_NS}}}id"
+        report_sheets = (
+            [
+                sheet
+                for sheet in sheets.findall(sheet_tag)
+                if sheet.get("name") == _PIVOT_REPORT_SHEET
+            ]
+            if sheets is not None
+            else []
+        )
+        if len(report_sheets) != 1:
+            raise ValueError("PivotCache fixture has an unexpected Report worksheet")
+        report_relationship_id = report_sheets[0].get(relationship_id_attribute)
+        if not isinstance(report_relationship_id, str):
+            raise ValueError("PivotCache fixture Report worksheet has no relationship")
+
+        workbook_relationships = ElementTree.fromstring(members["xl/_rels/workbook.xml.rels"])
+        relationship_tag = f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationship"
+        report_relationships = [
+            relationship
+            for relationship in workbook_relationships.findall(relationship_tag)
+            if relationship.get("Id") == report_relationship_id
+            and relationship.get("Type") == f"{_DOCUMENT_RELATIONSHIPS_NS}/worksheet"
+        ]
+        if len(report_relationships) != 1:
+            raise ValueError("PivotCache fixture cannot resolve Report worksheet relationship")
+        report_target = report_relationships[0].get("Target")
+        if (
+            not isinstance(report_target, str)
+            or not report_target
+            or report_target.startswith("../")
+        ):
+            raise ValueError("PivotCache fixture has an unsafe Report worksheet target")
+        if report_target.startswith("/"):
+            if not report_target.startswith("/xl/"):
+                raise ValueError("PivotCache fixture has a non-workbook Report worksheet target")
+            report_member = report_target.lstrip("/")
+        else:
+            report_member = f"xl/{report_target.lstrip('./')}"
+        if not report_member.startswith("xl/worksheets/") or ".." in report_member.split("/"):
+            raise ValueError("PivotCache fixture has an unsafe Report worksheet member")
+        if report_member not in members:
+            raise ValueError("PivotCache fixture Report worksheet member is absent")
+
+        pivot_caches_tag = f"{{{_SPREADSHEETML_NS}}}pivotCaches"
+        if workbook.find(pivot_caches_tag) is not None:
+            raise ValueError("PivotCache fixture unexpectedly already has pivot caches")
+        pivot_caches = ElementTree.SubElement(workbook, pivot_caches_tag)
+        ElementTree.SubElement(
+            pivot_caches,
+            f"{{{_SPREADSHEETML_NS}}}pivotCache",
+            {
+                "cacheId": str(_PIVOT_CACHE_ID),
+                relationship_id_attribute: "rIdWCABPivotCache",
+            },
+        )
+        members["xl/workbook.xml"] = serialize(workbook)
+
+        if any(
+            relationship.get("Id") == "rIdWCABPivotCache"
+            for relationship in workbook_relationships.findall(relationship_tag)
+        ):
+            raise ValueError("PivotCache fixture relationship ID is already in use")
+        ElementTree.SubElement(
+            workbook_relationships,
+            relationship_tag,
+            {
+                "Id": "rIdWCABPivotCache",
+                "Type": f"{_DOCUMENT_RELATIONSHIPS_NS}/pivotCacheDefinition",
+                "Target": "pivotCache/pivotCacheDefinition1.xml",
+            },
+        )
+        members["xl/_rels/workbook.xml.rels"] = serialize(workbook_relationships)
+
+        report = ElementTree.fromstring(members[report_member])
+        pivot_table_parts_tag = f"{{{_SPREADSHEETML_NS}}}pivotTableParts"
+        if report.find(pivot_table_parts_tag) is not None:
+            raise ValueError("PivotCache fixture Report worksheet already has pivot tables")
+        pivot_table_parts = ElementTree.SubElement(report, pivot_table_parts_tag, {"count": "1"})
+        ElementTree.SubElement(
+            pivot_table_parts,
+            f"{{{_SPREADSHEETML_NS}}}pivotTablePart",
+            {relationship_id_attribute: "rIdWCABPivotTable"},
+        )
+        members[report_member] = serialize(report)
+
+        report_directory, report_filename = report_member.rsplit("/", maxsplit=1)
+        report_relationship_member = f"{report_directory}/_rels/{report_filename}.rels"
+        if report_relationship_member in members:
+            report_relationships_root = ElementTree.fromstring(members[report_relationship_member])
+        else:
+            report_relationships_root = ElementTree.Element(
+                f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationships"
+            )
+        if any(
+            relationship.get("Id") == "rIdWCABPivotTable"
+            for relationship in report_relationships_root.findall(relationship_tag)
+        ):
+            raise ValueError("PivotCache fixture Report relationship ID is already in use")
+        ElementTree.SubElement(
+            report_relationships_root,
+            relationship_tag,
+            {
+                "Id": "rIdWCABPivotTable",
+                "Type": f"{_DOCUMENT_RELATIONSHIPS_NS}/pivotTable",
+                "Target": "../pivotTables/pivotTable1.xml",
+            },
+        )
+        members[report_relationship_member] = serialize(report_relationships_root)
+
+        pivot_table_member = "xl/pivotTables/pivotTable1.xml"
+        pivot_table = ElementTree.Element(
+            f"{{{_SPREADSHEETML_NS}}}pivotTableDefinition",
+            {
+                "name": "WCAB Pivot Report",
+                "cacheId": str(_PIVOT_CACHE_ID),
+                "dataCaption": "Amount",
+            },
+        )
+        ElementTree.SubElement(
+            pivot_table,
+            f"{{{_SPREADSHEETML_NS}}}location",
+            {
+                "ref": _PIVOT_REPORT_REF,
+                "firstHeaderRow": "1",
+                "firstDataRow": "2",
+                "firstDataCol": "1",
+            },
+        )
+        pivot_fields = ElementTree.SubElement(
+            pivot_table, f"{{{_SPREADSHEETML_NS}}}pivotFields", {"count": "2"}
+        )
+        ElementTree.SubElement(
+            pivot_fields,
+            f"{{{_SPREADSHEETML_NS}}}pivotField",
+            {"axis": "axisRow", "showAll": "0"},
+        )
+        ElementTree.SubElement(
+            pivot_fields,
+            f"{{{_SPREADSHEETML_NS}}}pivotField",
+            {"dataField": "1", "showAll": "0"},
+        )
+        row_fields = ElementTree.SubElement(
+            pivot_table, f"{{{_SPREADSHEETML_NS}}}rowFields", {"count": "1"}
+        )
+        ElementTree.SubElement(row_fields, f"{{{_SPREADSHEETML_NS}}}field", {"x": "0"})
+        data_fields = ElementTree.SubElement(
+            pivot_table, f"{{{_SPREADSHEETML_NS}}}dataFields", {"count": "1"}
+        )
+        ElementTree.SubElement(
+            data_fields,
+            f"{{{_SPREADSHEETML_NS}}}dataField",
+            {"fld": "1", "subtotal": "sum"},
+        )
+        members[pivot_table_member] = serialize(pivot_table)
+
+        pivot_relationships = ElementTree.Element(f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationships")
+        ElementTree.SubElement(
+            pivot_relationships,
+            relationship_tag,
+            {
+                "Id": "rIdWCABPivotCache",
+                "Type": f"{_DOCUMENT_RELATIONSHIPS_NS}/pivotCacheDefinition",
+                "Target": "../pivotCache/pivotCacheDefinition1.xml",
+            },
+        )
+        members["xl/pivotTables/_rels/pivotTable1.xml.rels"] = serialize(pivot_relationships)
+
+        cache_definition = ElementTree.Element(
+            f"{{{_SPREADSHEETML_NS}}}pivotCacheDefinition",
+            {
+                "recordCount": "4",
+                "refreshOnLoad": "1" if refresh_on_load else "0",
+                "saveData": "1",
+                relationship_id_attribute: "rIdWCABPivotRecords",
+            },
+        )
+        cache_source = ElementTree.SubElement(
+            cache_definition, f"{{{_SPREADSHEETML_NS}}}cacheSource", {"type": "worksheet"}
+        )
+        ElementTree.SubElement(
+            cache_source,
+            f"{{{_SPREADSHEETML_NS}}}worksheetSource",
+            {"ref": _PIVOT_CACHE_SOURCE_REF, "sheet": _PIVOT_CACHE_SOURCE_SHEET},
+        )
+        cache_fields = ElementTree.SubElement(
+            cache_definition, f"{{{_SPREADSHEETML_NS}}}cacheFields", {"count": "2"}
+        )
+        for name, values in (
+            ("Region", (("s", "North"), ("s", "South"))),
+            (
+                "Amount",
+                (("n", "100"), ("n", "200"), ("n", "300"), ("n", "400")),
+            ),
+        ):
+            cache_field = ElementTree.SubElement(
+                cache_fields,
+                f"{{{_SPREADSHEETML_NS}}}cacheField",
+                {"name": name, "numFmtId": "0"},
+            )
+            shared_items = ElementTree.SubElement(
+                cache_field,
+                f"{{{_SPREADSHEETML_NS}}}sharedItems",
+                {"count": str(len(values))},
+            )
+            for element_name, value in values:
+                ElementTree.SubElement(
+                    shared_items, f"{{{_SPREADSHEETML_NS}}}{element_name}", {"v": value}
+                )
+        members["xl/pivotCache/pivotCacheDefinition1.xml"] = serialize(cache_definition)
+
+        cache_definition_relationships = ElementTree.Element(
+            f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationships"
+        )
+        ElementTree.SubElement(
+            cache_definition_relationships,
+            relationship_tag,
+            {
+                "Id": "rIdWCABPivotRecords",
+                "Type": f"{_DOCUMENT_RELATIONSHIPS_NS}/pivotCacheRecords",
+                "Target": "pivotCacheRecords1.xml",
+            },
+        )
+        members["xl/pivotCache/_rels/pivotCacheDefinition1.xml.rels"] = serialize(
+            cache_definition_relationships
+        )
+
+        cache_records = ElementTree.Element(
+            f"{{{_SPREADSHEETML_NS}}}pivotCacheRecords", {"count": "4"}
+        )
+        for region_index, amount_index in ((0, 0), (0, 1), (1, 2), (1, 3)):
+            record = ElementTree.SubElement(cache_records, f"{{{_SPREADSHEETML_NS}}}r")
+            ElementTree.SubElement(record, f"{{{_SPREADSHEETML_NS}}}x", {"v": str(region_index)})
+            ElementTree.SubElement(record, f"{{{_SPREADSHEETML_NS}}}x", {"v": str(amount_index)})
+        members["xl/pivotCache/pivotCacheRecords1.xml"] = serialize(cache_records)
+
+        content_types = ElementTree.fromstring(members["[Content_Types].xml"])
+        override_tag = f"{{{_CONTENT_TYPES_NS}}}Override"
+        for part_name, content_type in (
+            (
+                "/xl/pivotTables/pivotTable1.xml",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.pivotTable+xml",
+            ),
+            (
+                "/xl/pivotCache/pivotCacheDefinition1.xml",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml."
+                "pivotCacheDefinition+xml",
+            ),
+            (
+                "/xl/pivotCache/pivotCacheRecords1.xml",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.pivotCacheRecords+xml",
+            ),
+        ):
+            if any(
+                item.get("PartName") == part_name for item in content_types.findall(override_tag)
+            ):
+                raise ValueError(f"PivotCache fixture already has content type {part_name!r}")
+            ElementTree.SubElement(
+                content_types,
+                override_tag,
+                {"PartName": part_name, "ContentType": content_type},
+            )
+        members["[Content_Types].xml"] = serialize(content_types)
 
     _rewrite_xlsx_parts(path, mutate)
 
@@ -1429,6 +1749,56 @@ def _build_governance_external_data_refresh(root: Path) -> None:
     )
 
 
+def _build_governance_pivot_cache_refresh(root: Path) -> None:
+    """Build a local PivotCache whose open-time refresh request changes."""
+
+    directory = root / "governance" / "pivot_cache_refresh_on_open"
+    directory.mkdir(parents=True, exist_ok=True)
+    baseline = directory / "baseline.xlsx"
+    candidate = directory / "candidate.xlsx"
+    _save_workbook(_pivot_cache_refresh_workbook(), baseline)
+    _save_workbook(_pivot_cache_refresh_workbook(), candidate)
+    _add_pivot_cache_refresh_control(baseline, refresh_on_load=False)
+    _add_pivot_cache_refresh_control(candidate, refresh_on_load=True)
+    _write_json(
+        directory / "truth.json",
+        _truth(
+            case_id="governance.pivot_cache_refresh_on_open",
+            title="A PivotTable cache starts refreshing when the workbook opens",
+            family="governance",
+            review_expectation="block",
+            facts=[
+                {
+                    "kind": "pivot_cache_refresh_on_load_changed",
+                    "cache_id": _PIVOT_CACHE_ID,
+                    "source_type": "worksheet",
+                    "source_sheet": _PIVOT_CACHE_SOURCE_SHEET,
+                    "source_ref": _PIVOT_CACHE_SOURCE_REF,
+                    "pivot_sheet": _PIVOT_REPORT_SHEET,
+                    "pivot_ref": _PIVOT_REPORT_REF,
+                    "pivot_output_cell": "B2",
+                    "dashboard_sheet": "Dashboard",
+                    "dashboard_cell": "B4",
+                    "dashboard_formula": _PIVOT_CACHE_DASHBOARD_FORMULA,
+                    "baseline_refresh_on_load": False,
+                    "candidate_refresh_on_load": True,
+                }
+            ],
+            must_reach=[
+                {
+                    "source": {"sheet": _PIVOT_REPORT_SHEET, "cell": "B2"},
+                    "targets": [{"sheet": "Dashboard", "cell": "B4"}],
+                }
+            ],
+            coverage=[
+                "The pair changes only raw pivotCacheDefinition/@refreshOnLoad. It does not edit source cells, stored PivotTable display cells, formula text, or calculation properties.",
+                "PivotTable cache refresh-on-open is stored control evidence. WCAB does not open the workbook in Excel, refresh a cache, calculate, or render the PivotTable, or claim a changed report result.",
+                "The validator reads relationship-backed raw OOXML, checks the cache/PivotTable binding and direct local dashboard edge, and treats that edge as a lower bound only if a client refresh changes the PivotTable display.",
+            ],
+        ),
+    )
+
+
 def _build_governance_external_workbook_link_update_policy(root: Path) -> None:
     """Build a pair differing only in the global external-link open policy."""
 
@@ -1781,6 +2151,7 @@ _BUILDERS: tuple[Callable[[Path], None], ...] = (
     _build_governance_formula_cached_result,
     _build_governance_static_cycle,
     _build_governance_external_data_refresh,
+    _build_governance_pivot_cache_refresh,
     _build_governance_external_workbook_link_update_policy,
     _build_structural_array_formula_mode,
     _build_structural_three_d_scope,
@@ -1811,6 +2182,7 @@ CASE_IDS = (
     "governance.formula_cached_result_changed",
     "governance.static_cycle_introduced",
     "governance.external_data_refresh_on_open",
+    "governance.pivot_cache_refresh_on_open",
     "governance.external_workbook_link_update_on_open",
     "structural.array_formula_mode_changed",
     "structural.three_d_scope_expansion",

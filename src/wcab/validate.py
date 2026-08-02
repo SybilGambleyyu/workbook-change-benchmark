@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import posixpath
 import re
 from collections import deque
 from decimal import Decimal, InvalidOperation
@@ -186,6 +187,49 @@ def _relationship_target(
     return target.lstrip("/")
 
 
+def _relationship_part_member(
+    relationships: ElementTree.Element,
+    relationship_id: str,
+    source_member: str,
+    *,
+    relationship_type: str,
+) -> str | None:
+    """Resolve one local relationship to a safe package-member name.
+
+    PivotTable relationships conventionally use ``../`` targets, unlike the
+    workbook-to-worksheet links handled by :func:`_relationship_target`. This
+    helper follows only an in-package relative target and rejects external or
+    escaping relationships before opening a part.
+    """
+
+    if not source_member.startswith("xl/"):
+        return None
+    relationship_tag = f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationship"
+    matches = [
+        relationship
+        for relationship in relationships.findall(relationship_tag)
+        if relationship.get("Id") == relationship_id
+        and relationship.get("Type") == relationship_type
+        and relationship.get("TargetMode") != "External"
+    ]
+    if len(matches) != 1:
+        return None
+    target = matches[0].get("Target")
+    if not isinstance(target, str) or not target or target.startswith("//"):
+        return None
+    if target.startswith("/"):
+        member = target.lstrip("/")
+    else:
+        member = posixpath.normpath(f"{posixpath.dirname(source_member)}/{target}")
+    if (
+        not member.startswith("xl/")
+        or member.startswith("../")
+        or any(segment in {"", ".", ".."} for segment in member.split("/"))
+    ):
+        return None
+    return member
+
+
 def _worksheet_member_for_sheet(archive: ZipFile, sheet_name: str) -> str | None:
     """Resolve one generated worksheet name to its local OOXML part.
 
@@ -217,6 +261,177 @@ def _worksheet_member_for_sheet(archive: ZipFile, sheet_name: str) -> str | None
     if target is None:
         return None
     return target if target.startswith("xl/") else f"xl/{target}"
+
+
+def _raw_pivot_cache_refresh_state(path: Path, pivot_sheet: str) -> dict[str, Any] | None:
+    """Read WCAB's compact relationship-backed PivotCache/PivotTable graph.
+
+    This is intentionally a narrow reader for the generated fixture. It
+    establishes the stored open-time control and the local cache-to-PivotTable
+    binding without opening a client, refreshing data, or interpreting a
+    PivotTable display value.
+    """
+
+    try:
+        with ZipFile(path) as archive:
+            workbook = ElementTree.fromstring(archive.read("xl/workbook.xml"))
+            workbook_relationships = ElementTree.fromstring(
+                archive.read("xl/_rels/workbook.xml.rels")
+            )
+            pivot_caches_tag = f"{{{_SPREADSHEETML_NS}}}pivotCaches"
+            pivot_cache_tag = f"{{{_SPREADSHEETML_NS}}}pivotCache"
+            pivot_cache_sets = workbook.findall(pivot_caches_tag)
+            if len(pivot_cache_sets) != 1:
+                return None
+            pivot_caches = pivot_cache_sets[0]
+            if len(pivot_caches) != 1 or pivot_caches[0].tag != pivot_cache_tag:
+                return None
+            pivot_cache = pivot_caches[0]
+            try:
+                cache_id = int(pivot_cache.get("cacheId", ""))
+            except ValueError:
+                return None
+            cache_relationship_id = pivot_cache.get(f"{{{_DOCUMENT_RELATIONSHIPS_NS}}}id")
+            if not isinstance(cache_relationship_id, str):
+                return None
+            definition_member = _relationship_part_member(
+                workbook_relationships,
+                cache_relationship_id,
+                "xl/workbook.xml",
+                relationship_type=f"{_DOCUMENT_RELATIONSHIPS_NS}/pivotCacheDefinition",
+            )
+            if definition_member is None:
+                return None
+            cache_definition = ElementTree.fromstring(archive.read(definition_member))
+            cache_records_relationship_id = cache_definition.get(
+                f"{{{_DOCUMENT_RELATIONSHIPS_NS}}}id"
+            )
+            if not isinstance(cache_records_relationship_id, str):
+                return None
+            definition_directory, definition_filename = definition_member.rsplit("/", maxsplit=1)
+            cache_definition_relationships = ElementTree.fromstring(
+                archive.read(f"{definition_directory}/_rels/{definition_filename}.rels")
+            )
+            cache_records_member = _relationship_part_member(
+                cache_definition_relationships,
+                cache_records_relationship_id,
+                definition_member,
+                relationship_type=f"{_DOCUMENT_RELATIONSHIPS_NS}/pivotCacheRecords",
+            )
+            if cache_records_member is None:
+                return None
+            cache_records = ElementTree.fromstring(archive.read(cache_records_member))
+
+            report_member = _worksheet_member_for_sheet(archive, pivot_sheet)
+            if report_member is None:
+                return None
+            report = ElementTree.fromstring(archive.read(report_member))
+            report_directory, report_filename = report_member.rsplit("/", maxsplit=1)
+            report_relationships = ElementTree.fromstring(
+                archive.read(f"{report_directory}/_rels/{report_filename}.rels")
+            )
+            pivot_table_parts_tag = f"{{{_SPREADSHEETML_NS}}}pivotTableParts"
+            pivot_table_part_tag = f"{{{_SPREADSHEETML_NS}}}pivotTablePart"
+            pivot_table_parts = report.findall(pivot_table_parts_tag)
+            if len(pivot_table_parts) != 1 or len(pivot_table_parts[0]) != 1:
+                return None
+            pivot_table_part = pivot_table_parts[0][0]
+            if pivot_table_part.tag != pivot_table_part_tag:
+                return None
+            pivot_table_relationship_id = pivot_table_part.get(
+                f"{{{_DOCUMENT_RELATIONSHIPS_NS}}}id"
+            )
+            if not isinstance(pivot_table_relationship_id, str):
+                return None
+            pivot_table_member = _relationship_part_member(
+                report_relationships,
+                pivot_table_relationship_id,
+                report_member,
+                relationship_type=f"{_DOCUMENT_RELATIONSHIPS_NS}/pivotTable",
+            )
+            if pivot_table_member is None:
+                return None
+            pivot_table = ElementTree.fromstring(archive.read(pivot_table_member))
+            pivot_directory, pivot_filename = pivot_table_member.rsplit("/", maxsplit=1)
+            pivot_relationships = ElementTree.fromstring(
+                archive.read(f"{pivot_directory}/_rels/{pivot_filename}.rels")
+            )
+            bound_definition_member = _relationship_part_member(
+                pivot_relationships,
+                "rIdWCABPivotCache",
+                pivot_table_member,
+                relationship_type=f"{_DOCUMENT_RELATIONSHIPS_NS}/pivotCacheDefinition",
+            )
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+
+    cache_definition_tag = f"{{{_SPREADSHEETML_NS}}}pivotCacheDefinition"
+    cache_source_tag = f"{{{_SPREADSHEETML_NS}}}cacheSource"
+    worksheet_source_tag = f"{{{_SPREADSHEETML_NS}}}worksheetSource"
+    cache_records_tag = f"{{{_SPREADSHEETML_NS}}}pivotCacheRecords"
+    record_tag = f"{{{_SPREADSHEETML_NS}}}r"
+    shared_item_index_tag = f"{{{_SPREADSHEETML_NS}}}x"
+    pivot_table_tag = f"{{{_SPREADSHEETML_NS}}}pivotTableDefinition"
+    location_tag = f"{{{_SPREADSHEETML_NS}}}location"
+    if (
+        cache_definition.tag != cache_definition_tag
+        or cache_records.tag != cache_records_tag
+        or pivot_table.tag != pivot_table_tag
+        or bound_definition_member != definition_member
+    ):
+        return None
+    cache_sources = cache_definition.findall(cache_source_tag)
+    if len(cache_sources) != 1 or len(cache_sources[0]) != 1:
+        return None
+    cache_source = cache_sources[0]
+    worksheet_source = cache_source[0]
+    if worksheet_source.tag != worksheet_source_tag:
+        return None
+    locations = pivot_table.findall(location_tag)
+    if len(locations) != 1:
+        return None
+    records = cache_records.findall(record_tag)
+    try:
+        declared_record_count = int(cache_records.get("count", ""))
+        record_indexes = tuple(
+            tuple(int(value.get("v", "")) for value in record) for record in records
+        )
+    except (TypeError, ValueError):
+        return None
+    if declared_record_count != len(records) or any(
+        len(record) != 2 or any(value.tag != shared_item_index_tag for value in record)
+        for record in records
+    ):
+        return None
+    return {
+        "cache_id": cache_id,
+        "definition_member": definition_member,
+        "definition_attributes": tuple(sorted(cache_definition.attrib.items())),
+        "cache_source_attributes": tuple(sorted(cache_source.attrib.items())),
+        "worksheet_source_attributes": tuple(sorted(worksheet_source.attrib.items())),
+        "cache_records_member": cache_records_member,
+        "cache_records_attributes": tuple(sorted(cache_records.attrib.items())),
+        "cache_record_indexes": record_indexes,
+        "report_member": report_member,
+        "pivot_table_member": pivot_table_member,
+        "pivot_table_attributes": tuple(sorted(pivot_table.attrib.items())),
+        "location_attributes": tuple(sorted(locations[0].attrib.items())),
+    }
+
+
+def _pivot_cache_definition_without_refresh_on_load(path: Path, pivot_sheet: str) -> bytes | None:
+    """Return WCAB's cache definition with only its open-time flag removed."""
+
+    state = _raw_pivot_cache_refresh_state(path, pivot_sheet)
+    if state is None:
+        return None
+    try:
+        with ZipFile(path) as archive:
+            definition = ElementTree.fromstring(archive.read(state["definition_member"]))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    definition.attrib.pop("refreshOnLoad", None)
+    return ElementTree.tostring(definition, encoding="utf-8", xml_declaration=True)
 
 
 def _formula_cached_result_state(
@@ -1222,6 +1437,160 @@ def _validate_fact(
             and _calculation_properties(baseline_path) == _calculation_properties(candidate_path)
             and (sheet_name, coordinate) in graph.get((input_sheet, input_cell), set()),
             f"{truth['id']}: expected only raw numeric formula cache {sheet_name}!{coordinate} to change with formula, input, and controls unchanged",
+            errors,
+        )
+        return
+
+    if kind == "pivot_cache_refresh_on_load_changed":
+        cache_id = fact.get("cache_id")
+        source_type = fact.get("source_type")
+        source_sheet = fact.get("source_sheet")
+        source_reference = fact.get("source_ref")
+        pivot_sheet = fact.get("pivot_sheet")
+        pivot_reference = fact.get("pivot_ref")
+        pivot_output_cell = fact.get("pivot_output_cell")
+        dashboard_sheet = fact.get("dashboard_sheet")
+        dashboard_cell = fact.get("dashboard_cell")
+        dashboard_formula = fact.get("dashboard_formula")
+        before_state = (
+            _raw_pivot_cache_refresh_state(baseline_path, pivot_sheet)
+            if isinstance(pivot_sheet, str)
+            else None
+        )
+        after_state = (
+            _raw_pivot_cache_refresh_state(candidate_path, pivot_sheet)
+            if isinstance(pivot_sheet, str)
+            else None
+        )
+        before_output = (
+            _raw_cell_state(baseline_path, pivot_sheet, pivot_output_cell)
+            if isinstance(pivot_sheet, str) and isinstance(pivot_output_cell, str)
+            else None
+        )
+        after_output = (
+            _raw_cell_state(candidate_path, pivot_sheet, pivot_output_cell)
+            if isinstance(pivot_sheet, str) and isinstance(pivot_output_cell, str)
+            else None
+        )
+        before_dashboard = (
+            _raw_cell_state(baseline_path, dashboard_sheet, dashboard_cell)
+            if isinstance(dashboard_sheet, str) and isinstance(dashboard_cell, str)
+            else None
+        )
+        after_dashboard = (
+            _raw_cell_state(candidate_path, dashboard_sheet, dashboard_cell)
+            if isinstance(dashboard_sheet, str) and isinstance(dashboard_cell, str)
+            else None
+        )
+        expected_baseline_definition = tuple(
+            sorted(
+                {
+                    "recordCount": "4",
+                    "refreshOnLoad": "0",
+                    "saveData": "1",
+                    f"{{{_DOCUMENT_RELATIONSHIPS_NS}}}id": "rIdWCABPivotRecords",
+                }.items()
+            )
+        )
+        expected_candidate_definition = tuple(
+            sorted(
+                {
+                    "recordCount": "4",
+                    "refreshOnLoad": "1",
+                    "saveData": "1",
+                    f"{{{_DOCUMENT_RELATIONSHIPS_NS}}}id": "rIdWCABPivotRecords",
+                }.items()
+            )
+        )
+        expected_pivot_attributes = (
+            tuple(
+                sorted(
+                    {
+                        "cacheId": str(cache_id),
+                        "dataCaption": "Amount",
+                        "name": "WCAB Pivot Report",
+                    }.items()
+                )
+            )
+            if type(cache_id) is int
+            else None
+        )
+        expected_location_attributes = (
+            tuple(
+                sorted(
+                    {
+                        "ref": pivot_reference,
+                        "firstHeaderRow": "1",
+                        "firstDataRow": "2",
+                        "firstDataCol": "1",
+                    }.items()
+                )
+            )
+            if isinstance(pivot_reference, str)
+            else None
+        )
+        expected_cache_source_attributes = (
+            (("type", source_type),) if isinstance(source_type, str) else None
+        )
+        expected_worksheet_source_attributes = (
+            tuple(sorted({"ref": source_reference, "sheet": source_sheet}.items()))
+            if isinstance(source_reference, str) and isinstance(source_sheet, str)
+            else None
+        )
+        graph = _direct_graph(candidate)
+        _assert(
+            type(cache_id) is int
+            and cache_id > 0
+            and isinstance(source_type, str)
+            and isinstance(source_sheet, str)
+            and isinstance(source_reference, str)
+            and isinstance(pivot_sheet, str)
+            and isinstance(pivot_reference, str)
+            and isinstance(pivot_output_cell, str)
+            and isinstance(dashboard_sheet, str)
+            and isinstance(dashboard_cell, str)
+            and isinstance(dashboard_formula, str)
+            and fact.get("baseline_refresh_on_load") is False
+            and fact.get("candidate_refresh_on_load") is True
+            and before_state is not None
+            and after_state is not None
+            and before_state["cache_id"] == cache_id
+            and after_state["cache_id"] == cache_id
+            and before_state["definition_member"] == after_state["definition_member"]
+            and before_state["definition_attributes"] == expected_baseline_definition
+            and after_state["definition_attributes"] == expected_candidate_definition
+            and before_state["cache_source_attributes"] == expected_cache_source_attributes
+            and after_state["cache_source_attributes"] == expected_cache_source_attributes
+            and before_state["worksheet_source_attributes"] == expected_worksheet_source_attributes
+            and after_state["worksheet_source_attributes"] == expected_worksheet_source_attributes
+            and before_state["cache_records_member"] == after_state["cache_records_member"]
+            and before_state["cache_records_attributes"] == (("count", "4"),)
+            and after_state["cache_records_attributes"] == (("count", "4"),)
+            and before_state["cache_record_indexes"] == ((0, 0), (0, 1), (1, 2), (1, 3))
+            and after_state["cache_record_indexes"] == ((0, 0), (0, 1), (1, 2), (1, 3))
+            and before_state["report_member"] == after_state["report_member"]
+            and before_state["pivot_table_member"] == after_state["pivot_table_member"]
+            and before_state["pivot_table_attributes"] == expected_pivot_attributes
+            and after_state["pivot_table_attributes"] == expected_pivot_attributes
+            and before_state["location_attributes"] == expected_location_attributes
+            and after_state["location_attributes"] == expected_location_attributes
+            and before_output is not None
+            and after_output is not None
+            and before_output == after_output
+            and before_output[3] is None
+            and before_output[4] is not None
+            and before_dashboard is not None
+            and after_dashboard is not None
+            and before_dashboard == after_dashboard
+            and before_dashboard[3] == dashboard_formula
+            and _pivot_cache_definition_without_refresh_on_load(baseline_path, pivot_sheet)
+            == _pivot_cache_definition_without_refresh_on_load(candidate_path, pivot_sheet)
+            and _xlsx_member_differences(baseline_path, candidate_path)
+            == {before_state["definition_member"]}
+            and _calculation_properties(baseline_path) == _calculation_properties(candidate_path)
+            and (dashboard_sheet, dashboard_cell)
+            in graph.get((pivot_sheet, pivot_output_cell), set()),
+            f"{truth['id']}: expected one relationship-bound PivotCache refresh-on-open false -> true only with stable stored report/dashboard cells",
             errors,
         )
         return

@@ -1,0 +1,45 @@
+{
+  "coverage": [
+    "The pair changes only raw pivotCacheDefinition/@refreshOnLoad. It does not edit source cells, stored PivotTable display cells, formula text, or calculation properties.",
+    "PivotTable cache refresh-on-open is stored control evidence. WCAB does not open the workbook in Excel, refresh a cache, calculate, or render the PivotTable, or claim a changed report result.",
+    "The validator reads relationship-backed raw OOXML, checks the cache/PivotTable binding and direct local dashboard edge, and treats that edge as a lower bound only if a client refresh changes the PivotTable display."
+  ],
+  "coverage_expectations": [],
+  "facts": [
+    {
+      "baseline_refresh_on_load": false,
+      "cache_id": 1,
+      "candidate_refresh_on_load": true,
+      "dashboard_cell": "B4",
+      "dashboard_formula": "=Report!$B$2",
+      "dashboard_sheet": "Dashboard",
+      "kind": "pivot_cache_refresh_on_load_changed",
+      "pivot_output_cell": "B2",
+      "pivot_ref": "A1:B2",
+      "pivot_sheet": "Report",
+      "source_ref": "A1:B5",
+      "source_sheet": "Source",
+      "source_type": "worksheet"
+    }
+  ],
+  "family": "governance",
+  "id": "governance.pivot_cache_refresh_on_open",
+  "must_reach": [
+    {
+      "source": {
+        "cell": "B2",
+        "sheet": "Report"
+      },
+      "targets": [
+        {
+          "cell": "B4",
+          "sheet": "Dashboard"
+        }
+      ]
+    }
+  ],
+  "review_expectation": "block",
+  "schema_version": 3,
+  "title": "A PivotTable cache starts refreshing when the workbook opens",
+  "topology": "pair"
+}

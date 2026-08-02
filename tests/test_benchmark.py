@@ -52,6 +52,21 @@ def _auto_filter_criteria_details() -> dict[str, object]:
     }
 
 
+def _pivot_cache_refresh_details() -> dict[str, object]:
+    before = {
+        "background_query": False,
+        "cache_id": 1,
+        "connection_id": None,
+        "opaque_metadata": {"count": 0, "present": False},
+        "refresh_enabled": True,
+        "refresh_on_load": False,
+        "save_data": True,
+        "source_type": "worksheet",
+        "upgrade_on_refresh": False,
+    }
+    return {"before": [before], "after": [{**before, "refresh_on_load": True}]}
+
+
 def test_committed_fixtures_validate() -> None:
     assert validate_all(PROJECT_ROOT / "fixtures") == {}
 
@@ -130,6 +145,26 @@ def test_committed_manifest_matches_fixture_tree() -> None:
         {
             "kind": "external_data_connection_refresh_on_load_changed",
             "connection_id": 1,
+            "baseline_refresh_on_load": False,
+            "candidate_refresh_on_load": True,
+        }
+    ]
+    pivot_cache_row = next(
+        row for row in rows if row["id"] == "governance.pivot_cache_refresh_on_open"
+    )
+    assert pivot_cache_row["facts"] == [
+        {
+            "kind": "pivot_cache_refresh_on_load_changed",
+            "cache_id": 1,
+            "source_type": "worksheet",
+            "source_sheet": "Source",
+            "source_ref": "A1:B5",
+            "pivot_sheet": "Report",
+            "pivot_ref": "A1:B2",
+            "pivot_output_cell": "B2",
+            "dashboard_sheet": "Dashboard",
+            "dashboard_cell": "B4",
+            "dashboard_formula": "=Report!$B$2",
             "baseline_refresh_on_load": False,
             "candidate_refresh_on_load": True,
         }
@@ -294,6 +329,144 @@ def test_validator_rejects_a_false_external_data_refresh_fact(tmp_path: Path) ->
     truth["facts"][0]["candidate_refresh_on_load"] = False
     truth_path.write_text(json.dumps(truth), encoding="utf-8")
     assert validate_case(case)
+
+
+def test_validator_rejects_a_false_pivot_cache_refresh_fact(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "governance" / "pivot_cache_refresh_on_open"
+    truth_path = case / "truth.json"
+    truth = json.loads(truth_path.read_text(encoding="utf-8"))
+    truth["facts"][0]["candidate_refresh_on_load"] = False
+    truth_path.write_text(json.dumps(truth), encoding="utf-8")
+    assert validate_case(case)
+
+
+def test_validator_rejects_a_corrupted_pivot_cache_refresh_flag(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = fixture_root / "governance" / "pivot_cache_refresh_on_open" / "candidate.xlsx"
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    definition_member = "xl/pivotCache/pivotCacheDefinition1.xml"
+    definition = ElementTree.fromstring(members[definition_member])
+    definition.set("refreshOnLoad", "0")
+    members[definition_member] = ElementTree.tostring(
+        definition, encoding="utf-8", xml_declaration=True
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_validator_rejects_an_unrelated_pivot_cache_control_change(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = fixture_root / "governance" / "pivot_cache_refresh_on_open" / "candidate.xlsx"
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    definition_member = "xl/pivotCache/pivotCacheDefinition1.xml"
+    definition = ElementTree.fromstring(members[definition_member])
+    definition.set("enableRefresh", "0")
+    members[definition_member] = ElementTree.tostring(
+        definition, encoding="utf-8", xml_declaration=True
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_validator_rejects_a_corrupted_pivot_cache_source_binding(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = fixture_root / "governance" / "pivot_cache_refresh_on_open" / "candidate.xlsx"
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    namespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    definition_member = "xl/pivotCache/pivotCacheDefinition1.xml"
+    definition = ElementTree.fromstring(members[definition_member])
+    source = definition.find(f".//{{{namespace}}}worksheetSource")
+    assert source is not None
+    source.set("ref", "A1:B4")
+    members[definition_member] = ElementTree.tostring(
+        definition, encoding="utf-8", xml_declaration=True
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_validator_rejects_a_corrupted_pivot_cache_records_part(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = fixture_root / "governance" / "pivot_cache_refresh_on_open" / "candidate.xlsx"
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    namespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    records_member = "xl/pivotCache/pivotCacheRecords1.xml"
+    records = ElementTree.fromstring(members[records_member])
+    second_record = records.findall(f"{{{namespace}}}r")[1]
+    second_record.findall(f"{{{namespace}}}x")[1].set("v", "3")
+    members[records_member] = ElementTree.tostring(records, encoding="utf-8", xml_declaration=True)
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_validator_rejects_a_corrupted_pivot_cache_relationship_binding(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = fixture_root / "governance" / "pivot_cache_refresh_on_open" / "candidate.xlsx"
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    relationships_member = "xl/pivotTables/_rels/pivotTable1.xml.rels"
+    relationships = ElementTree.fromstring(members[relationships_member])
+    relationship = next(
+        relationship
+        for relationship in relationships
+        if relationship.get("Id") == "rIdWCABPivotCache"
+    )
+    relationship.set("Target", "../pivotCache/pivotCacheDefinition2.xml")
+    members[relationships_member] = ElementTree.tostring(
+        relationships, encoding="utf-8", xml_declaration=True
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_pivot_cache_refresh_pair_changes_only_its_cache_definition(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "governance" / "pivot_cache_refresh_on_open"
+    with ZipFile(case / "baseline.xlsx") as baseline, ZipFile(case / "candidate.xlsx") as candidate:
+        baseline_members = {
+            entry.filename: baseline.read(entry.filename) for entry in baseline.infolist()
+        }
+        candidate_members = {
+            entry.filename: candidate.read(entry.filename) for entry in candidate.infolist()
+        }
+    assert set(baseline_members) == set(candidate_members)
+    assert [
+        member
+        for member in sorted(baseline_members)
+        if baseline_members[member] != candidate_members[member]
+    ] == ["xl/pivotCache/pivotCacheDefinition1.xml"]
 
 
 def test_validator_rejects_a_false_external_workbook_link_policy_fact(tmp_path: Path) -> None:
@@ -1334,6 +1507,62 @@ def test_formulafence_adapter_requires_the_auto_filter_finding(monkeypatch, tmp_
     assert result["status"] == "missed"
     assert result["matched"] == []
     assert result["missed"] == ["auto_filter_criteria_changed"]
+
+
+def test_formulafence_adapter_maps_the_exact_pivot_cache_refresh_change(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _pivot_cache_refresh_details()
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "pivot_cache_refresh_controls_changed",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF023", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "pivot_cache_refresh_on_open"
+    )
+    assert result["status"] == "matched"
+    assert result["matched"] == ["pivot_cache_refresh_on_load_changed"]
+
+
+def test_formulafence_adapter_requires_the_pivot_cache_refresh_finding(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "pivot_cache_refresh_controls_changed",
+                    "location": None,
+                    "details": _pivot_cache_refresh_details(),
+                }
+            ],
+            "findings": [],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "pivot_cache_refresh_on_open"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["pivot_cache_refresh_on_load_changed"]
 
 
 def test_formulafence_adapter_maps_the_exact_formula_cached_result_change(

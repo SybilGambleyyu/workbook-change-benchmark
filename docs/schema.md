@@ -15,10 +15,11 @@ WCAB 0.9 adds an unchanged direct circular formula whose stored iterative
 calculation setting changes, WCAB 0.10 adds a precision-as-displayed
 calculation control change without a cell edit, and WCAB 0.11 adds a raw saved
 formula-result change without a formula or input edit. WCAB 0.12 adds a raw
-workbook serial-date-system control change with unchanged cell content, and
-WCAB 0.13 adds an active worksheet AutoFilter criterion change with unchanged
-cell content and formulas. Version 2 remains available in the immutable v0.2.0
-and v0.3.0 releases.
+workbook serial-date-system control change with unchanged cell content, WCAB
+0.13 adds an active worksheet AutoFilter criterion change with unchanged cell
+content and formulas, and WCAB 0.14 adds a relationship-backed PivotTable cache
+refresh-on-open control change with unchanged stored cells. Version 2 remains
+available in the immutable v0.2.0 and v0.3.0 releases.
 
 ```json
 {
@@ -62,6 +63,7 @@ Facts are observed directly from the fixture files by `wcab validate`.
 | `workbook_date_system_changed` | `baseline_date_1904`, `candidate_date_1904`, `date_compatibility`, `serial_sheet`, `serial_cell`, `serial_value`, `number_format`, `formula_sheet`, `formula_cell`, `formula`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | Raw `workbookPr/@date1904` changes from `false` to `true` while explicit compatibility remains `true`; the raw numeric serial, custom date format, local formulas, and every package member except `xl/workbook.xml` remain unchanged. The validator does not calculate, convert, or infer displayed dates. |
 | `formula_cached_result_changed` | `sheet`, `cell`, `formula`, `input_sheet`, `input_cell`, `input_value`, `result_type`, `baseline_cached_result`, `candidate_cached_result` | One raw numeric formula-cell `<v>` value changes while its raw `<f>` expression, direct input, calculation properties, and every other package member remain unchanged. The validator reads OOXML only; it does not calculate, validate, or interpret the saved result. |
 | `external_data_connection_refresh_on_load_changed` | `connection_id`, `baseline_refresh_on_load`, `candidate_refresh_on_load` | The relationship-backed connection with this workbook-local ID explicitly changes `refreshOnLoad` from `false` to `true`. The validator reads raw OOXML only. |
+| `pivot_cache_refresh_on_load_changed` | `cache_id`, `source_type`, `source_sheet`, `source_ref`, `pivot_sheet`, `pivot_ref`, `pivot_output_cell`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula`, `baseline_refresh_on_load`, `candidate_refresh_on_load` | One relationship-bound local worksheet PivotCache changes raw `refreshOnLoad` from `false` to `true`; its source binding, PivotTable location, stored report/dashboard cells, calculation properties, and every package member except its cache definition remain unchanged. The validator neither refreshes nor renders a PivotTable. |
 | `external_workbook_link_update_policy_changed` | `sheet`, `cell`, `formula`, `baseline_update_links`, `candidate_update_links` | The declared external-workbook formula remains unchanged while raw `workbookPr/@updateLinks` changes exactly from `never` to `always`; all other stored `workbookPr` attributes are unchanged. The validator does not resolve the source workbook. |
 | `array_formula_mode_changed` | `sheet`, `cell`, `formula`, `baseline_mode`, `candidate_mode`, `baseline_output_range`, `candidate_output_range` | The declared unchanged array anchor moves from `legacy_cse` to `dynamic`, with its stored formula text and output range exactly as declared. The validator reads the raw OOXML cell-metadata binding. |
 | `static_cycle_introduced` | `cells` | Every declared direct A1 cell reaches itself in the local static dependency graph. |
@@ -91,6 +93,24 @@ part. It does not open a connection, test credentials or Trust Center policy,
 retrieve data, calculate formulas, or infer a downstream result. Connection
 paths, URLs, names, commands, and credentials are deliberately not truth
 fields.
+
+## PivotTable cache refresh-on-open
+
+Microsoft documents a PivotTable option to [refresh data when the workbook
+opens](https://support.microsoft.com/en-us/excel/refresh-pivottable-data), and
+the Open XML [`pivotCacheDefinition` reference](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.spreadsheet.pivotcachedefinition?view=openxml-3.0.1)
+defines `refreshOnLoad` as the cache-level stored control. A cache can be shared
+by PivotTables, so a change to this request is review-material even when no
+worksheet cell or formula text changes.
+
+WCAB's original fixture has one local worksheet cache: `Source!A1:B5` binds to
+a PivotTable at `Report!A1:B2`, whose stored `B2` display cell is directly
+referenced by `Dashboard!B4`. The validator follows only that local OOXML
+relationship graph, verifies the cache definition changes solely at
+`refreshOnLoad`, and checks the stored cells and direct dashboard formula stay
+fixed. It does not open a workbook in Excel, refresh a cache, calculate or
+render the PivotTable, infer a visible result, or claim whether any client will
+honor the request.
 
 ## External-workbook link update policy
 

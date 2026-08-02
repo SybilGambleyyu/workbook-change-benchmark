@@ -44,6 +44,7 @@ _FACT_TO_CHANGE: dict[str, tuple[str, str | None]] = {
         "external_data_connections_changed",
         None,
     ),
+    "pivot_cache_refresh_on_load_changed": ("pivot_cache_refresh_controls_changed", None),
     "external_workbook_link_update_policy_changed": (
         "external_data_refresh_settings_changed",
         None,
@@ -403,6 +404,59 @@ def _auto_filter_criteria_finding_observed(finding: dict[str, Any], fact: dict[s
     )
 
 
+def _pivot_cache_refresh_details_observed(details: Any, fact: dict[str, Any]) -> bool:
+    """Require FormulaFence's exact redacted PivotCache control transition."""
+
+    if (
+        fact.get("cache_id") != 1
+        or fact.get("source_type") != "worksheet"
+        or fact.get("source_sheet") != "Source"
+        or fact.get("source_ref") != "A1:B5"
+        or fact.get("pivot_sheet") != "Report"
+        or fact.get("pivot_ref") != "A1:B2"
+        or fact.get("pivot_output_cell") != "B2"
+        or fact.get("dashboard_sheet") != "Dashboard"
+        or fact.get("dashboard_cell") != "B4"
+        or fact.get("dashboard_formula") != "=Report!$B$2"
+        or fact.get("baseline_refresh_on_load") is not False
+        or fact.get("candidate_refresh_on_load") is not True
+    ):
+        return False
+    if not isinstance(details, dict):
+        return False
+    expected_before = [
+        {
+            "background_query": False,
+            "cache_id": 1,
+            "connection_id": None,
+            "opaque_metadata": {"count": 0, "present": False},
+            "refresh_enabled": True,
+            "refresh_on_load": False,
+            "save_data": True,
+            "source_type": "worksheet",
+            "upgrade_on_refresh": False,
+        }
+    ]
+    expected_after = [{**expected_before[0], "refresh_on_load": True}]
+    return details == {"before": expected_before, "after": expected_after}
+
+
+def _pivot_cache_refresh_observed(change: dict[str, Any], fact: dict[str, Any]) -> bool:
+    """Match FormulaFence's dedicated PivotCache control record."""
+
+    return change.get("kind") == "pivot_cache_refresh_controls_changed" and (
+        _pivot_cache_refresh_details_observed(change.get("details"), fact)
+    )
+
+
+def _pivot_cache_refresh_finding_observed(finding: dict[str, Any], fact: dict[str, Any]) -> bool:
+    """Require FormulaFence's matching high-severity FF023 finding."""
+
+    return finding.get("rule_id") == "FF023" and _pivot_cache_refresh_details_observed(
+        finding.get("details"), fact
+    )
+
+
 def _formula_cached_result_details_observed(details: Any, fact: dict[str, Any]) -> bool:
     """Match FormulaFence's intentionally redacted saved-result details.
 
@@ -636,6 +690,16 @@ def evaluate_diff_case(case_dir: str | Path, *, executable: str = "formulafence"
                 if isinstance(change, dict)
             ) and any(
                 _auto_filter_criteria_finding_observed(finding, fact)
+                for finding in findings
+                if isinstance(finding, dict)
+            )
+        if kind == "pivot_cache_refresh_on_load_changed":
+            observed = any(
+                _pivot_cache_refresh_observed(change, fact)
+                for change in changes
+                if isinstance(change, dict)
+            ) and any(
+                _pivot_cache_refresh_finding_observed(finding, fact)
                 for finding in findings
                 if isinstance(finding, dict)
             )

@@ -34,7 +34,7 @@ gates, static analyzers, and agent workflows that propose workbook edits.
 
 ## Scope and non-goals
 
-Version `0.13` covers formula-to-value replacements, formula reference drift,
+Version `0.14` covers formula-to-value replacements, formula reference drift,
 value changes with downstream effects, external formula references, named
 ranges, data validation, conditional formatting, sheet visibility, direct cell
 protection, calculation settings, static cycles, portfolio dependencies,
@@ -60,6 +60,12 @@ It also covers an active worksheet AutoFilter criterion moving from `North` to
 remain unchanged. It records the stored control only: it does not apply a
 filter, calculate a subtotal, infer visible rows, or claim a display or print
 outcome.
+It also covers a local worksheet-backed PivotTable cache whose raw
+`refreshOnLoad` control changes from false to true while its source cells,
+stored `Report!A1:B2` display cells, and `Dashboard!B4=Report!$B$2` consumer
+remain unchanged. It records only the stored open-time request: it does not
+open Excel, refresh the cache, calculate or render the PivotTable, or claim a
+changed report result.
 
 The benchmark does **not** evaluate formula execution or claim that a
 candidate's numerical results are correct.  A case's `review_expectation` is a
@@ -170,6 +176,13 @@ the introduced-dynamic case from FormulaFence's native warning, maps the
 unchanged-formula driver cases from the observed input change plus the
 candidate profile's dynamic-reference feature, and checks the exact
 connection-level refresh-on-open transition in FormulaFence's `FF023` evidence.
+It separately requires FormulaFence's `pivot_cache_refresh_controls_changed`
+record and matching `FF023` for the local worksheet-backed PivotCache case.
+FormulaFence safely reports cache-level source/control metadata rather than
+source cells or rendered PivotTable output; WCAB's raw validator independently
+proves the cache/PivotTable relationship binding, stable stored cells, direct
+dashboard edge, and cache-definition-only package change. Neither layer
+refreshes or renders the PivotTable.
 It separately requires the exact isolated external-workbook policy transition
 from `never` to `always` in `FF023` evidence. For the array-mode case, it
 requires the exact legacy-CSE-to-dynamic transition and output range in

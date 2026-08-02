@@ -180,7 +180,15 @@ native `value_changed` record and the candidate profile's
 `dynamic_reference_cells` feature. For the external-data refresh case, it
 requires FormulaFence's `external_data_connections_changed` details to contain
 the exact connection ID and `refresh_on_load` false-to-true transition; the
-stored control is a fact, not a coverage declaration. For the external-workbook
+stored control is a fact, not a coverage declaration. For the PivotCache case,
+it requires one exact
+`pivot_cache_refresh_controls_changed` record and matching `FF023`: its
+redacted cache-level profile must retain the worksheet source type, cache ID,
+and all controls except `refresh_on_load`, which moves from `false` to `true`.
+WCAB's raw validator—not the adapter—then establishes the `Source!A1:B5`
+binding, `Report!A1:B2` PivotTable location, stable stored report/dashboard
+cells, direct dashboard edge, and cache-definition-only package change.
+Neither report refreshes or renders a PivotTable. For the external-workbook
 link policy case, it requires the exact `external_data_refresh_settings_changed`
 details: `update_links` moves from `never` to `always`, while the three other
 workbook-wide refresh controls retain their defaults. For the array-mode case,

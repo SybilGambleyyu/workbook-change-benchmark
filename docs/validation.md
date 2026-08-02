@@ -1,6 +1,6 @@
 # Validation record
 
-This record describes the WCAB 0.13.0 / schema-version-3 validation run on
+This record describes the WCAB 0.14.0 / schema-version-3 validation run on
 2026-08-03. It is reproducible from this repository; no network service or
 private workbook is required.
 
@@ -32,20 +32,27 @@ wcab validate --fixtures fixtures
 
 Results:
 
-- 28 cases: 27 paired-workbook cases and one directory portfolio case.
-- 30 observable truth facts across 23 `block` and five `review` cases.
+- 29 cases: 28 paired-workbook cases and one directory portfolio case.
+- 31 observable truth facts across 24 `block` and five `review` cases.
 - Three scoreable coverage expectations: one newly introduced `INDIRECT`
   boundary and two unchanged-formula selector changes (`INDIRECT` address text
   and `OFFSET` column displacement).
-- 87 generated fixture files: 58 workbooks, 28 truth manifests, and one JSONL
+- 90 generated fixture files: 60 workbooks, 29 truth manifests, and one JSONL
   case catalogue, all generated from source.
-- Seventy-one unit tests passed locally under Python 3.13, including
+- Eighty unit tests passed locally under Python 3.13, including
   independent regeneration and byte-for-byte fixture-tree equality.
-- The fixture validator accepted all 28 cases.
+- The fixture validator accepted all 29 cases.
 - The external-data pair has identical package members except for
   `xl/connections.xml`; both archives pass ZIP integrity checks and remain
   readable by openpyxl. Its relationship-backed source is a non-routable
   `example.invalid` URL.
+- The PivotCache pair has identical package members except for
+  `xl/pivotCache/pivotCacheDefinition1.xml`; both archives pass ZIP integrity
+  checks and remain readable by openpyxl. Its local `Source!A1:B5` worksheet
+  binding, `Report!A1:B2` PivotTable location, stored display cells, and direct
+  `Dashboard!B4` formula are unchanged while raw `refreshOnLoad` changes from
+  false to true. The validation run did not open Excel, refresh a cache,
+  calculate or render a PivotTable, or infer a report result.
 - The external-workbook-link policy pair has identical package members except
   for `xl/workbook.xml`; both archives pass ZIP integrity checks and remain
   readable by openpyxl. Its unchanged `LinkedModel!B2` formula names the
@@ -92,7 +99,7 @@ Results:
 
 ## Distribution supplement
 
-The 0.13.0 release retains the one-row-per-case `manifest.jsonl` catalogue and
+The 0.14.0 release retains the one-row-per-case `manifest.jsonl` catalogue and
 the tool-neutral observation protocol at version 2. Each catalogue row retains
 the schema-version-3 truth contract and includes byte counts and SHA-256
 digests for the workbooks it names.
@@ -100,11 +107,11 @@ digests for the workbooks it names.
 Commands:
 
 ```bash
-python -m build --outdir /tmp/wcab-v013-dist
-twine check /tmp/wcab-v013-dist/*
+python -m build --outdir /tmp/wcab-v014-dist
+twine check /tmp/wcab-v014-dist/*
 python -m venv /tmp/wcab-wheel-test
 /tmp/wcab-wheel-test/bin/python -m pip install \
-  /tmp/wcab-v013-dist/workbook_change_benchmark-0.13.0-py3-none-any.whl
+  /tmp/wcab-v014-dist/workbook_change_benchmark-0.14.0-py3-none-any.whl
 /tmp/wcab-wheel-test/bin/wcab validate --fixtures fixtures
 /tmp/wcab-wheel-test/bin/wcab manifest --fixtures fixtures --output /tmp/manifest.jsonl
 cmp fixtures/manifest.jsonl /tmp/manifest.jsonl
@@ -118,14 +125,14 @@ Results:
 
 - The source distribution and universal wheel passed `twine check`.
 - Fresh Python 3.13 wheel and source-distribution installations both reported
-  version 0.13.0 and validated all 28 fixtures; the wheel emitted
+  version 0.14.0 and validated all 29 fixtures; the wheel emitted
   byte-identical JSONL output.
-- The full seventy-one-test suite, lint, and format checks passed locally under
+- The full eighty-test suite, lint, and format checks passed locally under
   Python 3.13 and in hosted release CI under Python 3.10 and 3.13.
 - The generated unsupported template scored as zero analyzed coverage, zero
   expected-fact recall, and zero coverage-disclosure recall, confirming that
   unsupported cases cannot become a pass.
-- The FormulaFence normalizer emitted 29 matched facts, one intentionally
+- The FormulaFence normalizer emitted 30 matched facts, one intentionally
   unmapped fact, three matched coverage declarations, and no invented review
   disposition.
 
@@ -140,9 +147,9 @@ wcab formulafence --fixtures fixtures --strict
 
 Results:
 
-- All 29 currently mappable diff/portfolio facts were observed.
+- All 30 currently mappable diff/portfolio facts were observed.
 - All three mappable coverage expectations were matched; no mapped fact,
-  coverage expectation, or targeted lint rule was missed across all 28 cases.
+  coverage expectation, or targeted lint rule was missed across all 29 cases.
 - The schema-version-2 structured Table scope case was observed as a
   `table_definition_changed` diff, even though its summary formula text stays
   unchanged.
@@ -157,6 +164,13 @@ Results:
   `external_data_connections_changed` connection-ID-1 `refresh_on_load`
   false-to-true transition and `FF023`. The report omitted the synthetic
   connection name and endpoint; neither tool opened or refreshed it.
+- The WCAB 0.14 PivotCache case was observed as one exact
+  `pivot_cache_refresh_controls_changed` record and `FF023`. FormulaFence's
+  redacted profile retained one local worksheet cache, ID 1, and all reported
+  controls except `refresh_on_load`, which changed from false to true; it
+  emitted no parser warning. WCAB's independent raw validation established the
+  source and PivotTable binding, stable stored cells, and cache-definition-only
+  package change. Neither report refreshed or rendered a PivotTable.
 - The WCAB 0.8 external-workbook-link policy case was observed as one exact
   `external_data_refresh_settings_changed` transition in `FF023`: only
   `update_links` moved from `never` to `always`; `allow_refresh_query`,
