@@ -34,15 +34,16 @@ gates, static analyzers, and agent workflows that propose workbook edits.
 
 ## Scope and non-goals
 
-Version `0.5` covers formula-to-value replacements, formula reference drift,
+Version `0.6` covers formula-to-value replacements, formula reference drift,
 value changes with downstream effects, external formula references, named
 ranges, data validation, conditional formatting, sheet visibility, direct cell
 protection, calculation settings, static cycles, portfolio dependencies,
 formula refactors, 3-D-reference scope changes, and Excel Table scope changes
 that leave a structured-reference formula textually unchanged. It also covers
 new `INDIRECT` references whose dependency target comes from workbook text,
-plus unchanged `INDIRECT` and `OFFSET` formulas whose address or displacement
-driver changes.
+unchanged `INDIRECT` and `OFFSET` formulas whose address or displacement driver
+changes, and an external-data connection whose refresh-on-open behavior changes
+without any worksheet-cell edit.
 
 The benchmark does **not** evaluate formula execution or claim that a
 candidate's numerical results are correct.  A case's `review_expectation` is a
@@ -149,11 +150,12 @@ wcab formulafence --fixtures fixtures --strict
 ```
 
 It runs only local commands against the synthetic fixtures. The adapter maps
-the introduced-dynamic case from FormulaFence's native warning and maps the
+the introduced-dynamic case from FormulaFence's native warning, maps the
 unchanged-formula driver cases from the observed input change plus the
-candidate profile's dynamic-reference feature. It keeps unmapped facts
-explicit; it does not treat the benign structural-rewrite annotation as a
-generic semantic-equivalence claim.
+candidate profile's dynamic-reference feature, and checks the exact
+connection-level refresh-on-open transition in FormulaFence's `FF023` evidence.
+It keeps unmapped facts explicit; it does not treat the benign structural-rewrite
+annotation as a generic semantic-equivalence claim.
 
 ## Reproducibility
 

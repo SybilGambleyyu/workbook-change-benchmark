@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Any
+from xml.etree import ElementTree
 from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 from openpyxl import Workbook
@@ -30,6 +31,11 @@ _FIXED_TIMESTAMP = datetime(2024, 1, 1, tzinfo=timezone.utc)
 _CORE_MODIFIED = re.compile(rb"(<dcterms:modified\b[^>]*>)[^<]*(</dcterms:modified>)")
 WorkbookFactory = Callable[[], Workbook]
 WorkbookMutator = Callable[[Workbook], None]
+ArchiveMutator = Callable[[dict[str, bytes]], None]
+_SPREADSHEETML_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+_PACKAGE_RELATIONSHIPS_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
+_DOCUMENT_RELATIONSHIPS_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+_CONTENT_TYPES_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
 
 
 def _configure_workbook(workbook: Workbook, *, title: str) -> None:
@@ -43,16 +49,9 @@ def _configure_workbook(workbook: Workbook, *, title: str) -> None:
     workbook.calculation.forceFullCalc = False
 
 
-def _canonicalize_xlsx(path: Path) -> None:
-    """Rewrite a generated XLSX with stable ZIP order and timestamps.
+def _write_canonical_xlsx_members(path: Path, members: dict[str, bytes]) -> None:
+    """Write OOXML package members with stable ordering and metadata."""
 
-    Openpyxl's XML generation is deterministic for the supported dependency
-    versions, but ZIP member timestamps otherwise make byte-for-byte fixture
-    reproduction impossible.
-    """
-
-    with ZipFile(path, "r") as source:
-        members = {info.filename: source.read(info.filename) for info in source.infolist()}
     core_properties = members.get("docProps/core.xml")
     if core_properties is not None:
         members["docProps/core.xml"] = _CORE_MODIFIED.sub(
@@ -71,6 +70,28 @@ def _canonicalize_xlsx(path: Path) -> None:
         temporary.replace(path)
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def _canonicalize_xlsx(path: Path) -> None:
+    """Rewrite a generated XLSX with stable ZIP order and timestamps.
+
+    Openpyxl's XML generation is deterministic for the supported dependency
+    versions, but ZIP member timestamps otherwise make byte-for-byte fixture
+    reproduction impossible.
+    """
+
+    with ZipFile(path, "r") as source:
+        members = {info.filename: source.read(info.filename) for info in source.infolist()}
+    _write_canonical_xlsx_members(path, members)
+
+
+def _rewrite_xlsx_parts(path: Path, mutate: ArchiveMutator) -> None:
+    """Apply a deterministic, raw-OOXML fixture mutation to an XLSX package."""
+
+    with ZipFile(path, "r") as source:
+        members = {info.filename: source.read(info.filename) for info in source.infolist()}
+    mutate(members)
+    _write_canonical_xlsx_members(path, members)
 
 
 def _save_workbook(workbook: Workbook, path: Path) -> None:
@@ -356,6 +377,94 @@ def _dynamic_reference_driver_workbook(*, function: str, driver_value: str | int
     dashboard["A1"] = "Board output"
     dashboard["B4"] = "=Summary!$B$2"
     return workbook
+
+
+def _external_data_refresh_workbook() -> Workbook:
+    """Build a workbook whose raw connection control is added after saving.
+
+    The cells intentionally remain ordinary static data and formulas. The case
+    isolates the stored external-data refresh setting rather than pretending to
+    fetch a source or calculate an imported result.
+    """
+
+    workbook = Workbook()
+    _configure_workbook(workbook, title="WCAB external data refresh fixture")
+    data = workbook.active
+    data.title = "ImportedData"
+    data["A1"] = "Saved imported revenue"
+    data["B2"] = 100
+
+    summary = workbook.create_sheet("Summary")
+    summary["A1"] = "Saved imported revenue"
+    summary["B2"] = "=ImportedData!$B$2"
+
+    dashboard = workbook.create_sheet("Dashboard")
+    dashboard["A1"] = "Board output"
+    dashboard["B4"] = "=Summary!$B$2"
+    return workbook
+
+
+def _add_external_data_connection(path: Path, *, refresh_on_load: bool) -> None:
+    """Add one relationship-backed, non-routable external-data connection.
+
+    A reserved ``.invalid`` URL makes the generated package inspectable while
+    ensuring the benchmark fixture never names a real provider. The only
+    baseline/candidate difference is the connection's ``refreshOnLoad`` flag.
+    """
+
+    def serialize(root: ElementTree.Element) -> bytes:
+        return ElementTree.tostring(root, encoding="utf-8", xml_declaration=True)
+
+    def mutate(members: dict[str, bytes]) -> None:
+        content_types = ElementTree.fromstring(members["[Content_Types].xml"])
+        override_tag = f"{{{_CONTENT_TYPES_NS}}}Override"
+        if not any(item.get("PartName") == "/xl/connections.xml" for item in content_types):
+            ElementTree.SubElement(
+                content_types,
+                override_tag,
+                {
+                    "PartName": "/xl/connections.xml",
+                    "ContentType": (
+                        "application/vnd.openxmlformats-officedocument."
+                        "spreadsheetml.connections+xml"
+                    ),
+                },
+            )
+        members["[Content_Types].xml"] = serialize(content_types)
+
+        relationships = ElementTree.fromstring(members["xl/_rels/workbook.xml.rels"])
+        relationship_tag = f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationship"
+        ElementTree.SubElement(
+            relationships,
+            relationship_tag,
+            {
+                "Id": "rIdWCABExternalDataConnection",
+                "Type": f"{_DOCUMENT_RELATIONSHIPS_NS}/connections",
+                "Target": "connections.xml",
+            },
+        )
+        members["xl/_rels/workbook.xml.rels"] = serialize(relationships)
+
+        connections = ElementTree.Element(f"{{{_SPREADSHEETML_NS}}}connections")
+        connection = ElementTree.SubElement(
+            connections,
+            f"{{{_SPREADSHEETML_NS}}}connection",
+            {
+                "id": "1",
+                "name": "WCAB synthetic external-data connection",
+                "type": "4",
+                "refreshedVersion": "1",
+                "refreshOnLoad": "1" if refresh_on_load else "0",
+            },
+        )
+        ElementTree.SubElement(
+            connection,
+            f"{{{_SPREADSHEETML_NS}}}webPr",
+            {"url": "https://example.invalid/wcab-external-data-refresh"},
+        )
+        members["xl/connections.xml"] = serialize(connections)
+
+    _rewrite_xlsx_parts(path, mutate)
 
 
 def _portfolio_workbook(*, driver_value: int) -> tuple[Workbook, Workbook]:
@@ -679,6 +788,40 @@ def _build_governance_static_cycle(root: Path) -> None:
     )
 
 
+def _build_governance_external_data_refresh(root: Path) -> None:
+    """Build a pair that differs only in a raw connection refresh control."""
+
+    directory = root / "governance" / "external_data_refresh_on_open"
+    directory.mkdir(parents=True, exist_ok=True)
+    baseline = directory / "baseline.xlsx"
+    candidate = directory / "candidate.xlsx"
+    _save_workbook(_external_data_refresh_workbook(), baseline)
+    _save_workbook(_external_data_refresh_workbook(), candidate)
+    _add_external_data_connection(baseline, refresh_on_load=False)
+    _add_external_data_connection(candidate, refresh_on_load=True)
+    _write_json(
+        directory / "truth.json",
+        _truth(
+            case_id="governance.external_data_refresh_on_open",
+            title="An external-data connection starts refreshing when the workbook opens",
+            family="governance",
+            review_expectation="block",
+            facts=[
+                {
+                    "kind": "external_data_connection_refresh_on_load_changed",
+                    "connection_id": 1,
+                    "baseline_refresh_on_load": False,
+                    "candidate_refresh_on_load": True,
+                }
+            ],
+            coverage=[
+                "The connection endpoint is synthetic and non-routable; the benchmark never opens it or tests credentials, trust, or returned data.",
+                "The observable contract is the stored refresh-on-open control, not a claim that downstream saved values will recalculate.",
+            ],
+        ),
+    )
+
+
 def _build_structural_three_d_scope(root: Path) -> None:
     directory = root / "structural" / "three_d_scope_expansion"
     directory.mkdir(parents=True, exist_ok=True)
@@ -940,6 +1083,7 @@ _BUILDERS: tuple[Callable[[Path], None], ...] = (
     _build_governance_protection,
     _build_governance_manual_calculation,
     _build_governance_static_cycle,
+    _build_governance_external_data_refresh,
     _build_structural_three_d_scope,
     _build_structural_formula_rewrite,
     _build_structural_table_scope,
@@ -962,6 +1106,7 @@ CASE_IDS = (
     "governance.formula_cell_unlocked",
     "governance.manual_calculation_incomplete",
     "governance.static_cycle_introduced",
+    "governance.external_data_refresh_on_open",
     "structural.three_d_scope_expansion",
     "structural.formula_rewrite_after_column_insert",
     "structural.structured_table_scope_expansion",

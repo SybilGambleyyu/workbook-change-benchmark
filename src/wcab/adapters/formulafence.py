@@ -34,6 +34,10 @@ _FACT_TO_CHANGE: dict[str, tuple[str, str | None]] = {
     "sheet_visibility_changed": ("sheet_visibility_changed", None),
     "formula_cell_unlocked": ("cell_protection_assignments_changed", None),
     "manual_calculation_incomplete": ("calculation_settings_changed", None),
+    "external_data_connection_refresh_on_load_changed": (
+        "external_data_connections_changed",
+        None,
+    ),
     "static_cycle_introduced": ("formula_changed", None),
     "three_d_scope_changed": ("three_d_reference_scope_changed", "formula_location"),
     "structured_table_scope_changed": ("table_definition_changed", None),
@@ -177,6 +181,46 @@ def _coverage_evidence(expectation: dict[str, Any]) -> dict[str, str] | None:
     return None
 
 
+def _external_data_connection_refresh_on_load_observed(
+    change: dict[str, Any], fact: dict[str, Any]
+) -> bool:
+    """Match FormulaFence's private control summary to the exact WCAB fact."""
+
+    if change.get("kind") != "external_data_connections_changed":
+        return False
+    connection_id = fact.get("connection_id")
+    before_refresh_on_load = fact.get("baseline_refresh_on_load")
+    after_refresh_on_load = fact.get("candidate_refresh_on_load")
+    if (
+        not isinstance(connection_id, int)
+        or not isinstance(before_refresh_on_load, bool)
+        or not isinstance(after_refresh_on_load, bool)
+    ):
+        return False
+    details = change.get("details")
+    if not isinstance(details, dict):
+        return False
+    before_connections = details.get("before")
+    after_connections = details.get("after")
+    if not isinstance(before_connections, list) or not isinstance(after_connections, list):
+        return False
+
+    def refresh_value(connections: list[Any]) -> bool | None:
+        matches = [
+            connection
+            for connection in connections
+            if isinstance(connection, dict) and connection.get("id") == connection_id
+        ]
+        if len(matches) != 1 or not isinstance(matches[0].get("refresh_on_load"), bool):
+            return None
+        return matches[0]["refresh_on_load"]
+
+    return (
+        refresh_value(before_connections) is before_refresh_on_load
+        and refresh_value(after_connections) is after_refresh_on_load
+    )
+
+
 def _portfolio_entry(report: dict[str, Any], path: str) -> dict[str, Any] | None:
     workbooks = report.get("workbooks", [])
     if not isinstance(workbooks, list):
@@ -285,6 +329,12 @@ def evaluate_diff_case(case_dir: str | Path, *, executable: str = "formulafence"
             for change in changes
             if isinstance(change, dict)
         )
+        if kind == "external_data_connection_refresh_on_load_changed":
+            observed = any(
+                _external_data_connection_refresh_on_load_observed(change, fact)
+                for change in changes
+                if isinstance(change, dict)
+            )
         (matched if observed else missed).append(str(kind))
 
     coverage_expectations = truth.get("coverage_expectations", [])

@@ -7,8 +7,9 @@ source.
 Version 3 adds `coverage_expectations`: machine-matchable disclosures for
 important analysis boundaries. WCAB 0.5 extends that same stable envelope with
 cases where an unchanged `INDIRECT` or `OFFSET` formula receives a changed
-selector. Version 2 remains available in the immutable v0.2.0 and v0.3.0
-releases.
+selector, and WCAB 0.6 adds a relationship-backed external-data
+refresh-on-open fact. Version 2 remains available in the immutable v0.2.0 and
+v0.3.0 releases.
 
 ```json
 {
@@ -46,6 +47,7 @@ Facts are observed directly from the fixture files by `wcab validate`.
 | `sheet_visibility_changed` | `sheet`, `baseline_state`, `candidate_state` | The stored sheet state changes. |
 | `formula_cell_unlocked` | `sheet`, `cell` | A formula cell is explicitly unlocked while its sheet remains protected. |
 | `manual_calculation_incomplete` | none | Candidate calculation metadata is `manual` and records incomplete calculation. |
+| `external_data_connection_refresh_on_load_changed` | `connection_id`, `baseline_refresh_on_load`, `candidate_refresh_on_load` | The relationship-backed connection with this workbook-local ID explicitly changes `refreshOnLoad` from `false` to `true`. The validator reads raw OOXML only. |
 | `static_cycle_introduced` | `cells` | Every declared direct A1 cell reaches itself in the local static dependency graph. |
 | `three_d_scope_changed` | `formula_sheet`, `formula_cell`, `inserted_sheet`, `after_sheet`, `before_sheet` | Formula text remains unchanged while a sheet is inserted inside the declared tab span. |
 | `structural_formula_rewrite` | `baseline`, `candidate` | Declared before/after formula locations and text exist. This is an annotation, not a general proof of equivalence. |
@@ -61,6 +63,18 @@ sheet and cell. The bundled validator uses only direct, ordinary local A1
 references and walks the resulting graph. The targets are therefore lower
 bounds: no result implies a complete Excel dependency calculation, a formula
 evaluation, dynamic-reference resolution, or a claim about cached values.
+
+## External-data refresh controls
+
+Excel documents that a connection can [refresh external data when the workbook
+opens](https://support.microsoft.com/en-us/excel/connection-properties), which
+can update data outside a normal worksheet formula edit. WCAB's connection case
+uses a synthetic, non-routable endpoint and validates the stored
+`refreshOnLoad` attribute through its relationship-backed `connections.xml`
+part. It does not open a connection, test credentials or Trust Center policy,
+retrieve data, calculate formulas, or infer a downstream result. Connection
+paths, URLs, names, commands, and credentials are deliberately not truth
+fields.
 
 ## Scoreable coverage expectations
 

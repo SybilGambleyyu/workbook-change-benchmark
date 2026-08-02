@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.0 — 2026-08-02
+
+- Add a deterministic relationship-backed external-data connection case where
+  only `refreshOnLoad` changes from false to true. The endpoint is synthetic
+  and non-routable; WCAB neither opens it nor claims a calculated result.
+- Add the `external_data_connection_refresh_on_load_changed` fact and raw-OOXML
+  validator for the exact workbook-local connection ID and transition.
+- Extend the optional FormulaFence adapter to require the matching `FF023`
+  control details, rather than treating an arbitrary connection change as the
+  fact.
+
 ## 0.5.0 — 2026-08-02
 
 - Add deterministic `INDIRECT` address-driver and `OFFSET` displacement-driver

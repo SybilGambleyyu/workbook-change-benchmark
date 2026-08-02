@@ -73,6 +73,17 @@ def test_committed_manifest_matches_fixture_tree() -> None:
             "functions": ["INDIRECT"],
         }
     ]
+    external_data_row = next(
+        row for row in rows if row["id"] == "governance.external_data_refresh_on_open"
+    )
+    assert external_data_row["facts"] == [
+        {
+            "kind": "external_data_connection_refresh_on_load_changed",
+            "connection_id": 1,
+            "baseline_refresh_on_load": False,
+            "candidate_refresh_on_load": True,
+        }
+    ]
     assert (fixture_root / "manifest.jsonl").read_text(encoding="utf-8") == manifest_text(rows)
 
 
@@ -124,6 +135,17 @@ def test_validator_rejects_a_false_dynamic_reference_driver_expectation(tmp_path
     truth_path = case / "truth.json"
     truth = json.loads(truth_path.read_text(encoding="utf-8"))
     truth["coverage_expectations"][0]["formula"]["cell"] = "B3"
+    truth_path.write_text(json.dumps(truth), encoding="utf-8")
+    assert validate_case(case)
+
+
+def test_validator_rejects_a_false_external_data_refresh_fact(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "governance" / "external_data_refresh_on_open"
+    truth_path = case / "truth.json"
+    truth = json.loads(truth_path.read_text(encoding="utf-8"))
+    truth["facts"][0]["candidate_refresh_on_load"] = False
     truth_path.write_text(json.dumps(truth), encoding="utf-8")
     assert validate_case(case)
 
@@ -227,6 +249,63 @@ def test_formulafence_adapter_maps_dynamic_driver_coverage_from_profile(
     assert result["matched"] == ["value_changed"]
     assert len(result["matched_coverage_expectations"]) == 1
     assert result["missed_coverage_expectations"] == []
+
+
+def test_formulafence_adapter_maps_external_data_refresh_fact(monkeypatch, tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "external_data_connections_changed",
+                    "location": None,
+                    "details": {
+                        "before": [{"id": 1, "refresh_on_load": False}],
+                        "after": [{"id": 1, "refresh_on_load": True}],
+                    },
+                }
+            ],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "external_data_refresh_on_open"
+    )
+    assert result["status"] == "matched"
+    assert result["matched"] == ["external_data_connection_refresh_on_load_changed"]
+
+
+def test_formulafence_adapter_requires_the_exact_external_data_refresh_transition(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "external_data_connections_changed",
+                    "location": None,
+                    "details": {
+                        "before": [{"id": 1, "refresh_on_load": False}],
+                        "after": [{"id": 1, "refresh_on_load": False}],
+                    },
+                }
+            ],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "external_data_refresh_on_open"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["external_data_connection_refresh_on_load_changed"]
 
 
 def test_formulafence_adapter_maps_a_portfolio_impact(monkeypatch, tmp_path: Path) -> None:

@@ -7,6 +7,8 @@ import re
 from collections import deque
 from pathlib import Path
 from typing import Any
+from xml.etree import ElementTree
+from zipfile import BadZipFile, ZipFile
 
 from openpyxl import load_workbook
 from openpyxl.workbook.workbook import Workbook
@@ -18,6 +20,9 @@ _CELL_REFERENCE = re.compile(
     r"(?P<cell>\$?[A-Z]{1,3}\$?[1-9][0-9]*)"
 )
 _DYNAMIC_REFERENCE_FUNCTION = re.compile(r"(?i)\b(?P<function>INDIRECT|OFFSET)\s*\(")
+_SPREADSHEETML_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+_PACKAGE_RELATIONSHIPS_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
+_DOCUMENT_RELATIONSHIPS_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 
 
 class FixtureValidationError(ValueError):
@@ -68,6 +73,40 @@ def _dynamic_reference_functions(formula: str) -> tuple[str, ...]:
 def _defined_name_text(workbook: Workbook, name: str) -> str | None:
     definition = workbook.defined_names.get(name)
     return None if definition is None else definition.attr_text
+
+
+def _external_data_connection_refresh_on_load(path: Path, connection_id: int) -> bool | None:
+    """Read a relationship-backed connection's explicit refresh-on-open flag.
+
+    This intentionally validates only the generated fixture's small raw-OOXML
+    contract. It neither resolves a target nor loads a workbook through a
+    library that might discard the connection part.
+    """
+
+    try:
+        with ZipFile(path) as archive:
+            relationships = ElementTree.fromstring(archive.read("xl/_rels/workbook.xml.rels"))
+            relationship_tag = f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationship"
+            relationship_exists = any(
+                relationship.get("Type") == f"{_DOCUMENT_RELATIONSHIPS_NS}/connections"
+                and relationship.get("Target") == "connections.xml"
+                for relationship in relationships.findall(relationship_tag)
+            )
+            if not relationship_exists:
+                return None
+            connections = ElementTree.fromstring(archive.read("xl/connections.xml"))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    connection_tag = f"{{{_SPREADSHEETML_NS}}}connection"
+    matches = [
+        connection
+        for connection in connections.findall(connection_tag)
+        if connection.get("id") == str(connection_id)
+    ]
+    if len(matches) != 1:
+        return None
+    flag = matches[0].get("refreshOnLoad")
+    return {"0": False, "1": True}.get(flag)
 
 
 def _direct_graph(workbook: Workbook) -> dict[tuple[str, str], set[tuple[str, str]]]:
@@ -258,6 +297,29 @@ def _validate_fact(
             candidate.calculation.calcMode == "manual"
             and candidate.calculation.calcCompleted is False,
             f"{truth['id']}: expected manual, incomplete calculation metadata",
+            errors,
+        )
+        return
+
+    if kind == "external_data_connection_refresh_on_load_changed":
+        connection_id = fact.get("connection_id")
+        before_refresh_on_load = (
+            _external_data_connection_refresh_on_load(baseline_path, connection_id)
+            if isinstance(connection_id, int)
+            else None
+        )
+        after_refresh_on_load = (
+            _external_data_connection_refresh_on_load(candidate_path, connection_id)
+            if isinstance(connection_id, int)
+            else None
+        )
+        _assert(
+            isinstance(connection_id, int)
+            and fact.get("baseline_refresh_on_load") is False
+            and fact.get("candidate_refresh_on_load") is True
+            and before_refresh_on_load is fact.get("baseline_refresh_on_load")
+            and after_refresh_on_load is fact.get("candidate_refresh_on_load"),
+            f"{truth['id']}: expected connection {connection_id!r} refresh-on-open false -> true",
             errors,
         )
         return

@@ -1,0 +1,22 @@
+{
+  "coverage": [
+    "The connection endpoint is synthetic and non-routable; the benchmark never opens it or tests credentials, trust, or returned data.",
+    "The observable contract is the stored refresh-on-open control, not a claim that downstream saved values will recalculate."
+  ],
+  "coverage_expectations": [],
+  "facts": [
+    {
+      "baseline_refresh_on_load": false,
+      "candidate_refresh_on_load": true,
+      "connection_id": 1,
+      "kind": "external_data_connection_refresh_on_load_changed"
+    }
+  ],
+  "family": "governance",
+  "id": "governance.external_data_refresh_on_open",
+  "must_reach": [],
+  "review_expectation": "block",
+  "schema_version": 3,
+  "title": "An external-data connection starts refreshing when the workbook opens",
+  "topology": "pair"
+}
