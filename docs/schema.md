@@ -33,7 +33,10 @@ WCAB 0.21 adds a list data-validation source change with unchanged target,
 entry-control metadata, source-list values, visible input, ordinary formulas,
 and calculation properties. WCAB 0.22 adds a conditional-formatting threshold
 change with unchanged target range, priority, operator, differential fill,
-metric values, and calculation properties.
+metric values, and calculation properties. WCAB 0.23 adds a custom
+number-format transition with unchanged target style index, raw numeric value,
+formula context, calculation properties, and every package member except
+`styles.xml`.
 Version 2 remains
 available in the immutable v0.2.0 and v0.3.0 releases.
 
@@ -72,6 +75,7 @@ Facts are observed directly from the fixture files by `wcab validate`.
 | `data_validation_list_source_changed` | `validation_sheet`, `target_range`, `validation_type`, `baseline_source_formula`, `candidate_source_formula`, `allow_blank`, `dropdown_hidden`, `show_error_message`, `error_style`, `error_title`, `error`, `show_input_message`, `prompt_title`, `prompt`, `source_sheet`, `baseline_source_range`, `candidate_source_range`, `baseline_source_values`, `candidate_source_values`, `input_cell`, `input_value`, `model_sheet`, `model_cell`, `model_formula`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | One stored list validation retains its target, rule metadata, both source-list values, current input, ordinary formulas, calculation properties, and every package member except its validation-bearing worksheet while raw `formula1` moves between declared local source ranges. The validator does not evaluate the source, decide a future input's validity, accept/reject an entry, calculate a result, or claim client behavior. |
 | `conditional_formatting_count_changed` | `sheet`, `baseline_count`, `candidate_count` | Conditional-formatting range count differs as declared. |
 | `conditional_formatting_threshold_changed` | `sheet`, `target_range`, `priority`, `rule_type`, `operator`, `baseline_formula`, `candidate_formula`, `metric_values`, `fill_rgb` | One stored `cellIs` conditional-formatting rule retains its target range, priority, operator, differential fill, worksheet values, calculation properties, and every package member except its worksheet while raw `formula` moves between declared thresholds. The validator does not evaluate the rule, determine which cells a client formats, calculate a workbook, or claim client behavior. |
+| `cell_number_format_changed` | `sheet`, `cell`, `value`, `custom_number_format_id`, `baseline_format`, `candidate_format`, `formula_cell`, `formula` | One direct-cell custom number-format declaration moves between declared codes while the target style index, raw numeric text, neighboring formula, calculation properties, and every package member except `xl/styles.xml` remain unchanged. The validator does not render a format, resolve locale or column-width behavior, calculate a workbook, or claim client behavior. |
 | `auto_filter_criteria_changed` | `sheet`, `filter_ref`, `filter_column_id`, `baseline_filter_value`, `candidate_filter_value`, `subtotal_cell`, `subtotal_formula`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | One raw worksheet AutoFilter list criterion changes while its filter shell, formulas, direct dependency edge, and every package member except the report worksheet remain unchanged. The validator does not apply the filter or calculate a result. |
 | `sheet_visibility_changed` | `sheet`, `baseline_state`, `candidate_state` | The stored sheet state changes. |
 | `formula_cell_unlocked` | `sheet`, `cell` | A formula cell is explicitly unlocked while its sheet remains protected. |
@@ -131,6 +135,24 @@ compares the Operations worksheet after erasing the threshold formula, and
 requires that worksheet to be the only changed package member. It does not
 evaluate a rule, infer a rendered format, calculate a workbook, or claim
 Excel-client behavior.
+
+## Custom number format
+
+Microsoft's [hide/display guidance](https://support.microsoft.com/en-us/excel/hide-or-display-cell-values)
+documents `;;;` as a custom format that hides worksheet values, while its
+[percentage guidance](https://support.microsoft.com/en-us/excel/format-numbers-as-percentages-in-excel)
+documents the distinct display behavior of percentage formats. WCAB's pair has
+one `Operations!B2` cell whose custom format code moves from
+`0.0%;[Red](0.0%);-` to `;;;`. Its raw `0.125` numeric text, cell style
+index, neighboring `Operations!B3=B2` formula, and calculation properties
+stay unchanged.
+
+The validator follows the direct cell style to one custom `numFmt` with ID
+`164`, compares styles XML after erasing only that format code, and requires
+`xl/styles.xml` to be the only changed package member. It records stored
+display metadata only: it does not render a format, resolve locale or
+column-width behavior, decide what a client displays, calculate a workbook, or
+claim Excel-client behavior.
 
 ## Static impact lower bounds
 

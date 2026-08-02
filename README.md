@@ -34,7 +34,7 @@ gates, static analyzers, and agent workflows that propose workbook edits.
 
 ## Scope and non-goals
 
-Version `0.22` covers formula-to-value replacements, formula reference drift,
+Version `0.23` covers formula-to-value replacements, formula reference drift,
 value changes with downstream effects, external formula references, named
 ranges, data validation, conditional formatting, sheet visibility, direct cell
 protection, calculation settings, static cycles, portfolio dependencies,
@@ -114,6 +114,13 @@ whose raw threshold formula moves from `100` to `50` while its target, priority,
 properties remain unchanged. It records the stored visual control only: it
 does not evaluate the rule, determine which cells a client formats, calculate
 a workbook, or claim Excel-client behavior.
+It also covers one `Operations!B2` reported margin whose referenced custom
+`numFmt/@formatCode` moves from `0.0%;[Red](0.0%);-` to `;;;` while its
+style index, raw numeric value, neighboring `=B2` formula, calculation
+properties, and every package member except `styles.xml` remain unchanged.
+It records stored display metadata only: it does not render a number format,
+resolve locale or column-width behavior, decide what a client displays,
+calculate a workbook, or claim Excel-client behavior.
 It also covers a Dashboard DrawingML chart whose raw numeric-series reference
 switches from `Source!$B$2:$B$4` to `Source!$C$2:$C$4` while all source cells,
 the chart anchor, its title/category references, and every package member
@@ -297,6 +304,13 @@ proves the raw `100`-to-`50` threshold transition, stable priority, operator,
 differential fill, metric values, calculation properties, and
 Operations-worksheet-only package change. Neither layer evaluates the rule,
 calculates a workbook, or claims client behavior.
+For the custom number-format case, it requires FormulaFence's exact
+`number_format_controls_changed` structural transition and `FF039`.
+FormulaFence deliberately redacts format codes and cell targets from shared
+reports, so WCAB's raw validator independently proves the declared
+`0.0%;[Red](0.0%);-`-to-`;;;` code transition, stable target/style/value and
+formula context, and styles-only package change. Neither layer renders a
+format, calculates a workbook, or claims client behavior.
 For the chart-series case, it requires FormulaFence's exact redacted one-chart
 profile, `chart_definition_material_changed`, and `FF030`; FormulaFence does
 not expose the source formula or a visual result. WCAB's raw validator instead

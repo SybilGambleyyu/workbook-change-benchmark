@@ -318,6 +318,24 @@ def _conditional_formatting_threshold_details() -> dict[str, object]:
     }
 
 
+def _number_format_visibility_details() -> dict[str, object]:
+    profile = {
+        "present": True,
+        "default_format_override_count": 0,
+        "cell_format_assignment_count": 1,
+        "row_format_assignment_count": 0,
+        "column_format_assignment_count": 0,
+        "built_in_format_assignment_count": 0,
+        "custom_format_assignment_count": 1,
+        "unrecognized_number_format_count": 0,
+    }
+    return {
+        "before": dict(profile),
+        "after": dict(profile),
+        "number_format_definition_material_changed": True,
+    }
+
+
 def _replace_power_query_m_filter_literal(path: Path, *, before: bytes, after: bytes) -> None:
     """Rewrite one test fixture's embedded M formula without changing its truth."""
 
@@ -481,6 +499,22 @@ def test_committed_manifest_matches_fixture_tree() -> None:
             "candidate_formula": "50",
             "metric_values": [10, 75, 120],
             "fill_rgb": "FFFFC7CE",
+        }
+    ]
+    number_format_visibility_row = next(
+        row for row in rows if row["id"] == "operations.number_format_value_hidden"
+    )
+    assert number_format_visibility_row["facts"] == [
+        {
+            "kind": "cell_number_format_changed",
+            "sheet": "Operations",
+            "cell": "B2",
+            "value": 0.125,
+            "custom_number_format_id": 164,
+            "baseline_format": "0.0%;[Red](0.0%);-",
+            "candidate_format": ";;;",
+            "formula_cell": "B3",
+            "formula": "=B2",
         }
     ]
     external_data_row = next(
@@ -1340,6 +1374,82 @@ def test_conditional_formatting_threshold_pair_changes_only_its_operations_works
         for member in sorted(baseline_members)
         if baseline_members[member] != candidate_members[member]
     ] == ["xl/worksheets/sheet1.xml"]
+
+
+def test_validator_rejects_a_false_number_format_visibility_fact(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "operations" / "number_format_value_hidden"
+    truth_path = case / "truth.json"
+    truth = json.loads(truth_path.read_text(encoding="utf-8"))
+    truth["facts"][0]["candidate_format"] = "0.0%"
+    truth_path.write_text(json.dumps(truth), encoding="utf-8")
+    assert validate_case(case)
+
+
+def test_validator_rejects_a_corrupted_number_format_visibility_code(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = fixture_root / "operations" / "number_format_value_hidden" / "candidate.xlsx"
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    namespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    styles_member = "xl/styles.xml"
+    styles = ElementTree.fromstring(members[styles_member])
+    number_format = next(styles.iter(f"{{{namespace}}}numFmt"))
+    number_format.set("formatCode", "0.0%")
+    members[styles_member] = ElementTree.tostring(styles, encoding="utf-8", xml_declaration=True)
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_validator_rejects_an_unrelated_number_format_style_change(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = fixture_root / "operations" / "number_format_value_hidden" / "candidate.xlsx"
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    namespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    styles_member = "xl/styles.xml"
+    styles = ElementTree.fromstring(members[styles_member])
+    number_format_xf = next(
+        xf
+        for xf in styles.findall(f"./{{{namespace}}}cellXfs/{{{namespace}}}xf")
+        if xf.get("numFmtId") == "164"
+    )
+    number_format_xf.set("applyNumberFormat", "0")
+    members[styles_member] = ElementTree.tostring(styles, encoding="utf-8", xml_declaration=True)
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_number_format_visibility_pair_changes_only_styles(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "operations" / "number_format_value_hidden"
+    with ZipFile(case / "baseline.xlsx") as baseline, ZipFile(case / "candidate.xlsx") as candidate:
+        assert baseline.testzip() is None
+        assert candidate.testzip() is None
+        baseline_members = {
+            entry.filename: baseline.read(entry.filename) for entry in baseline.infolist()
+        }
+        candidate_members = {
+            entry.filename: candidate.read(entry.filename) for entry in candidate.infolist()
+        }
+    assert set(baseline_members) == set(candidate_members)
+    assert [
+        member
+        for member in sorted(baseline_members)
+        if baseline_members[member] != candidate_members[member]
+    ] == ["xl/styles.xml"]
 
 
 def test_validator_rejects_a_false_scenario_manager_stored_input_fact(tmp_path: Path) -> None:
@@ -2814,6 +2924,92 @@ def test_formulafence_adapter_requires_the_conditional_formatting_threshold_find
     assert result["status"] == "missed"
     assert result["matched"] == []
     assert result["missed"] == ["conditional_formatting_threshold_changed"]
+
+
+def test_formulafence_adapter_maps_the_exact_number_format_visibility_change(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _number_format_visibility_details()
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "number_format_controls_changed",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF039", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "operations" / "number_format_value_hidden"
+    )
+    assert result["status"] == "matched"
+    assert result["matched"] == ["cell_number_format_changed"]
+
+
+def test_formulafence_adapter_rejects_an_inexact_number_format_visibility_change(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _number_format_visibility_details()
+        details["after"]["custom_format_assignment_count"] = 2
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "number_format_controls_changed",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF039", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "operations" / "number_format_value_hidden"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["cell_number_format_changed"]
+
+
+def test_formulafence_adapter_requires_the_number_format_visibility_finding(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "number_format_controls_changed",
+                    "location": None,
+                    "details": _number_format_visibility_details(),
+                }
+            ],
+            "findings": [],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "operations" / "number_format_value_hidden"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["cell_number_format_changed"]
 
 
 def test_formulafence_adapter_maps_the_exact_pivot_cache_refresh_change(

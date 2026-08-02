@@ -160,6 +160,14 @@ _CONDITIONAL_FORMATTING_THRESHOLD_BASELINE_FORMULA = "100"
 _CONDITIONAL_FORMATTING_THRESHOLD_CANDIDATE_FORMULA = "50"
 _CONDITIONAL_FORMATTING_THRESHOLD_VALUES = (10, 75, 120)
 _CONDITIONAL_FORMATTING_THRESHOLD_FILL_RGB = "FFFFC7CE"
+_NUMBER_FORMAT_VISIBILITY_SHEET = "Operations"
+_NUMBER_FORMAT_VISIBILITY_CELL = "B2"
+_NUMBER_FORMAT_VISIBILITY_VALUE = 0.125
+_NUMBER_FORMAT_VISIBILITY_BASELINE_FORMAT = "0.0%;[Red](0.0%);-"
+_NUMBER_FORMAT_VISIBILITY_CANDIDATE_FORMAT = ";;;"
+_NUMBER_FORMAT_VISIBILITY_CUSTOM_ID = 164
+_NUMBER_FORMAT_VISIBILITY_FORMULA_CELL = "B3"
+_NUMBER_FORMAT_VISIBILITY_FORMULA = "=B2"
 _CHART_SERIES_SOURCE_SHEET = "Source"
 _CHART_SERIES_DASHBOARD_SHEET = "Dashboard"
 _CHART_SERIES_ANCHOR = "D2"
@@ -450,6 +458,31 @@ def _conditional_formatting_threshold_workbook() -> Workbook:
             fill=exception_fill,
         ),
     )
+    return workbook
+
+
+def _number_format_visibility_workbook() -> Workbook:
+    """Build one reported metric with a custom display format.
+
+    The candidate is later changed only in the raw custom numFmt declaration in
+    styles.xml. Its target cell, style index, numeric value, and neighboring
+    formula therefore remain stable; the fixture records stored display
+    metadata without asking a spreadsheet client to render it.
+    """
+
+    workbook = Workbook()
+    _configure_workbook(workbook, title="WCAB custom number-format fixture")
+    operations = workbook.active
+    operations.title = _NUMBER_FORMAT_VISIBILITY_SHEET
+    operations["A1"] = "Metric"
+    operations["B1"] = "Reported margin"
+    operations["A2"] = "Base case"
+    operations[_NUMBER_FORMAT_VISIBILITY_CELL] = _NUMBER_FORMAT_VISIBILITY_VALUE
+    operations[
+        _NUMBER_FORMAT_VISIBILITY_CELL
+    ].number_format = _NUMBER_FORMAT_VISIBILITY_BASELINE_FORMAT
+    operations["A3"] = "Raw model value"
+    operations[_NUMBER_FORMAT_VISIBILITY_FORMULA_CELL] = _NUMBER_FORMAT_VISIBILITY_FORMULA
     return workbook
 
 
@@ -1775,6 +1808,40 @@ def _set_conditional_formatting_threshold(path: Path, *, formula: str) -> None:
     _rewrite_xlsx_parts(path, mutate)
 
 
+def _set_number_format_visibility_format(path: Path, *, format_code: str) -> None:
+    """Set WCAB's one custom format code without saving cells or styles.
+
+    Custom number formats are declared in styles.xml. Replacing only the
+    selected formatCode after openpyxl saves the baseline shape keeps the
+    candidate boundary narrow: the target cell retains the same style index and
+    only the referenced custom display declaration changes.
+    """
+
+    if format_code != _NUMBER_FORMAT_VISIBILITY_CANDIDATE_FORMAT:
+        raise ValueError(f"unsupported number format {format_code!r}")
+
+    def mutate(members: dict[str, bytes]) -> None:
+        styles_member = "xl/styles.xml"
+        styles = ElementTree.fromstring(members[styles_member])
+        num_fmts_tag = f"{{{_SPREADSHEETML_NS}}}numFmts"
+        num_fmt_tag = f"{{{_SPREADSHEETML_NS}}}numFmt"
+        containers = styles.findall(num_fmts_tag)
+        if len(containers) != 1 or tuple(sorted(containers[0].attrib.items())) != (("count", "1"),):
+            raise ValueError("number-format fixture lacks one custom-number-format container")
+        number_formats = containers[0].findall(num_fmt_tag)
+        if len(number_formats) != 1 or tuple(sorted(number_formats[0].attrib.items())) != (
+            ("formatCode", _NUMBER_FORMAT_VISIBILITY_BASELINE_FORMAT),
+            ("numFmtId", str(_NUMBER_FORMAT_VISIBILITY_CUSTOM_ID)),
+        ):
+            raise ValueError("number-format fixture has an unexpected custom format")
+        number_formats[0].set("formatCode", format_code)
+        members[styles_member] = ElementTree.tostring(
+            styles, encoding="utf-8", xml_declaration=True
+        )
+
+    _rewrite_xlsx_parts(path, mutate)
+
+
 def _add_pivot_slicer_selection(path: Path, *, selected_item_index: int) -> None:
     """Attach one local PivotTable slicer with one explicitly selected cache item.
 
@@ -2396,6 +2463,46 @@ def _build_operations_conditional_formatting_threshold(root: Path) -> None:
             coverage=[
                 "The pair changes only the raw formula child in one cellIs conditional-formatting rule. It does not edit the target range, priority, operator, differential fill, worksheet values, calculation properties, or any other package member.",
                 "The observed contract is a stored visual exception threshold. WCAB does not evaluate the rule, determine which cells a client formats, calculate the workbook, or claim Excel-client behavior.",
+            ],
+        ),
+    )
+
+
+def _build_operations_number_format_visibility(root: Path) -> None:
+    """Build a custom-format transition without a cell or formula edit."""
+
+    directory = root / "operations" / "number_format_value_hidden"
+    directory.mkdir(parents=True, exist_ok=True)
+    baseline = directory / "baseline.xlsx"
+    candidate = directory / "candidate.xlsx"
+    _save_workbook(_number_format_visibility_workbook(), baseline)
+    _save_workbook(_number_format_visibility_workbook(), candidate)
+    _set_number_format_visibility_format(
+        candidate, format_code=_NUMBER_FORMAT_VISIBILITY_CANDIDATE_FORMAT
+    )
+    _write_json(
+        directory / "truth.json",
+        _truth(
+            case_id="operations.number_format_value_hidden",
+            title="A reported margin receives a hide-value number format",
+            family="operations",
+            review_expectation="review",
+            facts=[
+                {
+                    "kind": "cell_number_format_changed",
+                    "sheet": _NUMBER_FORMAT_VISIBILITY_SHEET,
+                    "cell": _NUMBER_FORMAT_VISIBILITY_CELL,
+                    "value": _NUMBER_FORMAT_VISIBILITY_VALUE,
+                    "custom_number_format_id": _NUMBER_FORMAT_VISIBILITY_CUSTOM_ID,
+                    "baseline_format": _NUMBER_FORMAT_VISIBILITY_BASELINE_FORMAT,
+                    "candidate_format": _NUMBER_FORMAT_VISIBILITY_CANDIDATE_FORMAT,
+                    "formula_cell": _NUMBER_FORMAT_VISIBILITY_FORMULA_CELL,
+                    "formula": _NUMBER_FORMAT_VISIBILITY_FORMULA,
+                }
+            ],
+            coverage=[
+                "The pair changes only one custom numFmt formatCode declaration in styles.xml. It does not edit the target cell's style index or stored numeric text, the neighboring formula, calculation properties, or any other package member.",
+                "The observed contract is stored display metadata. WCAB does not render a number format, resolve locale or column-width behavior, decide what a client displays, calculate the workbook, or claim Excel-client behavior.",
             ],
         ),
     )
@@ -3524,6 +3631,7 @@ _BUILDERS: tuple[Callable[[Path], None], ...] = (
     _build_operations_data_validation_list_source,
     _build_operations_conditional_formatting,
     _build_operations_conditional_formatting_threshold,
+    _build_operations_number_format_visibility,
     _build_operations_auto_filter_criteria,
     _build_governance_visibility,
     _build_governance_protection,
@@ -3563,6 +3671,7 @@ CASE_IDS = (
     "operations.data_validation_list_source_changed",
     "operations.conditional_formatting_removed",
     "operations.conditional_formatting_threshold_changed",
+    "operations.number_format_value_hidden",
     "operations.auto_filter_criteria_changed",
     "governance.hidden_sheet_revealed",
     "governance.formula_cell_unlocked",

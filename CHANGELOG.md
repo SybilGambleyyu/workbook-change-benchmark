@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.23.0 — 2026-08-03
+
+- Add a deterministic custom number-format case. Its one `Operations!B2`
+  metric retains its style index, raw numeric value, neighboring formula, and
+  calculation properties while the referenced custom `numFmt/@formatCode`
+  moves from a percentage display to `;;;`.
+- Add the exact `cell_number_format_changed` fact, a narrow raw style/target
+  validator, styles-only package isolation check, and corruption regressions.
+  WCAB records stored display metadata only: it does not render a format,
+  resolve locale or column-width behavior, calculate a workbook, or claim
+  Excel-client behavior.
+- Extend the optional FormulaFence adapter to require the exact one-custom
+  `number_format_controls_changed` transition and high-severity `FF039`, while
+  WCAB independently proves the raw format codes, target, style, and package
+  boundary.
+
 ## 0.22.0 — 2026-08-03
 
 - Add a deterministic conditional-formatting exception-threshold case. Its one

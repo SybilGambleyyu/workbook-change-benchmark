@@ -350,6 +350,32 @@ requires the Operations worksheet to be the only changed package member. It
 does not evaluate the rule, decide which cells an Excel client formats,
 calculate a workbook, or claim client behavior.
 
+## Number formats can hide or reinterpret a value without a cell edit
+
+Microsoft's [percentage-format guidance](https://support.microsoft.com/en-us/excel/format-numbers-as-percentages-in-excel)
+explains that applying a percentage format to a stored decimal changes its
+display scale, while its [hide/display guidance](https://support.microsoft.com/en-us/excel/hide-or-display-cell-values)
+documents the custom `;;;` format for hiding values on a worksheet. The
+[MS-OI29500 numFmt notes](https://learn.microsoft.com/en-us/openspecs/office_standards/ms-oi29500/c6046ec6-f96d-4609-98e4-0dd549292955)
+likewise describe custom number formats and percentage formatting at the
+SpreadsheetML level. The stored format code is therefore a review surface that
+can change even while a cell's numeric value and formula text do not.
+
+This is not merely cosmetic in a serious review workflow. ICAEW's [spreadsheet
+review report](https://www.icaew.com/-/media/corporate/files/technical/technology/excel/how-to-review-a-spreadsheet-report.ashx)
+lists display errors—including a percentage shown with integer formatting—as a
+review concern. Those sources do not establish a rendered outcome for a
+particular client, locale, or column width; they motivate a narrow,
+stored-metadata case rather than a screenshot-based assertion.
+
+WCAB 0.23 keeps one `Operations!B2` style index, raw `0.125` numeric value,
+neighboring `=B2` formula, calculation properties, and every package member
+except `xl/styles.xml` fixed. Only its referenced custom
+`numFmt/@formatCode` moves from `0.0%;[Red](0.0%);-` to `;;;`. The
+validator follows the direct cell style to that one custom number-format
+record, compares styles XML after erasing only its code, and never renders,
+locale-resolves, calculates, or claims what an Excel client displays.
+
 ## Chart series sources without a worksheet edit
 
 Microsoft's [chart-series guidance](https://support.microsoft.com/en-US/Excel/rename-a-data-series)

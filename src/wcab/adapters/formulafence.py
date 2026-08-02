@@ -33,6 +33,7 @@ _FACT_TO_CHANGE: dict[str, tuple[str, str | None]] = {
     "data_validation_list_source_changed": ("data_validation_changed", None),
     "conditional_formatting_count_changed": ("conditional_formatting_changed", None),
     "conditional_formatting_threshold_changed": ("conditional_formatting_changed", None),
+    "cell_number_format_changed": ("number_format_controls_changed", None),
     "auto_filter_criteria_changed": ("filter_visibility_controls_changed", None),
     "sheet_visibility_changed": ("sheet_visibility_changed", None),
     "formula_cell_unlocked": ("cell_protection_assignments_changed", None),
@@ -948,6 +949,60 @@ def _conditional_formatting_threshold_finding_observed(
     )
 
 
+def _number_format_visibility_details_observed(details: Any, fact: dict[str, Any]) -> bool:
+    """Require FormulaFence's exact custom-number-format structural evidence.
+
+    FormulaFence intentionally redacts number-format codes and cell targets from
+    its shared report. WCAB independently validates the one custom code,
+    referenced style, target, and package boundary; this adapter requires the
+    matching one-custom-assignment structural transition and FF039 finding.
+    """
+
+    if (
+        fact.get("sheet") != "Operations"
+        or fact.get("cell") != "B2"
+        or fact.get("value") != 0.125
+        or fact.get("custom_number_format_id") != 164
+        or fact.get("baseline_format") != "0.0%;[Red](0.0%);-"
+        or fact.get("candidate_format") != ";;;"
+        or fact.get("formula_cell") != "B3"
+        or fact.get("formula") != "=B2"
+        or not isinstance(details, dict)
+        or set(details) != {"before", "after", "number_format_definition_material_changed"}
+        or details.get("number_format_definition_material_changed") is not True
+    ):
+        return False
+    expected = {
+        "present": True,
+        "default_format_override_count": 0,
+        "cell_format_assignment_count": 1,
+        "row_format_assignment_count": 0,
+        "column_format_assignment_count": 0,
+        "built_in_format_assignment_count": 0,
+        "custom_format_assignment_count": 1,
+        "unrecognized_number_format_count": 0,
+    }
+    return details.get("before") == expected and details.get("after") == expected
+
+
+def _number_format_visibility_observed(change: dict[str, Any], fact: dict[str, Any]) -> bool:
+    """Match FormulaFence's stored number-format change record."""
+
+    return change.get("kind") == "number_format_controls_changed" and (
+        _number_format_visibility_details_observed(change.get("details"), fact)
+    )
+
+
+def _number_format_visibility_finding_observed(
+    finding: dict[str, Any], fact: dict[str, Any]
+) -> bool:
+    """Require FormulaFence's matching high-severity number-format finding."""
+
+    return finding.get("rule_id") == "FF039" and _number_format_visibility_details_observed(
+        finding.get("details"), fact
+    )
+
+
 def _what_if_data_table_input_reference_details_observed(
     details: Any, fact: dict[str, Any]
 ) -> bool:
@@ -1349,6 +1404,16 @@ def evaluate_diff_case(case_dir: str | Path, *, executable: str = "formulafence"
                 if isinstance(change, dict)
             ) and any(
                 _conditional_formatting_threshold_finding_observed(finding, fact)
+                for finding in findings
+                if isinstance(finding, dict)
+            )
+        if kind == "cell_number_format_changed":
+            observed = any(
+                _number_format_visibility_observed(change, fact)
+                for change in changes
+                if isinstance(change, dict)
+            ) and any(
+                _number_format_visibility_finding_observed(finding, fact)
                 for finding in findings
                 if isinstance(finding, dict)
             )

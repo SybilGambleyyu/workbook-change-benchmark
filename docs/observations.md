@@ -258,7 +258,16 @@ workbook or determine which cells receive a format. WCAB's raw validator—not
 the adapter—then establishes the stable priority, operator, differential fill,
 metric values, calculation properties, and Operations-worksheet-only package
 change. Neither report evaluates the rule, calculates a workbook, or claims
-client behavior. For the chart-series case, it requires
+client behavior. For the custom number-format case, it requires one exact
+`number_format_controls_changed` record and matching `FF039`: FormulaFence's
+redacted before/after profiles must each contain one direct-cell custom
+assignment, no default/row/column or built-in assignment, no unrecognized
+control, and only `number_format_definition_material_changed`. FormulaFence
+deliberately does not expose a code or target. WCAB's raw validator—not the
+adapter—then establishes the declared `0.0%;[Red](0.0%);-`-to-`;;;` code
+transition, target/style/value/formula context, and styles-only package change.
+Neither report renders a format, calculates a workbook, or claims client
+behavior. For the chart-series case, it requires
 one exact `chart_definitions_changed` record and matching
 `FF030`: FormulaFence's redacted profile must retain one host sheet, one
 drawing, one legacy chart, one series, three data references, no chart cache,

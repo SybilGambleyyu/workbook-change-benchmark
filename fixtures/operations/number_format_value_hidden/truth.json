@@ -1,0 +1,27 @@
+{
+  "coverage": [
+    "The pair changes only one custom numFmt formatCode declaration in styles.xml. It does not edit the target cell's style index or stored numeric text, the neighboring formula, calculation properties, or any other package member.",
+    "The observed contract is stored display metadata. WCAB does not render a number format, resolve locale or column-width behavior, decide what a client displays, calculate the workbook, or claim Excel-client behavior."
+  ],
+  "coverage_expectations": [],
+  "facts": [
+    {
+      "baseline_format": "0.0%;[Red](0.0%);-",
+      "candidate_format": ";;;",
+      "cell": "B2",
+      "custom_number_format_id": 164,
+      "formula": "=B2",
+      "formula_cell": "B3",
+      "kind": "cell_number_format_changed",
+      "sheet": "Operations",
+      "value": 0.125
+    }
+  ],
+  "family": "operations",
+  "id": "operations.number_format_value_hidden",
+  "must_reach": [],
+  "review_expectation": "review",
+  "schema_version": 3,
+  "title": "A reported margin receives a hide-value number format",
+  "topology": "pair"
+}

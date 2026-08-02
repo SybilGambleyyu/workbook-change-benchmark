@@ -1587,6 +1587,88 @@ def _raw_cell_number_format(path: Path, sheet_name: str, coordinate: str) -> str
     return custom_formats.get(number_format_id)
 
 
+def _raw_custom_number_format_state(
+    path: Path, sheet_name: str, coordinate: str
+) -> dict[str, Any] | None:
+    """Read one generated direct-cell custom number-format declaration.
+
+    This narrow reader follows the target cell's existing style index to one
+    custom numFmt record. It observes stored display metadata only; it never
+    renders a format or derives a displayed value.
+    """
+
+    cell_state = _raw_cell_state(path, sheet_name, coordinate)
+    if cell_state is None:
+        return None
+    try:
+        style_index = int(cell_state[2] or "0")
+        with ZipFile(path) as archive:
+            styles = ElementTree.fromstring(archive.read("xl/styles.xml"))
+    except (BadZipFile, KeyError, OSError, ValueError, ElementTree.ParseError):
+        return None
+    cell_xfs = styles.findall(f"./{{{_SPREADSHEETML_NS}}}cellXfs/{{{_SPREADSHEETML_NS}}}xf")
+    if not 0 <= style_index < len(cell_xfs):
+        return None
+    try:
+        custom_number_format_id = int(cell_xfs[style_index].get("numFmtId", ""))
+    except ValueError:
+        return None
+    num_fmts_tag = f"{{{_SPREADSHEETML_NS}}}numFmts"
+    num_fmt_tag = f"{{{_SPREADSHEETML_NS}}}numFmt"
+    containers = styles.findall(num_fmts_tag)
+    if len(containers) != 1:
+        return None
+    matches = [
+        number_format
+        for number_format in containers[0].findall(num_fmt_tag)
+        if number_format.get("numFmtId") == str(custom_number_format_id)
+    ]
+    if len(matches) != 1:
+        return None
+    number_format = matches[0]
+    format_code = number_format.get("formatCode")
+    if not isinstance(format_code, str):
+        return None
+    return {
+        "worksheet_member": cell_state[0],
+        "styles_member": "xl/styles.xml",
+        "cell_style_index": style_index,
+        "custom_number_format_id": custom_number_format_id,
+        "cell_xf_attributes": tuple(sorted(cell_xfs[style_index].attrib.items())),
+        "num_fmts_attributes": tuple(sorted(containers[0].attrib.items())),
+        "num_fmt_attributes": tuple(sorted(number_format.attrib.items())),
+        "format_code": format_code,
+    }
+
+
+def _styles_without_custom_number_format_code(
+    path: Path, custom_number_format_id: int
+) -> bytes | None:
+    """Return generated styles XML with one declared custom format code erased."""
+
+    if custom_number_format_id < 0:
+        return None
+    try:
+        with ZipFile(path) as archive:
+            styles = ElementTree.fromstring(archive.read("xl/styles.xml"))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    num_fmts_tag = f"{{{_SPREADSHEETML_NS}}}numFmts"
+    num_fmt_tag = f"{{{_SPREADSHEETML_NS}}}numFmt"
+    containers = styles.findall(num_fmts_tag)
+    if len(containers) != 1:
+        return None
+    matches = [
+        number_format
+        for number_format in containers[0].findall(num_fmt_tag)
+        if number_format.get("numFmtId") == str(custom_number_format_id)
+    ]
+    if len(matches) != 1 or "formatCode" not in matches[0].attrib:
+        return None
+    matches[0].attrib.pop("formatCode")
+    return ElementTree.tostring(styles, encoding="utf-8", xml_declaration=True)
+
+
 def _workbook_date_system_state(path: Path) -> tuple[bool, bool] | None:
     """Read WCAB's explicit raw workbook serial-date controls."""
 
@@ -2024,6 +2106,103 @@ def _validate_fact(
             == {before_state["worksheet_member"]}
             and _calculation_properties(baseline_path) == _calculation_properties(candidate_path),
             f"{truth['id']}: expected only one cellIs conditional-formatting threshold formula change with stable control, fill, values, calculation properties, and package boundary",
+            errors,
+        )
+        return
+
+    if kind == "cell_number_format_changed":
+        sheet_name = fact.get("sheet")
+        coordinate = fact.get("cell")
+        formula_cell = fact.get("formula_cell")
+        before_state = (
+            _raw_custom_number_format_state(baseline_path, sheet_name, coordinate)
+            if isinstance(sheet_name, str) and isinstance(coordinate, str)
+            else None
+        )
+        after_state = (
+            _raw_custom_number_format_state(candidate_path, sheet_name, coordinate)
+            if isinstance(sheet_name, str) and isinstance(coordinate, str)
+            else None
+        )
+        before_cell_state = (
+            _raw_cell_state(baseline_path, sheet_name, coordinate)
+            if isinstance(sheet_name, str) and isinstance(coordinate, str)
+            else None
+        )
+        after_cell_state = (
+            _raw_cell_state(candidate_path, sheet_name, coordinate)
+            if isinstance(sheet_name, str) and isinstance(coordinate, str)
+            else None
+        )
+        before_formula_state = (
+            _raw_cell_state(baseline_path, sheet_name, formula_cell)
+            if isinstance(sheet_name, str) and isinstance(formula_cell, str)
+            else None
+        )
+        after_formula_state = (
+            _raw_cell_state(candidate_path, sheet_name, formula_cell)
+            if isinstance(sheet_name, str) and isinstance(formula_cell, str)
+            else None
+        )
+        expected_baseline_format = "0.0%;[Red](0.0%);-"
+        expected_candidate_format = ";;;"
+        expected_custom_number_format_id = 164
+        expected_num_fmts_attributes = (("count", "1"),)
+        expected_baseline_num_fmt_attributes = (
+            ("formatCode", expected_baseline_format),
+            ("numFmtId", str(expected_custom_number_format_id)),
+        )
+        expected_candidate_num_fmt_attributes = (
+            ("formatCode", expected_candidate_format),
+            ("numFmtId", str(expected_custom_number_format_id)),
+        )
+        _assert(
+            sheet_name == "Operations"
+            and coordinate == "B2"
+            and fact.get("value") == 0.125
+            and fact.get("custom_number_format_id") == expected_custom_number_format_id
+            and fact.get("baseline_format") == expected_baseline_format
+            and fact.get("candidate_format") == expected_candidate_format
+            and formula_cell == "B3"
+            and fact.get("formula") == "=B2"
+            and before_state is not None
+            and after_state is not None
+            and before_state["worksheet_member"] == "xl/worksheets/sheet1.xml"
+            and after_state["worksheet_member"] == "xl/worksheets/sheet1.xml"
+            and before_state["styles_member"] == "xl/styles.xml"
+            and after_state["styles_member"] == "xl/styles.xml"
+            and before_state["custom_number_format_id"] == expected_custom_number_format_id
+            and after_state["custom_number_format_id"] == expected_custom_number_format_id
+            and before_state["num_fmts_attributes"] == expected_num_fmts_attributes
+            and after_state["num_fmts_attributes"] == expected_num_fmts_attributes
+            and before_state["num_fmt_attributes"] == expected_baseline_num_fmt_attributes
+            and after_state["num_fmt_attributes"] == expected_candidate_num_fmt_attributes
+            and before_state["format_code"] == expected_baseline_format
+            and after_state["format_code"] == expected_candidate_format
+            and before_state["cell_style_index"] == after_state["cell_style_index"]
+            and before_state["cell_xf_attributes"] == after_state["cell_xf_attributes"]
+            and before_cell_state is not None
+            and before_cell_state == after_cell_state
+            and before_cell_state[0] == "xl/worksheets/sheet1.xml"
+            and before_cell_state[3] is None
+            and before_cell_state[4] == "0.125"
+            and before_formula_state is not None
+            and before_formula_state == after_formula_state
+            and before_formula_state[0] == "xl/worksheets/sheet1.xml"
+            and before_formula_state[3] == "=B2"
+            and baseline[sheet_name][coordinate].value == 0.125
+            and candidate[sheet_name][coordinate].value == 0.125
+            and baseline[sheet_name][formula_cell].value == "=B2"
+            and candidate[sheet_name][formula_cell].value == "=B2"
+            and _styles_without_custom_number_format_code(
+                baseline_path, expected_custom_number_format_id
+            )
+            == _styles_without_custom_number_format_code(
+                candidate_path, expected_custom_number_format_id
+            )
+            and _xlsx_member_differences(baseline_path, candidate_path) == {"xl/styles.xml"}
+            and _calculation_properties(baseline_path) == _calculation_properties(candidate_path),
+            f"{truth['id']}: expected only one custom number-format code transition with stable target cells, formulas, styles, calculation properties, and package boundary",
             errors,
         )
         return
