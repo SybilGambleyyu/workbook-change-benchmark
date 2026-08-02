@@ -22,6 +22,8 @@ from openpyxl.styles import PatternFill, Protection
 from openpyxl.workbook.defined_name import DefinedName
 from openpyxl.worksheet.datavalidation import DataValidation
 
+from .manifest import write_manifest
+
 FIXTURE_SCHEMA_VERSION = 1
 _FIXED_TIMESTAMP = datetime(2024, 1, 1, tzinfo=timezone.utc)
 _CORE_MODIFIED = re.compile(rb"(<dcterms:modified\b[^>]*>)[^<]*(</dcterms:modified>)")
@@ -732,4 +734,5 @@ def build_all(root: str | Path) -> list[Path]:
     manifests = sorted(fixture_root.rglob("truth.json"))
     if len(manifests) != len(CASE_IDS):
         raise RuntimeError(f"expected {len(CASE_IDS)} manifests, found {len(manifests)}")
+    write_manifest(fixture_root, expected_ids=CASE_IDS)
     return manifests

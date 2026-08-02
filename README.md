@@ -53,6 +53,7 @@ python -m venv .venv
 # Regenerate the committed fixtures and validate their ground truth.
 wcab build --output fixtures
 wcab validate --fixtures fixtures
+wcab manifest --fixtures fixtures
 
 # Run the project's own tests.
 pytest
@@ -67,6 +68,16 @@ fixtures/
     candidate.xlsx
     truth.json
 ```
+
+`fixtures/manifest.jsonl` is a deterministic, one-row-per-case catalogue.
+Every row preserves the truth contract and records the relative path, byte
+count, and SHA-256 digest for its baseline and candidate workbooks. It lets
+benchmark runners enumerate exactly what they consumed without relying on
+directory-name conventions.
+
+The release is also mirrored as a
+[Hugging Face dataset](https://huggingface.co/datasets/SybilGambleyyu/workbook-change-benchmark),
+where `manifest.jsonl` is available at the dataset root for programmatic use.
 
 ## Truth contract
 

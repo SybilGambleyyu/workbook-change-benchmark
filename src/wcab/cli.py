@@ -9,6 +9,7 @@ from pathlib import Path
 
 from .adapters.formulafence import FormulaFenceAdapterError, evaluate_reference_suite
 from .build import CASE_IDS, build_all
+from .manifest import write_manifest
 from .validate import validate_all
 
 
@@ -39,6 +40,18 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="return nonzero if a mapped fact or lint rule is missed",
     )
+    manifest = subcommands.add_parser(
+        "manifest", help="write a deterministic, integrity-addressed case catalogue"
+    )
+    manifest.add_argument(
+        "--fixtures", type=Path, default=Path("fixtures"), help="fixture directory"
+    )
+    manifest.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="JSONL destination (default: fixtures/manifest.jsonl)",
+    )
     subcommands.add_parser("list", help="list stable case identifiers")
     return parser
 
@@ -67,6 +80,11 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(result, indent=2, sort_keys=True))
         has_miss = bool(result["diff_cases_with_misses"] or result["lint_rule_misses"])
         return 1 if args.strict and has_miss else 0
+    if args.command == "manifest":
+        rows = write_manifest(args.fixtures, args.output, expected_ids=CASE_IDS)
+        destination = args.output or args.fixtures / "manifest.jsonl"
+        print(f"wrote {len(rows)} WCAB cases to {destination}")
+        return 0
     for case_id in CASE_IDS:
         print(case_id)
     return 0

@@ -1,8 +1,8 @@
 # Validation record
 
-This record describes the initial WCAB 0.1 validation run performed on
-2026-08-01 and independently repeated on 2026-08-02. It is reproducible from
-this repository; no network service or private workbook is required.
+This record describes the WCAB 0.1 validation run performed on 2026-08-01 and
+its 0.1.1 distribution supplement on 2026-08-02. It is reproducible from this
+repository; no network service or private workbook is required.
 
 ## Fixture integrity
 
@@ -18,6 +18,7 @@ Commands:
 ```bash
 python -m pip install -e '.[dev]'
 wcab build --output fixtures
+wcab manifest --fixtures fixtures
 ruff check .
 ruff format --check .
 pytest
@@ -28,10 +29,38 @@ Results:
 
 - 16 cases: 15 paired-workbook cases and one directory portfolio case.
 - 18 observable truth facts: 11 `block` and five `review` dispositions.
-- 50 committed fixture files, all generated from source.
-- Seven unit tests passed under both Python versions, including independent
+- 50 workbook and truth-manifest fixture files, plus one generated JSONL case
+  catalogue, all generated from source.
+- Nine unit tests passed under both Python versions, including independent
   regeneration and byte-for-byte fixture-tree equality.
 - The fixture validator accepted all 16 cases.
+
+## Distribution supplement
+
+The 0.1.1 release also builds a one-row-per-case `manifest.jsonl` catalogue.
+Each row retains the truth contract and includes byte counts and SHA-256
+digests for the workbooks it names.
+
+Commands:
+
+```bash
+python -m build
+twine check dist/workbook_change_benchmark-0.1.1*
+python -m venv /tmp/wcab-wheel-test
+/tmp/wcab-wheel-test/bin/python -m pip install \
+  dist/workbook_change_benchmark-0.1.1-py3-none-any.whl
+/tmp/wcab-wheel-test/bin/wcab validate --fixtures fixtures
+/tmp/wcab-wheel-test/bin/wcab manifest --fixtures fixtures --output /tmp/manifest.jsonl
+cmp fixtures/manifest.jsonl /tmp/manifest.jsonl
+```
+
+Results:
+
+- The source distribution and universal wheel passed `twine check`.
+- A fresh Python 3.12 wheel installation validated all 16 fixtures and emitted
+  byte-identical JSONL output.
+- The full nine-test suite, lint, and format checks passed under the supported
+  local Python versions (3.12 and 3.13).
 
 ## FormulaFence reference adapter
 

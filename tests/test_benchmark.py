@@ -6,6 +6,7 @@ from pathlib import Path
 
 from wcab.adapters import formulafence
 from wcab.build import CASE_IDS, build_all
+from wcab.manifest import case_rows, manifest_text
 from wcab.validate import validate_all, validate_case
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -42,6 +43,22 @@ def test_truth_ids_are_complete_and_unique() -> None:
     identifiers = [json.loads(path.read_text(encoding="utf-8"))["id"] for path in manifests]
     assert tuple(sorted(identifiers)) == tuple(sorted(CASE_IDS))
     assert len(set(identifiers)) == len(identifiers)
+
+
+def test_committed_manifest_matches_fixture_tree() -> None:
+    fixture_root = PROJECT_ROOT / "fixtures"
+    rows = case_rows(fixture_root, expected_ids=CASE_IDS)
+    assert [row["id"] for row in rows] == sorted(CASE_IDS)
+    assert all(row["baseline_files"] and row["candidate_files"] for row in rows)
+    assert (fixture_root / "manifest.jsonl").read_text(encoding="utf-8") == manifest_text(rows)
+
+
+def test_manifest_is_reproducible_with_fixture_build(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    first = (fixture_root / "manifest.jsonl").read_text(encoding="utf-8")
+    build_all(fixture_root)
+    assert (fixture_root / "manifest.jsonl").read_text(encoding="utf-8") == first
 
 
 def test_validator_rejects_a_false_fact(tmp_path: Path) -> None:
