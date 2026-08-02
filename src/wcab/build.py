@@ -49,6 +49,10 @@ _FORMULA_CACHED_RESULT_INPUT = 10
 _FORMULA_CACHED_RESULT_FORMULA = "=Inputs!$B$2*2"
 _FORMULA_CACHED_RESULT_BASELINE = 20
 _FORMULA_CACHED_RESULT_CANDIDATE = 25
+_WORKBOOK_DATE_SYSTEM_SERIAL = 45292
+_WORKBOOK_DATE_SYSTEM_NUMBER_FORMAT = "yyyy-mm-dd"
+_WORKBOOK_DATE_SYSTEM_FORMULA = "=Inputs!$B$2+30"
+_WORKBOOK_DATE_SYSTEM_DASHBOARD_FORMULA = "=Model!$B$2"
 
 
 def _configure_workbook(workbook: Workbook, *, title: str) -> None:
@@ -500,6 +504,52 @@ def _precision_as_displayed_workbook() -> Workbook:
     workbook.calculation.calcCompleted = True
     workbook.calculation.calcOnSave = True
     return workbook
+
+
+def _workbook_date_system_workbook() -> Workbook:
+    """Build a model whose raw date base can change without a cell edit.
+
+    The input deliberately remains a numeric serial with a date display format.
+    The pair is later mutated only in ``workbookPr``: WCAB does not calculate a
+    formula, convert the serial to a date, or assert what an Excel client will
+    display after it opens the package.
+    """
+
+    workbook = Workbook()
+    _configure_workbook(workbook, title="WCAB workbook date-system fixture")
+    inputs = workbook.active
+    inputs.title = "Inputs"
+    inputs["A1"] = "Stored date serial"
+    inputs["B2"] = _WORKBOOK_DATE_SYSTEM_SERIAL
+    inputs["B2"].number_format = _WORKBOOK_DATE_SYSTEM_NUMBER_FORMAT
+
+    model = workbook.create_sheet("Model")
+    model["A1"] = "Date serial plus 30"
+    model["B2"] = _WORKBOOK_DATE_SYSTEM_FORMULA
+    model["B2"].number_format = _WORKBOOK_DATE_SYSTEM_NUMBER_FORMAT
+
+    dashboard = workbook.create_sheet("Dashboard")
+    dashboard["A1"] = "Published date"
+    dashboard["B4"] = _WORKBOOK_DATE_SYSTEM_DASHBOARD_FORMULA
+    dashboard["B4"].number_format = _WORKBOOK_DATE_SYSTEM_NUMBER_FORMAT
+    return workbook
+
+
+def _set_workbook_date_system(path: Path, *, date_1904: bool, date_compatibility: bool) -> None:
+    """Set only the two raw ``workbookPr`` date-system controls."""
+
+    def mutate(members: dict[str, bytes]) -> None:
+        workbook = ElementTree.fromstring(members["xl/workbook.xml"])
+        properties = workbook.find(f"{{{_SPREADSHEETML_NS}}}workbookPr")
+        if properties is None:
+            raise ValueError("date-system fixture has no workbookPr element")
+        properties.set("date1904", "1" if date_1904 else "0")
+        properties.set("dateCompatibility", "1" if date_compatibility else "0")
+        members["xl/workbook.xml"] = ElementTree.tostring(
+            workbook, encoding="utf-8", xml_declaration=True
+        )
+
+    _rewrite_xlsx_parts(path, mutate)
 
 
 def _formula_cached_result_workbook() -> Workbook:
@@ -1124,6 +1174,64 @@ def _build_governance_precision_as_displayed(root: Path) -> None:
     )
 
 
+def _build_governance_workbook_date_system(root: Path) -> None:
+    """Build a raw date-system-control transition with stable cell content."""
+
+    directory = root / "governance" / "workbook_date_system_changed"
+    directory.mkdir(parents=True, exist_ok=True)
+    baseline = directory / "baseline.xlsx"
+    candidate = directory / "candidate.xlsx"
+    _save_workbook(_workbook_date_system_workbook(), baseline)
+    _save_workbook(_workbook_date_system_workbook(), candidate)
+    _set_workbook_date_system(baseline, date_1904=False, date_compatibility=True)
+    _set_workbook_date_system(candidate, date_1904=True, date_compatibility=True)
+    _write_json(
+        directory / "truth.json",
+        _truth(
+            case_id="governance.workbook_date_system_changed",
+            title="Workbook serial-date controls change without a cell edit",
+            family="governance",
+            review_expectation="block",
+            facts=[
+                {
+                    "kind": "workbook_date_system_changed",
+                    "baseline_date_1904": False,
+                    "candidate_date_1904": True,
+                    "date_compatibility": True,
+                    "serial_sheet": "Inputs",
+                    "serial_cell": "B2",
+                    "serial_value": _WORKBOOK_DATE_SYSTEM_SERIAL,
+                    "number_format": _WORKBOOK_DATE_SYSTEM_NUMBER_FORMAT,
+                    "formula_sheet": "Model",
+                    "formula_cell": "B2",
+                    "formula": _WORKBOOK_DATE_SYSTEM_FORMULA,
+                    "dashboard_sheet": "Dashboard",
+                    "dashboard_cell": "B4",
+                    "dashboard_formula": _WORKBOOK_DATE_SYSTEM_DASHBOARD_FORMULA,
+                }
+            ],
+            must_reach=[
+                {
+                    "source": {"sheet": "Inputs", "cell": "B2"},
+                    "targets": [
+                        {"sheet": "Model", "cell": "B2"},
+                        {"sheet": "Dashboard", "cell": "B4"},
+                    ],
+                },
+                {
+                    "source": {"sheet": "Model", "cell": "B2"},
+                    "targets": [{"sheet": "Dashboard", "cell": "B4"}],
+                },
+            ],
+            coverage=[
+                "The pair changes only raw workbookPr date1904 from false to true while dateCompatibility remains explicitly true. It does not edit a worksheet cell, formula, style, calculation property, or dependency edge.",
+                "The stored numeric serial and date number format remain unchanged. WCAB does not calculate a formula, convert the serial into a date, infer a visible value, or claim what an Excel client will do on opening or saving either workbook.",
+                "The validator reads raw OOXML controls, numeric cell text, formula text, number format, and package-member differences. It treats the date-system transition as a stored-control review boundary, not proof of a displayed outcome.",
+            ],
+        ),
+    )
+
+
 def _build_governance_formula_cached_result(root: Path) -> None:
     """Build a pair with exactly one unexplained saved formula-result change."""
 
@@ -1587,6 +1695,7 @@ _BUILDERS: tuple[Callable[[Path], None], ...] = (
     _build_governance_manual_calculation,
     _build_governance_iterative_calculation,
     _build_governance_precision_as_displayed,
+    _build_governance_workbook_date_system,
     _build_governance_formula_cached_result,
     _build_governance_static_cycle,
     _build_governance_external_data_refresh,
@@ -1615,6 +1724,7 @@ CASE_IDS = (
     "governance.manual_calculation_incomplete",
     "governance.iterative_calculation_enabled",
     "governance.precision_as_displayed_enabled",
+    "governance.workbook_date_system_changed",
     "governance.formula_cached_result_changed",
     "governance.static_cycle_introduced",
     "governance.external_data_refresh_on_open",

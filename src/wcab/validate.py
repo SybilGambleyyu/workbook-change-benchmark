@@ -265,6 +265,104 @@ def _formula_cached_result_state(
     )
 
 
+def _raw_cell_state(
+    path: Path, sheet_name: str, coordinate: str
+) -> tuple[str, str | None, str | None, str | None, str | None] | None:
+    """Read one generated cell's raw type, style, formula, and value text.
+
+    This is intentionally narrower than a worksheet reader. It lets date-system
+    fixtures prove that a stored serial and formula text did not change before a
+    client applies any epoch-based conversion.
+    """
+
+    try:
+        with ZipFile(path) as archive:
+            worksheet_member = _worksheet_member_for_sheet(archive, sheet_name)
+            if worksheet_member is None:
+                return None
+            worksheet = ElementTree.fromstring(archive.read(worksheet_member))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    cell_tag = f"{{{_SPREADSHEETML_NS}}}c"
+    matches = [cell for cell in worksheet.iter(cell_tag) if cell.get("r") == coordinate]
+    if len(matches) != 1:
+        return None
+    cell = matches[0]
+    formula = cell.find(f"{{{_SPREADSHEETML_NS}}}f")
+    value = cell.find(f"{{{_SPREADSHEETML_NS}}}v")
+    return (
+        worksheet_member,
+        cell.get("t"),
+        cell.get("s"),
+        f"={formula.text or ''}" if formula is not None else None,
+        value.text if value is not None else None,
+    )
+
+
+def _raw_cell_number_format(path: Path, sheet_name: str, coordinate: str) -> str | None:
+    """Resolve the generated cell's custom number format from raw styles XML."""
+
+    state = _raw_cell_state(path, sheet_name, coordinate)
+    if state is None:
+        return None
+    try:
+        style_index = int(state[2] or "0")
+        with ZipFile(path) as archive:
+            styles = ElementTree.fromstring(archive.read("xl/styles.xml"))
+    except (BadZipFile, KeyError, OSError, ValueError, ElementTree.ParseError):
+        return None
+    cell_xfs = styles.findall(f"./{{{_SPREADSHEETML_NS}}}cellXfs/{{{_SPREADSHEETML_NS}}}xf")
+    if not 0 <= style_index < len(cell_xfs):
+        return None
+    try:
+        number_format_id = int(cell_xfs[style_index].get("numFmtId", ""))
+    except ValueError:
+        return None
+    custom_formats: dict[int, str] = {}
+    for number_format in styles.findall(
+        f"./{{{_SPREADSHEETML_NS}}}numFmts/{{{_SPREADSHEETML_NS}}}numFmt"
+    ):
+        try:
+            custom_format_id = int(number_format.get("numFmtId", ""))
+        except ValueError:
+            continue
+        format_code = number_format.get("formatCode")
+        if format_code is not None:
+            custom_formats[custom_format_id] = format_code
+    return custom_formats.get(number_format_id)
+
+
+def _workbook_date_system_state(path: Path) -> tuple[bool, bool] | None:
+    """Read WCAB's explicit raw workbook serial-date controls."""
+
+    properties = _workbook_properties(path)
+    if properties is None:
+        return None
+    date_1904 = _ooxml_boolean(properties.get("date1904"))
+    date_compatibility = _ooxml_boolean(properties.get("dateCompatibility"))
+    return (
+        (date_1904, date_compatibility)
+        if date_1904 is not None and date_compatibility is not None
+        else None
+    )
+
+
+def _workbook_without_date_system_controls(path: Path) -> bytes | None:
+    """Return raw workbook XML with only WCAB's two date controls removed."""
+
+    try:
+        with ZipFile(path) as archive:
+            workbook = ElementTree.fromstring(archive.read("xl/workbook.xml"))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    properties = workbook.find(f"{{{_SPREADSHEETML_NS}}}workbookPr")
+    if properties is None:
+        return None
+    properties.attrib.pop("date1904", None)
+    properties.attrib.pop("dateCompatibility", None)
+    return ElementTree.tostring(workbook, encoding="utf-8", xml_declaration=True)
+
+
 def _xlsx_member_differences(baseline_path: Path, candidate_path: Path) -> set[str] | None:
     """Return changed member names when two small fixture archives align."""
 
@@ -751,6 +849,103 @@ def _validate_fact(
             and after_formula.value == formula
             and (formula_sheet, formula_cell) in graph.get((input_sheet, input_cell), set()),
             f"{truth['id']}: expected unchanged stored input/formula and calcPr fullPrecision true -> false only",
+            errors,
+        )
+        return
+
+    if kind == "workbook_date_system_changed":
+        serial_sheet = fact.get("serial_sheet")
+        serial_cell = fact.get("serial_cell")
+        formula_sheet = fact.get("formula_sheet")
+        formula_cell = fact.get("formula_cell")
+        formula = fact.get("formula")
+        dashboard_sheet = fact.get("dashboard_sheet")
+        dashboard_cell = fact.get("dashboard_cell")
+        dashboard_formula = fact.get("dashboard_formula")
+        number_format = fact.get("number_format")
+        try:
+            declared_serial = Decimal(str(fact.get("serial_value")))
+        except InvalidOperation:
+            declared_serial = None
+        before_date_system = _workbook_date_system_state(baseline_path)
+        after_date_system = _workbook_date_system_state(candidate_path)
+        before_input = (
+            _raw_cell_state(baseline_path, serial_sheet, serial_cell)
+            if isinstance(serial_sheet, str) and isinstance(serial_cell, str)
+            else None
+        )
+        after_input = (
+            _raw_cell_state(candidate_path, serial_sheet, serial_cell)
+            if isinstance(serial_sheet, str) and isinstance(serial_cell, str)
+            else None
+        )
+        before_formula = (
+            _raw_cell_state(baseline_path, formula_sheet, formula_cell)
+            if isinstance(formula_sheet, str) and isinstance(formula_cell, str)
+            else None
+        )
+        after_formula = (
+            _raw_cell_state(candidate_path, formula_sheet, formula_cell)
+            if isinstance(formula_sheet, str) and isinstance(formula_cell, str)
+            else None
+        )
+        before_dashboard = (
+            _raw_cell_state(baseline_path, dashboard_sheet, dashboard_cell)
+            if isinstance(dashboard_sheet, str) and isinstance(dashboard_cell, str)
+            else None
+        )
+        after_dashboard = (
+            _raw_cell_state(candidate_path, dashboard_sheet, dashboard_cell)
+            if isinstance(dashboard_sheet, str) and isinstance(dashboard_cell, str)
+            else None
+        )
+        try:
+            before_serial = Decimal(before_input[4]) if before_input and before_input[4] else None
+            after_serial = Decimal(after_input[4]) if after_input and after_input[4] else None
+        except InvalidOperation:
+            before_serial = after_serial = None
+        graph = _direct_graph(candidate)
+        _assert(
+            fact.get("baseline_date_1904") is False
+            and fact.get("candidate_date_1904") is True
+            and fact.get("date_compatibility") is True
+            and isinstance(serial_sheet, str)
+            and isinstance(serial_cell, str)
+            and isinstance(formula_sheet, str)
+            and isinstance(formula_cell, str)
+            and isinstance(formula, str)
+            and isinstance(dashboard_sheet, str)
+            and isinstance(dashboard_cell, str)
+            and isinstance(dashboard_formula, str)
+            and isinstance(number_format, str)
+            and declared_serial is not None
+            and declared_serial.is_finite()
+            and before_date_system == (False, True)
+            and after_date_system == (True, True)
+            and before_input is not None
+            and after_input is not None
+            and before_input == after_input
+            and before_input[1] in {None, "n"}
+            and before_input[3] is None
+            and before_serial == declared_serial
+            and after_serial == declared_serial
+            and before_formula is not None
+            and after_formula is not None
+            and before_formula == after_formula
+            and before_formula[3] == formula
+            and before_dashboard is not None
+            and after_dashboard is not None
+            and before_dashboard == after_dashboard
+            and before_dashboard[3] == dashboard_formula
+            and _raw_cell_number_format(baseline_path, serial_sheet, serial_cell) == number_format
+            and _raw_cell_number_format(candidate_path, serial_sheet, serial_cell) == number_format
+            and _workbook_without_date_system_controls(baseline_path)
+            == _workbook_without_date_system_controls(candidate_path)
+            and _xlsx_member_differences(baseline_path, candidate_path) == {"xl/workbook.xml"}
+            and (formula_sheet, formula_cell) in graph.get((serial_sheet, serial_cell), set())
+            and (dashboard_sheet, dashboard_cell)
+            in graph.get((formula_sheet, formula_cell), set()),
+            f"{truth['id']}: expected raw workbookPr date1904 false -> true only with stable serial, style, formulas, and dependency edges",
             errors,
         )
         return

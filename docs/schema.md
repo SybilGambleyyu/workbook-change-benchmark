@@ -14,8 +14,9 @@ external-workbook formula whose stored open-time link-update policy changes.
 WCAB 0.9 adds an unchanged direct circular formula whose stored iterative
 calculation setting changes, WCAB 0.10 adds a precision-as-displayed
 calculation control change without a cell edit, and WCAB 0.11 adds a raw saved
-formula-result change without a formula or input edit. Version 2 remains
-available in the immutable v0.2.0 and v0.3.0 releases.
+formula-result change without a formula or input edit. WCAB 0.12 adds a raw
+workbook serial-date-system control change with unchanged cell content. Version
+2 remains available in the immutable v0.2.0 and v0.3.0 releases.
 
 ```json
 {
@@ -55,6 +56,7 @@ Facts are observed directly from the fixture files by `wcab validate`.
 | `manual_calculation_incomplete` | none | Candidate calculation metadata is `manual` and records incomplete calculation. |
 | `iterative_calculation_enabled` | `sheet`, `cell`, `formula`, `baseline_iterate`, `candidate_iterate`, `iteration_count`, `iteration_delta` | The declared direct self-referencing formula remains unchanged while raw `calcPr/@iterate` changes exactly from `false` to `true`; the explicit count and delta remain the declared values, and all non-iteration calculation attributes are unchanged. The validator does not calculate the model. |
 | `precision_as_displayed_enabled` | `input_sheet`, `input_cell`, `input_value`, `number_format`, `formula_sheet`, `formula_cell`, `formula`, `baseline_full_precision`, `candidate_full_precision` | The declared stored input, number format, and formula remain unchanged while raw `calcPr/@fullPrecision` changes exactly from `true` to `false`; all other `calcPr` attributes are unchanged. The validator does not calculate, open, or save the workbook. |
+| `workbook_date_system_changed` | `baseline_date_1904`, `candidate_date_1904`, `date_compatibility`, `serial_sheet`, `serial_cell`, `serial_value`, `number_format`, `formula_sheet`, `formula_cell`, `formula`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | Raw `workbookPr/@date1904` changes from `false` to `true` while explicit compatibility remains `true`; the raw numeric serial, custom date format, local formulas, and every package member except `xl/workbook.xml` remain unchanged. The validator does not calculate, convert, or infer displayed dates. |
 | `formula_cached_result_changed` | `sheet`, `cell`, `formula`, `input_sheet`, `input_cell`, `input_value`, `result_type`, `baseline_cached_result`, `candidate_cached_result` | One raw numeric formula-cell `<v>` value changes while its raw `<f>` expression, direct input, calculation properties, and every other package member remain unchanged. The validator reads OOXML only; it does not calculate, validate, or interpret the saved result. |
 | `external_data_connection_refresh_on_load_changed` | `connection_id`, `baseline_refresh_on_load`, `candidate_refresh_on_load` | The relationship-backed connection with this workbook-local ID explicitly changes `refreshOnLoad` from `false` to `true`. The validator reads raw OOXML only. |
 | `external_workbook_link_update_policy_changed` | `sheet`, `cell`, `formula`, `baseline_update_links`, `candidate_update_links` | The declared external-workbook formula remains unchanged while raw `workbookPr/@updateLinks` changes exactly from `never` to `always`; all other stored `workbookPr` attributes are unchanged. The validator does not resolve the source workbook. |
@@ -103,6 +105,24 @@ requires the exact policy values, matching formula text, and equal non-policy
 `workbookPr` attributes. It does not open, resolve, authenticate to, trust,
 refresh, or calculate the external source, and it does not claim an updated
 cached result or a successful workbook recalculation.
+
+## Workbook serial-date system
+
+Excel documents two workbook date systems, 1900 and 1904, with a 1,462-day
+difference for the same stored serial; it also documents the workbook-level
+setting in its [date-system guidance](https://support.microsoft.com/en-us/office/date-systems-in-excel-e7fe7167-48a9-4b96-bb53-5612a800b487).
+In SpreadsheetML, the `date1904` and `dateCompatibility` controls live on
+[`workbookPr`](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.spreadsheet.workbookproperties?view=openxml-3.0.1): their Open XML defaults are respectively `false` and `true`.
+
+WCAB's date-system pair makes both controls explicit. It preserves the raw
+numeric `Inputs!B2` serial `45292`, its custom `yyyy-mm-dd` number format,
+`Model!B2`'s local formula, and `Dashboard!B4`'s local consumer while only
+`date1904` changes from `false` to `true`; `dateCompatibility` stays `true`.
+The validator resolves the raw cell style through `styles.xml`, compares the
+formula expressions and direct dependency edges, and compares `workbook.xml`
+after removing only those two date-control attributes. It does not execute a
+formula, convert the serial, predict a displayed calendar date, open or save a
+workbook, or claim behavior for a particular client.
 
 ## Iterative calculation
 

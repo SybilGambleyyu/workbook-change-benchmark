@@ -128,6 +128,24 @@ correct, stale, tampered, or will be displayed after opening: volatile,
 external, and client-specific calculation behavior are out of scope. Its
 purpose is to make the saved-result discrepancy observable and reviewable.
 
+## Workbook serial-date systems without a cell edit
+
+Microsoft documents that Excel workbooks use either a 1900 or 1904 date
+system, and that the same stored serial differs by 1,462 days between those
+systems in its [date-system guidance](https://support.microsoft.com/en-us/office/date-systems-in-excel-e7fe7167-48a9-4b96-bb53-5612a800b487). The Open XML
+[`workbookPr` reference](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.spreadsheet.workbookproperties?view=openxml-3.0.1)
+stores `date1904` and `dateCompatibility` as workbook controls, with defaults
+of `false` and `true` respectively. That makes an omitted control materially
+different from an arbitrary boolean parser: a comparator should normalize the
+specified defaults before deciding that a date-system change occurred.
+
+WCAB 0.12 isolates that surface in an original synthetic pair. It makes both
+controls explicit, preserves a raw `45292` numeric serial and its
+`yyyy-mm-dd` custom format, and changes only `date1904=false` to `true` while
+`dateCompatibility=true` remains fixed. The validator reads local OOXML and
+style metadata only. It neither converts the serial nor asserts what date a
+client will display, and it does not calculate, open, or save a workbook.
+
 ## Array-formula semantics
 
 Microsoft's [dynamic-array versus legacy-CSE guidance](https://support.microsoft.com/en-US/Excel/dynamic-array-formulas-vs-legacy-cse-array-formulas)

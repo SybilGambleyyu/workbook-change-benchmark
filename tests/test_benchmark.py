@@ -131,6 +131,27 @@ def test_committed_manifest_matches_fixture_tree() -> None:
             "candidate_full_precision": False,
         }
     ]
+    workbook_date_system_row = next(
+        row for row in rows if row["id"] == "governance.workbook_date_system_changed"
+    )
+    assert workbook_date_system_row["facts"] == [
+        {
+            "kind": "workbook_date_system_changed",
+            "baseline_date_1904": False,
+            "candidate_date_1904": True,
+            "date_compatibility": True,
+            "serial_sheet": "Inputs",
+            "serial_cell": "B2",
+            "serial_value": 45292,
+            "number_format": "yyyy-mm-dd",
+            "formula_sheet": "Model",
+            "formula_cell": "B2",
+            "formula": "=Inputs!$B$2+30",
+            "dashboard_sheet": "Dashboard",
+            "dashboard_cell": "B4",
+            "dashboard_formula": "=Model!$B$2",
+        }
+    ]
     formula_cached_result_row = next(
         row for row in rows if row["id"] == "governance.formula_cached_result_changed"
     )
@@ -393,6 +414,100 @@ def test_precision_as_displayed_pair_changes_only_workbook_xml(tmp_path: Path) -
     fixture_root = tmp_path / "fixtures"
     build_all(fixture_root)
     case = fixture_root / "governance" / "precision_as_displayed_enabled"
+    with ZipFile(case / "baseline.xlsx") as baseline, ZipFile(case / "candidate.xlsx") as candidate:
+        baseline_members = {
+            entry.filename: baseline.read(entry.filename) for entry in baseline.infolist()
+        }
+        candidate_members = {
+            entry.filename: candidate.read(entry.filename) for entry in candidate.infolist()
+        }
+    assert set(baseline_members) == set(candidate_members)
+    assert [
+        member
+        for member in sorted(baseline_members)
+        if baseline_members[member] != candidate_members[member]
+    ] == ["xl/workbook.xml"]
+
+
+def test_validator_rejects_a_false_workbook_date_system_fact(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "governance" / "workbook_date_system_changed"
+    truth_path = case / "truth.json"
+    truth = json.loads(truth_path.read_text(encoding="utf-8"))
+    truth["facts"][0]["candidate_date_1904"] = False
+    truth_path.write_text(json.dumps(truth), encoding="utf-8")
+    assert validate_case(case)
+
+
+def test_validator_rejects_a_corrupted_workbook_date_system_control(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = fixture_root / "governance" / "workbook_date_system_changed" / "candidate.xlsx"
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    namespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    workbook = ElementTree.fromstring(members["xl/workbook.xml"])
+    workbook.find(f"{{{namespace}}}workbookPr").set("date1904", "0")
+    members["xl/workbook.xml"] = ElementTree.tostring(
+        workbook, encoding="utf-8", xml_declaration=True
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_validator_rejects_a_corrupted_workbook_date_system_serial(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = fixture_root / "governance" / "workbook_date_system_changed" / "candidate.xlsx"
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    namespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    worksheet_member = "xl/worksheets/sheet1.xml"
+    worksheet = ElementTree.fromstring(members[worksheet_member])
+    cell = next(cell for cell in worksheet.iter(f"{{{namespace}}}c") if cell.get("r") == "B2")
+    cell.find(f"{{{namespace}}}v").text = "45293"
+    members[worksheet_member] = ElementTree.tostring(
+        worksheet, encoding="utf-8", xml_declaration=True
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_validator_rejects_an_unrelated_workbook_date_system_control_change(
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = fixture_root / "governance" / "workbook_date_system_changed" / "candidate.xlsx"
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    namespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    workbook = ElementTree.fromstring(members["xl/workbook.xml"])
+    workbook.find(f"{{{namespace}}}workbookPr").set("showObjects", "none")
+    members["xl/workbook.xml"] = ElementTree.tostring(
+        workbook, encoding="utf-8", xml_declaration=True
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_workbook_date_system_pair_changes_only_workbook_xml(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "governance" / "workbook_date_system_changed"
     with ZipFile(case / "baseline.xlsx") as baseline, ZipFile(case / "candidate.xlsx") as candidate:
         baseline_members = {
             entry.filename: baseline.read(entry.filename) for entry in baseline.infolist()
@@ -917,6 +1032,89 @@ def test_formulafence_adapter_rejects_an_inexact_precision_as_displayed_transiti
     assert result["status"] == "missed"
     assert result["matched"] == []
     assert result["missed"] == ["precision_as_displayed_enabled"]
+
+
+def test_formulafence_adapter_maps_the_exact_workbook_date_system_transition(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = {
+            "before": {
+                "date_1904": False,
+                "date_compatibility": True,
+                "date_compatibility_declared": True,
+                "unrecognized_control_count": 0,
+            },
+            "after": {
+                "date_1904": True,
+                "date_compatibility": True,
+                "date_compatibility_declared": True,
+                "unrecognized_control_count": 0,
+            },
+        }
+        return {
+            "summary": {"change_count": 2},
+            "changes": [
+                {
+                    "kind": "workbook_date_system_changed",
+                    "location": None,
+                    "details": details,
+                },
+                {"kind": "value_changed", "location": "Inputs!B2"},
+            ],
+            "findings": [{"rule_id": "FF117", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "workbook_date_system_changed"
+    )
+    assert result["status"] == "matched"
+    assert result["matched"] == ["workbook_date_system_changed"]
+
+
+def test_formulafence_adapter_requires_the_workbook_date_system_finding(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        return {
+            "summary": {"change_count": 2},
+            "changes": [
+                {
+                    "kind": "workbook_date_system_changed",
+                    "location": None,
+                    "details": {
+                        "before": {
+                            "date_1904": False,
+                            "date_compatibility": True,
+                            "date_compatibility_declared": True,
+                            "unrecognized_control_count": 0,
+                        },
+                        "after": {
+                            "date_1904": True,
+                            "date_compatibility": True,
+                            "date_compatibility_declared": True,
+                            "unrecognized_control_count": 0,
+                        },
+                    },
+                }
+            ],
+            "findings": [],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "workbook_date_system_changed"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["workbook_date_system_changed"]
 
 
 def test_formulafence_adapter_maps_the_exact_formula_cached_result_change(

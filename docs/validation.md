@@ -1,7 +1,7 @@
 # Validation record
 
-This record describes the WCAB 0.11.0 / schema-version-3 validation run on
-2026-08-02. It is reproducible from this repository; no network service or
+This record describes the WCAB 0.12.0 / schema-version-3 validation run on
+2026-08-03. It is reproducible from this repository; no network service or
 private workbook is required.
 
 ## Fixture integrity
@@ -32,16 +32,16 @@ wcab validate --fixtures fixtures
 
 Results:
 
-- 26 cases: 25 paired-workbook cases and one directory portfolio case.
-- 28 observable truth facts across 21 `block` and five `review` cases.
+- 27 cases: 26 paired-workbook cases and one directory portfolio case.
+- 29 observable truth facts across 22 `block` and five `review` cases.
 - Three scoreable coverage expectations: one newly introduced `INDIRECT`
   boundary and two unchanged-formula selector changes (`INDIRECT` address text
   and `OFFSET` column displacement).
-- 81 generated fixture files: 54 workbooks, 26 truth manifests, and one JSONL
+- 84 generated fixture files: 56 workbooks, 27 truth manifests, and one JSONL
   case catalogue, all generated from source.
-- Fifty-six unit tests passed under both Python versions, including
+- Sixty-three unit tests passed locally under Python 3.13, including
   independent regeneration and byte-for-byte fixture-tree equality.
-- The fixture validator accepted all 26 cases.
+- The fixture validator accepted all 27 cases.
 - The external-data pair has identical package members except for
   `xl/connections.xml`; both archives pass ZIP integrity checks and remain
   readable by openpyxl. Its relationship-backed source is a non-routable
@@ -62,6 +62,14 @@ Results:
   downstream reference are unchanged while `calcPr/@fullPrecision` changes
   exactly from true to false. The validation run did not open, calculate, or
   save either workbook.
+- The workbook-date-system pair has identical package members except for
+  `xl/workbook.xml`; both archives pass ZIP integrity checks and remain
+  readable by openpyxl. Its raw `Inputs!B2=45292` numeric serial,
+  `yyyy-mm-dd` style, local `Model!B2` and `Dashboard!B4` formulas, and
+  explicit `dateCompatibility=true` control are unchanged while
+  `workbookPr/@date1904` changes exactly from false to true. The validation run
+  did not calculate, convert a serial, predict a displayed date, open, or save
+  either workbook.
 - The saved-formula-result pair has identical package members except for
   `xl/worksheets/sheet2.xml`; both archives pass ZIP integrity checks and
   remain readable by openpyxl. Its direct input, formula expression,
@@ -77,7 +85,7 @@ Results:
 
 ## Distribution supplement
 
-The 0.11.0 release retains the one-row-per-case `manifest.jsonl` catalogue and
+The 0.12.0 release retains the one-row-per-case `manifest.jsonl` catalogue and
 the tool-neutral observation protocol at version 2. Each catalogue row retains
 the schema-version-3 truth contract and includes byte counts and SHA-256
 digests for the workbooks it names.
@@ -85,11 +93,11 @@ digests for the workbooks it names.
 Commands:
 
 ```bash
-python -m build --outdir /tmp/wcab-v011-dist
-twine check /tmp/wcab-v011-dist/*
+python -m build --outdir /tmp/wcab-v012-dist
+twine check /tmp/wcab-v012-dist/*
 python -m venv /tmp/wcab-wheel-test
 /tmp/wcab-wheel-test/bin/python -m pip install \
-  /tmp/wcab-v011-dist/workbook_change_benchmark-0.11.0-py3-none-any.whl
+  /tmp/wcab-v012-dist/workbook_change_benchmark-0.12.0-py3-none-any.whl
 /tmp/wcab-wheel-test/bin/wcab validate --fixtures fixtures
 /tmp/wcab-wheel-test/bin/wcab manifest --fixtures fixtures --output /tmp/manifest.jsonl
 cmp fixtures/manifest.jsonl /tmp/manifest.jsonl
@@ -102,20 +110,22 @@ cmp fixtures/manifest.jsonl /tmp/manifest.jsonl
 Results:
 
 - The source distribution and universal wheel passed `twine check`.
-- A fresh Python 3.12 wheel installation validated all 26 fixtures and emitted
+- Fresh Python 3.13 wheel and source-distribution installations both reported
+  version 0.12.0 and validated all 27 fixtures; the wheel emitted
   byte-identical JSONL output.
-- The full fifty-six-test suite, lint, and format checks passed under the
-  supported local Python versions (3.12 and 3.13).
+- The full sixty-three-test suite, lint, and format checks passed locally under
+  Python 3.13; hosted release CI runs the same checks under Python 3.10 and
+  3.13.
 - The generated unsupported template scored as zero analyzed coverage, zero
   expected-fact recall, and zero coverage-disclosure recall, confirming that
   unsupported cases cannot become a pass.
-- The FormulaFence normalizer emitted 27 matched facts, one intentionally
+- The FormulaFence normalizer emitted 28 matched facts, one intentionally
   unmapped fact, three matched coverage declarations, and no invented review
   disposition.
 
 ## FormulaFence reference adapter
 
-FormulaFence 0.219.0 was installed from the local checked-out release source
+FormulaFence 0.220.0 was installed from the local checked-out release source
 and invoked only against WCAB's generated files:
 
 ```bash
@@ -124,9 +134,9 @@ wcab formulafence --fixtures fixtures --strict
 
 Results:
 
-- All 27 currently mappable diff/portfolio facts were observed.
+- All 28 currently mappable diff/portfolio facts were observed.
 - All three mappable coverage expectations were matched; no mapped fact,
-  coverage expectation, or targeted lint rule was missed across all 26 cases.
+  coverage expectation, or targeted lint rule was missed across all 27 cases.
 - The schema-version-2 structured Table scope case was observed as a
   `table_definition_changed` diff, even though its summary formula text stays
   unchanged.
@@ -158,6 +168,13 @@ Results:
   moved from true to false while the stored input, number format, formula, and
   other calculation controls remained unchanged. Neither report claims a
   rounded stored value, calculated result, or client-side save behavior.
+- The WCAB 0.12 workbook-date-system case was observed as one exact
+  `workbook_date_system_changed` transition and `FF117`: normalized
+  `date1904` moved from false to true while explicit `dateCompatibility=true`
+  and the unrecognized-control count of zero remained fixed. FormulaFence
+  reported workbook-level evidence only; WCAB's independent raw validation
+  established the stable serial, style, formulas, and package boundary. Neither
+  report claims a converted or displayed date.
 - The WCAB 0.11 saved-formula-result case was observed as one exact
   `formula_cached_result_changed` record and `FF042`: FormulaFence reports
   two formula cells, one numeric saved result, one missing saved result, and

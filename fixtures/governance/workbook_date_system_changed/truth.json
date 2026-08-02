@@ -1,0 +1,62 @@
+{
+  "coverage": [
+    "The pair changes only raw workbookPr date1904 from false to true while dateCompatibility remains explicitly true. It does not edit a worksheet cell, formula, style, calculation property, or dependency edge.",
+    "The stored numeric serial and date number format remain unchanged. WCAB does not calculate a formula, convert the serial into a date, infer a visible value, or claim what an Excel client will do on opening or saving either workbook.",
+    "The validator reads raw OOXML controls, numeric cell text, formula text, number format, and package-member differences. It treats the date-system transition as a stored-control review boundary, not proof of a displayed outcome."
+  ],
+  "coverage_expectations": [],
+  "facts": [
+    {
+      "baseline_date_1904": false,
+      "candidate_date_1904": true,
+      "dashboard_cell": "B4",
+      "dashboard_formula": "=Model!$B$2",
+      "dashboard_sheet": "Dashboard",
+      "date_compatibility": true,
+      "formula": "=Inputs!$B$2+30",
+      "formula_cell": "B2",
+      "formula_sheet": "Model",
+      "kind": "workbook_date_system_changed",
+      "number_format": "yyyy-mm-dd",
+      "serial_cell": "B2",
+      "serial_sheet": "Inputs",
+      "serial_value": 45292
+    }
+  ],
+  "family": "governance",
+  "id": "governance.workbook_date_system_changed",
+  "must_reach": [
+    {
+      "source": {
+        "cell": "B2",
+        "sheet": "Inputs"
+      },
+      "targets": [
+        {
+          "cell": "B2",
+          "sheet": "Model"
+        },
+        {
+          "cell": "B4",
+          "sheet": "Dashboard"
+        }
+      ]
+    },
+    {
+      "source": {
+        "cell": "B2",
+        "sheet": "Model"
+      },
+      "targets": [
+        {
+          "cell": "B4",
+          "sheet": "Dashboard"
+        }
+      ]
+    }
+  ],
+  "review_expectation": "block",
+  "schema_version": 3,
+  "title": "Workbook serial-date controls change without a cell edit",
+  "topology": "pair"
+}

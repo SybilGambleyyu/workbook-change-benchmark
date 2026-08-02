@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.12.0 — 2026-08-03
+
+- Add a deterministic workbook serial-date-system case. Its raw
+  `Inputs!B2=45292` serial, `yyyy-mm-dd` number format, local `Model!B2` and
+  `Dashboard!B4` formulas, and explicit `dateCompatibility=true` control stay
+  unchanged while raw `workbookPr/@date1904` changes from `false` to `true`.
+- Add the exact `workbook_date_system_changed` fact, raw-OOXML validator, and
+  corruption regressions. WCAB records the stored controls and package
+  boundary; it does not calculate a formula, convert the serial, predict a
+  displayed date, or claim behavior for a particular Excel client.
+- Extend the optional FormulaFence adapter to require the exact normalized
+  `FF117` date-system evidence alongside the mapped fact, rejecting missing or
+  broadened date-control observations.
+
 ## 0.11.0 — 2026-08-02
 
 - Add a deterministic saved-formula-result case. Its direct input, formula,

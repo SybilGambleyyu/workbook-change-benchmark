@@ -36,6 +36,7 @@ _FACT_TO_CHANGE: dict[str, tuple[str, str | None]] = {
     "manual_calculation_incomplete": ("calculation_settings_changed", None),
     "iterative_calculation_enabled": ("calculation_settings_changed", None),
     "precision_as_displayed_enabled": ("calculation_settings_changed", None),
+    "workbook_date_system_changed": ("workbook_date_system_changed", None),
     "formula_cached_result_changed": ("formula_cached_result_changed", None),
     "array_formula_mode_changed": ("array_formula_mode_changed", "location"),
     "external_data_connection_refresh_on_load_changed": (
@@ -308,6 +309,43 @@ def _precision_as_displayed_enabled_observed(change: dict[str, Any], fact: dict[
     return details.get("before") == expected_before and details.get("after") == expected_after
 
 
+def _workbook_date_system_details_observed(details: Any, fact: dict[str, Any]) -> bool:
+    """Require FormulaFence's exact normalized date-control transition."""
+
+    if (
+        fact.get("baseline_date_1904") is not False
+        or fact.get("candidate_date_1904") is not True
+        or fact.get("date_compatibility") is not True
+    ):
+        return False
+    if not isinstance(details, dict):
+        return False
+    expected_before = {
+        "date_1904": False,
+        "date_compatibility": True,
+        "date_compatibility_declared": True,
+        "unrecognized_control_count": 0,
+    }
+    expected_after = {**expected_before, "date_1904": True}
+    return details.get("before") == expected_before and details.get("after") == expected_after
+
+
+def _workbook_date_system_observed(change: dict[str, Any], fact: dict[str, Any]) -> bool:
+    """Match FormulaFence's dedicated global date-system change record."""
+
+    return change.get("kind") == "workbook_date_system_changed" and (
+        _workbook_date_system_details_observed(change.get("details"), fact)
+    )
+
+
+def _workbook_date_system_finding_observed(finding: dict[str, Any], fact: dict[str, Any]) -> bool:
+    """Require FormulaFence's matching high-severity FF117 finding."""
+
+    return finding.get("rule_id") == "FF117" and _workbook_date_system_details_observed(
+        finding.get("details"), fact
+    )
+
+
 def _formula_cached_result_details_observed(details: Any, fact: dict[str, Any]) -> bool:
     """Match FormulaFence's intentionally redacted saved-result details.
 
@@ -523,6 +561,16 @@ def evaluate_diff_case(case_dir: str | Path, *, executable: str = "formulafence"
                 _precision_as_displayed_enabled_observed(change, fact)
                 for change in changes
                 if isinstance(change, dict)
+            )
+        if kind == "workbook_date_system_changed":
+            observed = any(
+                _workbook_date_system_observed(change, fact)
+                for change in changes
+                if isinstance(change, dict)
+            ) and any(
+                _workbook_date_system_finding_observed(finding, fact)
+                for finding in findings
+                if isinstance(finding, dict)
             )
         if kind == "formula_cached_result_changed":
             observed = any(

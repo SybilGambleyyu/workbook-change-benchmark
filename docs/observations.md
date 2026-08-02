@@ -198,7 +198,13 @@ stable two-formula/one-numeric-cache profile, exactly one unexplained cache
 change, and material-change evidence. FormulaFence deliberately redacts raw
 cache values and formula-cell locations from that record; WCAB's independent
 raw validator establishes the declared `Model!B2` location and `20`-to-`25`
-value change. The adapter leaves `review` as `null`: FormulaFence
+value change. For the workbook-date-system case, it requires one
+`workbook_date_system_changed` record and `FF117` with normalized
+`date1904=false` to `true`, explicit `dateCompatibility=true` on both sides,
+and zero unrecognized date controls. WCAB's raw validator—not the adapter—then
+establishes the stable serial, style, formulas, direct dependency edges, and
+workbook.xml-only package change; neither report calculates a date or infers a
+client display. The adapter leaves `review` as `null`: FormulaFence
 surfaces evidence but does not impose WCAB's reference policy as a universal
 approval decision. Any intentionally unmapped fact or coverage expectation
 becomes an adapter note and remains missing from its respective recall metric.

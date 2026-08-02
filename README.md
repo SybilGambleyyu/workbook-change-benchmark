@@ -34,7 +34,7 @@ gates, static analyzers, and agent workflows that propose workbook edits.
 
 ## Scope and non-goals
 
-Version `0.11` covers formula-to-value replacements, formula reference drift,
+Version `0.12` covers formula-to-value replacements, formula reference drift,
 value changes with downstream effects, external formula references, named
 ranges, data validation, conditional formatting, sheet visibility, direct cell
 protection, calculation settings, static cycles, portfolio dependencies,
@@ -51,6 +51,10 @@ precision as displayed, and an unchanged array formula switching from a fixed
 legacy CSE output range to dynamic-array semantics. It also covers a saved
 numeric formula result changing while its formula, direct input, calculation
 metadata, and local downstream reference remain unchanged.
+It also covers a workbook-wide 1900-to-1904 date-system control change while
+an explicit compatibility control, a raw numeric serial, its date number
+format, and local formulas remain unchanged. It does not infer an Excel-client
+display or calculate a converted date.
 
 The benchmark does **not** evaluate formula execution or claim that a
 candidate's numerical results are correct.  A case's `review_expectation` is a
@@ -172,7 +176,12 @@ stored input, number format, formula, and other calculation controls remain
 unchanged. For the saved-formula-result case, it requires FormulaFence's exact
 one-result `FF042` evidence: the tool intentionally redacts the result and
 formula-cell location, so the adapter also requires its stable numeric cache
-profile and unexplained-change count. It keeps unmapped facts explicit; it does not treat the benign
+profile and unexplained-change count. For the workbook-date-system case, it
+requires `workbook_date_system_changed` plus `FF117`: normalized `date1904`
+must move from `false` to `true`, explicit `dateCompatibility` must remain
+`true`, and no unrecognized date controls may appear. WCAB independently
+validates the raw serial, style, formulas, and package-member boundary. It
+keeps unmapped facts explicit; it does not treat the benign
 structural-rewrite annotation as a generic semantic-equivalence claim.
 
 ## Reproducibility
