@@ -34,7 +34,7 @@ gates, static analyzers, and agent workflows that propose workbook edits.
 
 ## Scope and non-goals
 
-Version `0.20` covers formula-to-value replacements, formula reference drift,
+Version `0.21` covers formula-to-value replacements, formula reference drift,
 value changes with downstream effects, external formula references, named
 ranges, data validation, conditional formatting, sheet visibility, direct cell
 protection, calculation settings, static cycles, portfolio dependencies,
@@ -101,6 +101,13 @@ visible cells, ordinary formula text, calculation properties, and saved table
 results remain unchanged. It records the stored declaration only: it does not
 substitute input values, calculate the workbook or table, infer an output,
 resolve a circular dependency, or claim client behavior.
+It also covers a list data-validation rule at `Inputs!B2` whose raw `formula1`
+source moves from `=Lists!$A$2:$A$4` to `=Lists!$B$2:$B$4` while the target range,
+entry-control metadata, both source lists, current input, ordinary formulas,
+and calculation properties remain unchanged. It records the stored input
+control only: it does not evaluate the list source, decide whether a future
+entry is valid, accept or reject an entry, calculate a workbook, or claim
+Excel-client behavior.
 It also covers a Dashboard DrawingML chart whose raw numeric-series reference
 switches from `Source!$B$2:$B$4` to `Source!$C$2:$C$4` while all source cells,
 the chart anchor, its title/category references, and every package member
@@ -267,6 +274,15 @@ declaration, exact `B2`-to-`B3` `r1` transition, stable input grid and formulas,
 direct static model/dashboard lower bounds, and Sensitivity-worksheet-only
 package change. Neither layer substitutes inputs, calculates, resolves a
 circular dependency, or claims client behavior.
+For the list data-validation source case, it requires FormulaFence's exact
+`data_validation_changed` source/control transition and `FF020`. FormulaFence
+reports the stored source and entry-control metadata but does not evaluate the
+source expression or decide whether a future value is permitted. WCAB's raw
+validator independently proves the generated `Lists!$A$2:$A$4` to
+`Lists!$B$2:$B$4` `formula1` change, stable source lists/current input/formulas,
+direct static model/dashboard lower bounds, and Inputs-worksheet-only package
+change. Neither layer accepts or rejects an entry, calculates a workbook, or
+claims client behavior.
 For the chart-series case, it requires FormulaFence's exact redacted one-chart
 profile, `chart_definition_material_changed`, and `FF030`; FormulaFence does
 not expose the source formula or a visual result. WCAB's raw validator instead

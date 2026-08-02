@@ -244,6 +244,32 @@ def _what_if_data_table_input_reference_details() -> dict[str, object]:
     }
 
 
+def _data_validation_list_source_details() -> dict[str, object]:
+    rule = {
+        "allow_blank": False,
+        "dropdown_hidden": False,
+        "error": "Choose an approved status.",
+        "error_style": "stop",
+        "error_title": "Invalid status",
+        "formula2": None,
+        "ime_mode": "noControl",
+        "operator": "between",
+        "prompt": "Choose a documented status.",
+        "prompt_title": "Approved status",
+        "prompts_disabled": False,
+        "ranges": ["Inputs!B2"],
+        "sheet": "Inputs",
+        "show_error_message": True,
+        "show_input_message": False,
+        "type": "list",
+    }
+    return {
+        "sheet": "Inputs",
+        "before": [{**rule, "formula1": "Lists!$A$2:$A$4"}],
+        "after": [{**rule, "formula1": "Lists!$B$2:$B$4"}],
+    }
+
+
 def _replace_power_query_m_filter_literal(path: Path, *, before: bytes, after: bytes) -> None:
     """Rewrite one test fixture's embedded M formula without changing its truth."""
 
@@ -355,6 +381,41 @@ def test_committed_manifest_matches_fixture_tree() -> None:
             "dashboard_sheet": "Dashboard",
             "dashboard_cell": "B4",
             "dashboard_formula": "=Report!$D$2",
+        }
+    ]
+    data_validation_list_source_row = next(
+        row for row in rows if row["id"] == "operations.data_validation_list_source_changed"
+    )
+    assert data_validation_list_source_row["facts"] == [
+        {
+            "kind": "data_validation_list_source_changed",
+            "validation_sheet": "Inputs",
+            "target_range": "B2",
+            "validation_type": "list",
+            "baseline_source_formula": "=Lists!$A$2:$A$4",
+            "candidate_source_formula": "=Lists!$B$2:$B$4",
+            "allow_blank": False,
+            "dropdown_hidden": False,
+            "show_error_message": True,
+            "error_style": "stop",
+            "error_title": "Invalid status",
+            "error": "Choose an approved status.",
+            "show_input_message": False,
+            "prompt_title": "Approved status",
+            "prompt": "Choose a documented status.",
+            "source_sheet": "Lists",
+            "baseline_source_range": "A2:A4",
+            "candidate_source_range": "B2:B4",
+            "baseline_source_values": ["Draft", "Review", "Approved"],
+            "candidate_source_values": ["Draft", "Suspended", "Rejected"],
+            "input_cell": "B2",
+            "input_value": "Draft",
+            "model_sheet": "Model",
+            "model_cell": "B2",
+            "model_formula": "=Inputs!$B$2",
+            "dashboard_sheet": "Dashboard",
+            "dashboard_cell": "B4",
+            "dashboard_formula": "=Model!$B$2",
         }
     ]
     external_data_row = next(
@@ -1048,6 +1109,88 @@ def test_power_query_m_filter_pair_changes_only_its_data_mashup_part(tmp_path: P
         for member in sorted(baseline_members)
         if baseline_members[member] != candidate_members[member]
     ] == ["customXml/item1.xml"]
+
+
+def test_validator_rejects_a_false_data_validation_list_source_fact(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "operations" / "data_validation_list_source_changed"
+    truth_path = case / "truth.json"
+    truth = json.loads(truth_path.read_text(encoding="utf-8"))
+    truth["facts"][0]["candidate_source_formula"] = "=Lists!$A$2:$A$4"
+    truth_path.write_text(json.dumps(truth), encoding="utf-8")
+    assert validate_case(case)
+
+
+def test_validator_rejects_a_corrupted_data_validation_list_source(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = (
+        fixture_root / "operations" / "data_validation_list_source_changed" / "candidate.xlsx"
+    )
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    namespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    worksheet_member = "xl/worksheets/sheet1.xml"
+    worksheet = ElementTree.fromstring(members[worksheet_member])
+    formula = next(worksheet.iter(f"{{{namespace}}}formula1"))
+    formula.text = "=Lists!$A$2:$A$4"
+    members[worksheet_member] = ElementTree.tostring(
+        worksheet, encoding="utf-8", xml_declaration=True
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_validator_rejects_an_unrelated_data_validation_control_change(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = (
+        fixture_root / "operations" / "data_validation_list_source_changed" / "candidate.xlsx"
+    )
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    namespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    worksheet_member = "xl/worksheets/sheet1.xml"
+    worksheet = ElementTree.fromstring(members[worksheet_member])
+    validation = next(worksheet.iter(f"{{{namespace}}}dataValidation"))
+    validation.set("showErrorMessage", "0")
+    members[worksheet_member] = ElementTree.tostring(
+        worksheet, encoding="utf-8", xml_declaration=True
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_data_validation_list_source_pair_changes_only_its_inputs_worksheet(
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "operations" / "data_validation_list_source_changed"
+    with ZipFile(case / "baseline.xlsx") as baseline, ZipFile(case / "candidate.xlsx") as candidate:
+        assert baseline.testzip() is None
+        assert candidate.testzip() is None
+        baseline_members = {
+            entry.filename: baseline.read(entry.filename) for entry in baseline.infolist()
+        }
+        candidate_members = {
+            entry.filename: candidate.read(entry.filename) for entry in candidate.infolist()
+        }
+    assert set(baseline_members) == set(candidate_members)
+    assert [
+        member
+        for member in sorted(baseline_members)
+        if baseline_members[member] != candidate_members[member]
+    ] == ["xl/worksheets/sheet1.xml"]
 
 
 def test_validator_rejects_a_false_scenario_manager_stored_input_fact(tmp_path: Path) -> None:
@@ -2350,6 +2493,92 @@ def test_formulafence_adapter_requires_the_auto_filter_finding(monkeypatch, tmp_
     assert result["status"] == "missed"
     assert result["matched"] == []
     assert result["missed"] == ["auto_filter_criteria_changed"]
+
+
+def test_formulafence_adapter_maps_the_exact_data_validation_list_source_change(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _data_validation_list_source_details()
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "data_validation_changed",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF020", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "operations" / "data_validation_list_source_changed"
+    )
+    assert result["status"] == "matched"
+    assert result["matched"] == ["data_validation_list_source_changed"]
+
+
+def test_formulafence_adapter_rejects_an_inexact_data_validation_list_source_change(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _data_validation_list_source_details()
+        details["after"][0]["formula1"] = "Lists!$A$2:$A$4"
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "data_validation_changed",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF020", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "operations" / "data_validation_list_source_changed"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["data_validation_list_source_changed"]
+
+
+def test_formulafence_adapter_requires_the_data_validation_list_source_finding(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "data_validation_changed",
+                    "location": None,
+                    "details": _data_validation_list_source_details(),
+                }
+            ],
+            "findings": [],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "operations" / "data_validation_list_source_changed"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["data_validation_list_source_changed"]
 
 
 def test_formulafence_adapter_maps_the_exact_pivot_cache_refresh_change(

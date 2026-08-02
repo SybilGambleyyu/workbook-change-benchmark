@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.21.0 — 2026-08-03
+
+- Add a deterministic list data-validation source-retargeting case. Its one
+  `Inputs!B2` list rule retains the target range, all entry-control metadata,
+  both local source lists, current input, ordinary formulas, and calculation
+  properties while raw `formula1` moves from `=Lists!$A$2:$A$4` to
+  `=Lists!$B$2:$B$4`.
+- Add the exact `data_validation_list_source_changed` fact, a narrow raw
+  worksheet validator, Inputs-worksheet-only package isolation check, stable
+  static model/dashboard lower bounds, and corruption regressions. WCAB records
+  a stored entry-control source only: it does not evaluate the list, decide a
+  future input's validity, accept or reject an entry, calculate a workbook, or
+  claim Excel-client behavior.
+- Extend the optional FormulaFence adapter to require the exact native
+  `data_validation_changed` source/control profile and high-severity `FF020`,
+  while WCAB independently proves the source transition and stable surrounding
+  declarations.
+
 ## 0.20.0 — 2026-08-03
 
 - Add a deterministic one-variable What-If Data Table case. Its raw

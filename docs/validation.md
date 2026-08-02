@@ -1,6 +1,6 @@
 # Validation record
 
-This record describes the WCAB 0.20.0 / schema-version-3 validation run on
+This record describes the WCAB 0.21.0 / schema-version-3 validation run on
 2026-08-03. It is reproducible from this repository; no network service or
 private workbook is required.
 
@@ -32,16 +32,16 @@ wcab validate --fixtures fixtures
 
 Results:
 
-- 35 cases: 34 paired-workbook cases and one directory portfolio case.
-- 37 observable truth facts across 30 `block` and five `review` cases.
+- 36 cases: 35 paired-workbook cases and one directory portfolio case.
+- 38 observable truth facts across 31 `block` and five `review` cases.
 - Three scoreable coverage expectations: one newly introduced `INDIRECT`
   boundary and two unchanged-formula selector changes (`INDIRECT` address text
   and `OFFSET` column displacement).
-- 108 generated fixture files: 72 workbooks, 35 truth manifests, and one JSONL
+- 111 generated fixture files: 74 workbooks, 36 truth manifests, and one JSONL
   case catalogue, all generated from source.
-- One hundred twenty-two unit tests passed locally under Python 3.13, including
+- One hundred twenty-nine unit tests passed locally under Python 3.13, including
   independent regeneration and byte-for-byte fixture-tree equality.
-- The fixture validator accepted all 35 cases.
+- The fixture validator accepted all 36 cases.
 - The external-data pair has identical package members except for
   `xl/connections.xml`; both archives pass ZIP integrity checks and remain
   readable by openpyxl. Its relationship-backed source is a non-routable
@@ -97,6 +97,15 @@ Results:
   `r1` input reference moves from `B2` to `B3`. The validation run did not
   substitute inputs, calculate a workbook or Data Table, infer a table output,
   resolve a circular dependency, or claim client behavior.
+- The list data-validation source pair has identical package members except
+  for `xl/worksheets/sheet1.xml`; both archives pass ZIP integrity checks and
+  remain readable by openpyxl. Its one `Inputs!B2` list rule retains the target
+  range, error/prompt/dropdown metadata, both `Lists` source columns, current
+  `Draft` input, ordinary formulas, and calculation properties while raw
+  `formula1` moves exactly from `=Lists!$A$2:$A$4` to `=Lists!$B$2:$B$4`.
+  The validation run did not evaluate either source, decide whether a future
+  input is valid, accept/reject an entry, calculate a workbook, or claim
+  client behavior.
 - The chart-series pair has identical package members except for
   `xl/charts/chart1.xml`; both archives pass ZIP integrity checks and remain
   readable by openpyxl. Its `Dashboard!D2` anchor, title/category references,
@@ -150,7 +159,7 @@ Results:
 
 ## Distribution supplement
 
-The 0.20.0 release retains the one-row-per-case `manifest.jsonl` catalogue and
+The 0.21.0 release retains the one-row-per-case `manifest.jsonl` catalogue and
 the tool-neutral observation protocol at version 2. Each catalogue row retains
 the schema-version-3 truth contract and includes byte counts and SHA-256
 digests for the workbooks it names.
@@ -158,11 +167,11 @@ digests for the workbooks it names.
 Commands:
 
 ```bash
-python -m build --outdir /tmp/wcab-v020-dist
-twine check /tmp/wcab-v020-dist/*
+python -m build --outdir /tmp/wcab-v021-dist
+twine check /tmp/wcab-v021-dist/*
 python -m venv /tmp/wcab-wheel-test
 /tmp/wcab-wheel-test/bin/python -m pip install \
-  /tmp/wcab-v020-dist/workbook_change_benchmark-0.20.0-py3-none-any.whl
+  /tmp/wcab-v021-dist/workbook_change_benchmark-0.21.0-py3-none-any.whl
 /tmp/wcab-wheel-test/bin/wcab validate --fixtures fixtures
 /tmp/wcab-wheel-test/bin/wcab manifest --fixtures fixtures --output /tmp/manifest.jsonl
 cmp fixtures/manifest.jsonl /tmp/manifest.jsonl
@@ -179,14 +188,14 @@ Results:
   their uploaded assets in the GitHub release, avoiding a self-referential
   source-distribution checksum in this record.
 - Fresh Python 3.13 wheel and source-distribution installations both reported
-  version 0.20.0 and validated all 35 fixtures; the wheel emitted
+  version 0.21.0 and validated all 36 fixtures; the wheel emitted
   byte-identical JSONL output.
-- The full 122-test suite, lint, and format checks passed locally under Python
+- The full 129-test suite, lint, and format checks passed locally under Python
   3.13.
 - The generated unsupported template scored as zero analyzed coverage, zero
   expected-fact recall, and zero coverage-disclosure recall, confirming that
   unsupported cases cannot become a pass.
-- The FormulaFence normalizer emitted 36 matched facts, one intentionally
+- The FormulaFence normalizer emitted 37 matched facts, one intentionally
   unmapped fact, three matched coverage declarations, and no invented review
   disposition.
 
@@ -201,9 +210,9 @@ wcab formulafence --fixtures fixtures --strict
 
 Results:
 
-- All 36 currently mappable diff/portfolio facts were observed.
+- All 37 currently mappable diff/portfolio facts were observed.
 - All three mappable coverage expectations were matched; no mapped fact,
-  coverage expectation, or targeted lint rule was missed across all 35 cases.
+  coverage expectation, or targeted lint rule was missed across all 36 cases.
 - The schema-version-2 structured Table scope case was observed as a
   `table_definition_changed` diff, even though its summary formula text stays
   unchanged.
@@ -276,6 +285,15 @@ Results:
   stable input grid/formulas, ordinary static lower bounds, and
   Sensitivity-worksheet-only package change. Neither report substituted inputs,
   calculated, resolved a circular dependency, or claimed client behavior.
+- The WCAB 0.21 list data-validation case was observed as one exact
+  `data_validation_changed` record and `FF020`. FormulaFence exposed the one
+  `Inputs!B2` list rule's source formula and complete entry-control metadata;
+  it did not evaluate either local list or decide whether a future input is
+  valid. WCAB independently established the exact `=Lists!$A$2:$A$4` to
+  `=Lists!$B$2:$B$4` declaration, stable source values/current input/formulas,
+  ordinary static lower bounds, and Inputs-worksheet-only package change.
+  Neither report accepted/rejected an input, calculated a workbook, or claimed
+  client behavior.
 - The WCAB 0.15 chart-series case was observed as one exact
   `chart_definitions_changed` record and `FF030`. FormulaFence's redacted
   profile retained one host sheet, drawing, legacy chart, and series; three

@@ -30,6 +30,7 @@ _FACT_TO_CHANGE: dict[str, tuple[str, str | None]] = {
     "external_formula_added": ("external_workbook_link_surfaces_changed", None),
     "defined_name_changed": ("defined_name_changed", None),
     "data_validation_count_changed": ("data_validation_changed", None),
+    "data_validation_list_source_changed": ("data_validation_changed", None),
     "conditional_formatting_count_changed": ("conditional_formatting_changed", None),
     "auto_filter_criteria_changed": ("filter_visibility_controls_changed", None),
     "sheet_visibility_changed": ("sheet_visibility_changed", None),
@@ -768,6 +769,90 @@ def _power_query_m_filter_finding_observed(finding: dict[str, Any], fact: dict[s
     )
 
 
+def _data_validation_list_source_details_observed(details: Any, fact: dict[str, Any]) -> bool:
+    """Require FormulaFence's exact list-source transition and rule shape.
+
+    FormulaFence exposes the stored validation source and its entry-control
+    metadata, but it appropriately does not evaluate a list formula or decide
+    whether a future input would be accepted. WCAB's raw validator establishes
+    the compact package-only change; this adapter requires its exact native
+    evidence and high-severity FF020 finding.
+    """
+
+    if (
+        fact.get("validation_sheet") != "Inputs"
+        or fact.get("target_range") != "B2"
+        or fact.get("validation_type") != "list"
+        or fact.get("baseline_source_formula") != "=Lists!$A$2:$A$4"
+        or fact.get("candidate_source_formula") != "=Lists!$B$2:$B$4"
+        or fact.get("allow_blank") is not False
+        or fact.get("dropdown_hidden") is not False
+        or fact.get("show_error_message") is not True
+        or fact.get("error_style") != "stop"
+        or fact.get("error_title") != "Invalid status"
+        or fact.get("error") != "Choose an approved status."
+        or fact.get("show_input_message") is not False
+        or fact.get("prompt_title") != "Approved status"
+        or fact.get("prompt") != "Choose a documented status."
+        or fact.get("source_sheet") != "Lists"
+        or fact.get("baseline_source_range") != "A2:A4"
+        or fact.get("candidate_source_range") != "B2:B4"
+        or fact.get("baseline_source_values") != ["Draft", "Review", "Approved"]
+        or fact.get("candidate_source_values") != ["Draft", "Suspended", "Rejected"]
+        or fact.get("input_cell") != "B2"
+        or fact.get("input_value") != "Draft"
+        or fact.get("model_sheet") != "Model"
+        or fact.get("model_cell") != "B2"
+        or fact.get("model_formula") != "=Inputs!$B$2"
+        or fact.get("dashboard_sheet") != "Dashboard"
+        or fact.get("dashboard_cell") != "B4"
+        or fact.get("dashboard_formula") != "=Model!$B$2"
+        or not isinstance(details, dict)
+    ):
+        return False
+    expected_rule = {
+        "allow_blank": False,
+        "dropdown_hidden": False,
+        "error": "Choose an approved status.",
+        "error_style": "stop",
+        "error_title": "Invalid status",
+        "formula2": None,
+        "ime_mode": "noControl",
+        "operator": "between",
+        "prompt": "Choose a documented status.",
+        "prompt_title": "Approved status",
+        "prompts_disabled": False,
+        "ranges": ["Inputs!B2"],
+        "sheet": "Inputs",
+        "show_error_message": True,
+        "show_input_message": False,
+        "type": "list",
+    }
+    return details == {
+        "sheet": "Inputs",
+        "before": [{**expected_rule, "formula1": "Lists!$A$2:$A$4"}],
+        "after": [{**expected_rule, "formula1": "Lists!$B$2:$B$4"}],
+    }
+
+
+def _data_validation_list_source_observed(change: dict[str, Any], fact: dict[str, Any]) -> bool:
+    """Match FormulaFence's stored data-validation control-change record."""
+
+    return change.get("kind") == "data_validation_changed" and (
+        _data_validation_list_source_details_observed(change.get("details"), fact)
+    )
+
+
+def _data_validation_list_source_finding_observed(
+    finding: dict[str, Any], fact: dict[str, Any]
+) -> bool:
+    """Require FormulaFence's matching high-severity data-validation finding."""
+
+    return finding.get("rule_id") == "FF020" and _data_validation_list_source_details_observed(
+        finding.get("details"), fact
+    )
+
+
 def _what_if_data_table_input_reference_details_observed(
     details: Any, fact: dict[str, Any]
 ) -> bool:
@@ -1149,6 +1234,16 @@ def evaluate_diff_case(case_dir: str | Path, *, executable: str = "formulafence"
                 if isinstance(change, dict)
             ) and any(
                 _auto_filter_criteria_finding_observed(finding, fact)
+                for finding in findings
+                if isinstance(finding, dict)
+            )
+        if kind == "data_validation_list_source_changed":
+            observed = any(
+                _data_validation_list_source_observed(change, fact)
+                for change in changes
+                if isinstance(change, dict)
+            ) and any(
+                _data_validation_list_source_finding_observed(finding, fact)
                 for finding in findings
                 if isinstance(finding, dict)
             )

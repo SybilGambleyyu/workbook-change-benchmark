@@ -133,6 +133,27 @@ _WHAT_IF_DATA_TABLE_MODEL_CELL = "B2"
 _WHAT_IF_DATA_TABLE_MODEL_FORMULA = "=Sensitivity!$B$2*Sensitivity!$B$3*Sensitivity!$B$4"
 _WHAT_IF_DATA_TABLE_DASHBOARD_CELL = "B4"
 _WHAT_IF_DATA_TABLE_DASHBOARD_FORMULA = "=Model!$B$2"
+_DATA_VALIDATION_LIST_SHEET = "Inputs"
+_DATA_VALIDATION_LIST_SOURCE_SHEET = "Lists"
+_DATA_VALIDATION_LIST_MODEL_SHEET = "Model"
+_DATA_VALIDATION_LIST_DASHBOARD_SHEET = "Dashboard"
+_DATA_VALIDATION_LIST_TARGET_RANGE = "B2"
+_DATA_VALIDATION_LIST_BASELINE_SOURCE_FORMULA = "=Lists!$A$2:$A$4"
+_DATA_VALIDATION_LIST_CANDIDATE_SOURCE_FORMULA = "=Lists!$B$2:$B$4"
+_DATA_VALIDATION_LIST_BASELINE_SOURCE_RANGE = "A2:A4"
+_DATA_VALIDATION_LIST_CANDIDATE_SOURCE_RANGE = "B2:B4"
+_DATA_VALIDATION_LIST_BASELINE_SOURCE_VALUES = ("Draft", "Review", "Approved")
+_DATA_VALIDATION_LIST_CANDIDATE_SOURCE_VALUES = ("Draft", "Suspended", "Rejected")
+_DATA_VALIDATION_LIST_INPUT_VALUE = "Draft"
+_DATA_VALIDATION_LIST_MODEL_CELL = "B2"
+_DATA_VALIDATION_LIST_MODEL_FORMULA = "=Inputs!$B$2"
+_DATA_VALIDATION_LIST_DASHBOARD_CELL = "B4"
+_DATA_VALIDATION_LIST_DASHBOARD_FORMULA = "=Model!$B$2"
+_DATA_VALIDATION_LIST_ERROR_STYLE = "stop"
+_DATA_VALIDATION_LIST_ERROR_TITLE = "Invalid status"
+_DATA_VALIDATION_LIST_ERROR = "Choose an approved status."
+_DATA_VALIDATION_LIST_PROMPT_TITLE = "Approved status"
+_DATA_VALIDATION_LIST_PROMPT = "Choose a documented status."
 _CHART_SERIES_SOURCE_SHEET = "Source"
 _CHART_SERIES_DASHBOARD_SHEET = "Dashboard"
 _CHART_SERIES_ANCHOR = "D2"
@@ -334,6 +355,63 @@ def _operations_workbook() -> Workbook:
     sheet.conditional_formatting.add(
         "F6:F9", CellIsRule(operator="greaterThan", formula=["50"], fill=high_margin)
     )
+    return workbook
+
+
+def _data_validation_list_source_workbook() -> Workbook:
+    """Build a list-controlled input with two stable local source lists.
+
+    The candidate is later changed at the raw SpreadsheetML ``formula1``
+    declaration only. The source lists, current input, and ordinary formula
+    path remain unchanged so this fixture records a future entry-control
+    boundary rather than a calculated model result.
+    """
+
+    workbook = Workbook()
+    _configure_workbook(workbook, title="WCAB list validation source fixture")
+    inputs = workbook.active
+    inputs.title = _DATA_VALIDATION_LIST_SHEET
+    inputs["A1"] = "Status input"
+    inputs["A2"] = "Current status"
+    inputs[_DATA_VALIDATION_LIST_TARGET_RANGE] = _DATA_VALIDATION_LIST_INPUT_VALUE
+    validation = DataValidation(
+        type="list",
+        formula1=_DATA_VALIDATION_LIST_BASELINE_SOURCE_FORMULA,
+        allow_blank=False,
+        showErrorMessage=True,
+        errorStyle=_DATA_VALIDATION_LIST_ERROR_STYLE,
+        errorTitle=_DATA_VALIDATION_LIST_ERROR_TITLE,
+        error=_DATA_VALIDATION_LIST_ERROR,
+        showInputMessage=False,
+        promptTitle=_DATA_VALIDATION_LIST_PROMPT_TITLE,
+        prompt=_DATA_VALIDATION_LIST_PROMPT,
+    )
+    validation.showDropDown = False
+    validation.add(_DATA_VALIDATION_LIST_TARGET_RANGE)
+    inputs.add_data_validation(validation)
+
+    lists = workbook.create_sheet(_DATA_VALIDATION_LIST_SOURCE_SHEET)
+    lists["A1"] = "Approved statuses"
+    lists["B1"] = "Restricted statuses"
+    for row, (baseline_value, candidate_value) in enumerate(
+        zip(
+            _DATA_VALIDATION_LIST_BASELINE_SOURCE_VALUES,
+            _DATA_VALIDATION_LIST_CANDIDATE_SOURCE_VALUES,
+            strict=True,
+        ),
+        start=2,
+    ):
+        lists.cell(row, 1, baseline_value)
+        lists.cell(row, 2, candidate_value)
+
+    model = workbook.create_sheet(_DATA_VALIDATION_LIST_MODEL_SHEET)
+    model["A1"] = "Selected status"
+    model[_DATA_VALIDATION_LIST_MODEL_CELL] = _DATA_VALIDATION_LIST_MODEL_FORMULA
+
+    dashboard = workbook.create_sheet(_DATA_VALIDATION_LIST_DASHBOARD_SHEET)
+    dashboard["A1"] = "Board status"
+    dashboard["A4"] = "Selected status"
+    dashboard[_DATA_VALIDATION_LIST_DASHBOARD_CELL] = _DATA_VALIDATION_LIST_DASHBOARD_FORMULA
     return workbook
 
 
@@ -1557,6 +1635,53 @@ def _set_what_if_data_table_input_reference(path: Path, *, input_cell: str) -> N
     _rewrite_xlsx_parts(path, mutate)
 
 
+def _set_data_validation_list_source(path: Path, *, source_formula: str) -> None:
+    """Set WCAB's one list-validation source declaration without saving cells.
+
+    Excel stores a list validation's source as the ``formula1`` child of the
+    target's ``dataValidation`` record. Editing that small raw declaration
+    after openpyxl saves the baseline shape makes the candidate's package
+    boundary explicit: only the Inputs worksheet part is allowed to differ.
+    """
+
+    if source_formula not in {
+        _DATA_VALIDATION_LIST_BASELINE_SOURCE_FORMULA,
+        _DATA_VALIDATION_LIST_CANDIDATE_SOURCE_FORMULA,
+    }:
+        raise ValueError(f"unsupported list-validation source {source_formula!r}")
+
+    def mutate(members: dict[str, bytes]) -> None:
+        worksheet_member = "xl/worksheets/sheet1.xml"
+        worksheet = ElementTree.fromstring(members[worksheet_member])
+        data_validations_tag = f"{{{_SPREADSHEETML_NS}}}dataValidations"
+        data_validation_tag = f"{{{_SPREADSHEETML_NS}}}dataValidation"
+        formula1_tag = f"{{{_SPREADSHEETML_NS}}}formula1"
+        containers = worksheet.findall(data_validations_tag)
+        if len(containers) != 1:
+            raise ValueError("list-validation fixture lacks one dataValidations container")
+        validations = list(containers[0])
+        if len(validations) != 1 or validations[0].tag != data_validation_tag:
+            raise ValueError("list-validation fixture lacks one target validation")
+        validation = validations[0]
+        formulas = validation.findall(formula1_tag)
+        if (
+            validation.get("sqref") != _DATA_VALIDATION_LIST_TARGET_RANGE
+            or validation.get("type") != "list"
+            or len(validation) != 1
+            or len(formulas) != 1
+            or formulas[0].attrib
+            or len(formulas[0])
+            or formulas[0].text != _DATA_VALIDATION_LIST_BASELINE_SOURCE_FORMULA
+        ):
+            raise ValueError("list-validation fixture has an unexpected source declaration")
+        formulas[0].text = source_formula
+        members[worksheet_member] = ElementTree.tostring(
+            worksheet, encoding="utf-8", xml_declaration=True
+        )
+
+    _rewrite_xlsx_parts(path, mutate)
+
+
 def _add_pivot_slicer_selection(path: Path, *, selected_item_index: int) -> None:
     """Attach one local PivotTable slicer with one explicitly selected cache item.
 
@@ -2033,6 +2158,84 @@ def _build_operations_data_validation(root: Path) -> None:
     )
     _write_pair(
         root / "operations" / "data_validation_removed", _operations_workbook, mutate, truth
+    )
+
+
+def _build_operations_data_validation_list_source(root: Path) -> None:
+    """Build a stored list-source retarget without altering input/result cells."""
+
+    directory = root / "operations" / "data_validation_list_source_changed"
+    directory.mkdir(parents=True, exist_ok=True)
+    baseline = directory / "baseline.xlsx"
+    candidate = directory / "candidate.xlsx"
+    _save_workbook(_data_validation_list_source_workbook(), baseline)
+    _save_workbook(_data_validation_list_source_workbook(), candidate)
+    _set_data_validation_list_source(
+        candidate, source_formula=_DATA_VALIDATION_LIST_CANDIDATE_SOURCE_FORMULA
+    )
+    _write_json(
+        directory / "truth.json",
+        _truth(
+            case_id="operations.data_validation_list_source_changed",
+            title="A list validation switches its permitted-status source",
+            family="operations",
+            review_expectation="block",
+            facts=[
+                {
+                    "kind": "data_validation_list_source_changed",
+                    "validation_sheet": _DATA_VALIDATION_LIST_SHEET,
+                    "target_range": _DATA_VALIDATION_LIST_TARGET_RANGE,
+                    "validation_type": "list",
+                    "baseline_source_formula": _DATA_VALIDATION_LIST_BASELINE_SOURCE_FORMULA,
+                    "candidate_source_formula": _DATA_VALIDATION_LIST_CANDIDATE_SOURCE_FORMULA,
+                    "allow_blank": False,
+                    "dropdown_hidden": False,
+                    "show_error_message": True,
+                    "error_style": _DATA_VALIDATION_LIST_ERROR_STYLE,
+                    "error_title": _DATA_VALIDATION_LIST_ERROR_TITLE,
+                    "error": _DATA_VALIDATION_LIST_ERROR,
+                    "show_input_message": False,
+                    "prompt_title": _DATA_VALIDATION_LIST_PROMPT_TITLE,
+                    "prompt": _DATA_VALIDATION_LIST_PROMPT,
+                    "source_sheet": _DATA_VALIDATION_LIST_SOURCE_SHEET,
+                    "baseline_source_range": _DATA_VALIDATION_LIST_BASELINE_SOURCE_RANGE,
+                    "candidate_source_range": _DATA_VALIDATION_LIST_CANDIDATE_SOURCE_RANGE,
+                    "baseline_source_values": list(_DATA_VALIDATION_LIST_BASELINE_SOURCE_VALUES),
+                    "candidate_source_values": list(_DATA_VALIDATION_LIST_CANDIDATE_SOURCE_VALUES),
+                    "input_cell": _DATA_VALIDATION_LIST_TARGET_RANGE,
+                    "input_value": _DATA_VALIDATION_LIST_INPUT_VALUE,
+                    "model_sheet": _DATA_VALIDATION_LIST_MODEL_SHEET,
+                    "model_cell": _DATA_VALIDATION_LIST_MODEL_CELL,
+                    "model_formula": _DATA_VALIDATION_LIST_MODEL_FORMULA,
+                    "dashboard_sheet": _DATA_VALIDATION_LIST_DASHBOARD_SHEET,
+                    "dashboard_cell": _DATA_VALIDATION_LIST_DASHBOARD_CELL,
+                    "dashboard_formula": _DATA_VALIDATION_LIST_DASHBOARD_FORMULA,
+                }
+            ],
+            must_reach=[
+                {
+                    "source": {
+                        "sheet": _DATA_VALIDATION_LIST_SHEET,
+                        "cell": _DATA_VALIDATION_LIST_TARGET_RANGE,
+                    },
+                    "targets": [
+                        {
+                            "sheet": _DATA_VALIDATION_LIST_MODEL_SHEET,
+                            "cell": _DATA_VALIDATION_LIST_MODEL_CELL,
+                        },
+                        {
+                            "sheet": _DATA_VALIDATION_LIST_DASHBOARD_SHEET,
+                            "cell": _DATA_VALIDATION_LIST_DASHBOARD_CELL,
+                        },
+                    ],
+                }
+            ],
+            coverage=[
+                "The pair changes only the raw formula1 source declaration in the Inputs worksheet's one list data-validation record. It does not edit the target range, rule metadata, source-list values, current input, ordinary formulas, or calculation properties.",
+                "The observed contract is a stored validation source. WCAB does not evaluate the list formula, determine whether any future entry is valid, accept or reject an entry, calculate the workbook, or claim Excel-client behavior.",
+                "The direct static Inputs-to-model-to-dashboard path is a lower bound only if a user later enters a value. It is not proof that a validation rule permits that value or of a resulting calculation.",
+            ],
+        ),
     )
 
 
@@ -3184,6 +3387,7 @@ _BUILDERS: tuple[Callable[[Path], None], ...] = (
     _build_operations_formula_interruption,
     _build_operations_sumifs_shape,
     _build_operations_data_validation,
+    _build_operations_data_validation_list_source,
     _build_operations_conditional_formatting,
     _build_operations_auto_filter_criteria,
     _build_governance_visibility,
@@ -3221,6 +3425,7 @@ CASE_IDS = (
     "operations.copied_formula_interruption",
     "operations.sumifs_range_shape",
     "operations.data_validation_removed",
+    "operations.data_validation_list_source_changed",
     "operations.conditional_formatting_removed",
     "operations.auto_filter_criteria_changed",
     "governance.hidden_sheet_revealed",

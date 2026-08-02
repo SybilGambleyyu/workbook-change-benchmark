@@ -240,7 +240,16 @@ validator—not the adapter—then establishes the generated `D3:D5` master,
 exact `B2`-to-`B3` `r1` transition, stable input grid and formulas, ordinary
 static model/dashboard lower bounds, and Sensitivity-worksheet-only package
 change. Neither report substitutes inputs, calculates, resolves a circular
-dependency, or claims client behavior. For the chart-series case, it requires
+dependency, or claims client behavior. For the list data-validation source
+case, it requires one exact `data_validation_changed` record and matching
+`FF020`: FormulaFence must expose the one list rule's `Inputs!B2` range,
+source-formula transition, and every entry-control attribute. It does not
+evaluate either source list or decide whether a future input is permitted.
+WCAB's raw validator—not the adapter—then establishes the exact
+`Lists!$A$2:$A$4`-to-`Lists!$B$2:$B$4` declaration, stable source values and
+ordinary formula path, direct static lower bounds, and Inputs-worksheet-only
+package change. Neither report accepts/rejects an entry, calculates a
+workbook, or claims client behavior. For the chart-series case, it requires
 one exact `chart_definitions_changed` record and matching
 `FF030`: FormulaFence's redacted profile must retain one host sheet, one
 drawing, one legacy chart, one series, three data references, no chart cache,

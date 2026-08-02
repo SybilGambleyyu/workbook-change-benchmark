@@ -296,6 +296,32 @@ compares the worksheet after removing the single `r1` value. It does not
 substitute an input, calculate the table or workbook, infer an output,
 interpret a circular dependency, or claim Excel-client behavior.
 
+## List data-validation sources without a cell edit
+
+Microsoft's [Excel data-validation API guidance](https://learn.microsoft.com/en-us/office/dev/add-ins/excel/excel-add-ins-data-validation)
+describes list validation as a rule with formula fields, and the Open XML
+[`Formula1` reference](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.spreadsheet.formula1?view=openxml-3.0.1)
+states that the stored field can be a formula, constant, or list series. The
+[MS-XLSX data-validation formula specification](https://learn.microsoft.com/en-us/openspecs/office_standards/ms-xlsx/b71087ce-6f73-461b-b23e-fcd4ece396aa)
+likewise defines `formula1` and `formula2` as validation formulas. A
+list-source declaration can therefore change the set of future permitted
+entries while the current input and any ordinary formula remain fixed.
+
+This is also a practical comparison blind spot: one Excel reviewer described
+data-validation comparison as difficult in a [Microsoft Tech Community
+discussion](https://techcommunity.microsoft.com/discussions/excelgeneral/limitations-of-the-spreadsheets-compare-tool/3734215).
+That report is not treated as a broad measurement claim; it motivates an open,
+inspectable case with a precise raw OOXML boundary instead.
+
+WCAB 0.21 keeps a single `Inputs!B2` list validation, its error/prompt/dropdown
+controls, both `Lists` source columns, the current `Draft` input, calculation
+properties, `Model!B2=Inputs!$B$2`, and `Dashboard!B4=Model!$B$2` fixed. Only
+the raw list `formula1` moves from `=Lists!$A$2:$A$4` to
+`=Lists!$B$2:$B$4`. The validator reads the generated raw declaration and
+ordinary direct formula path only. It does not evaluate a source formula,
+determine a future input's validity, accept or reject an input, calculate a
+workbook, or claim behavior from any Excel client.
+
 ## Chart series sources without a worksheet edit
 
 Microsoft's [chart-series guidance](https://support.microsoft.com/en-US/Excel/rename-a-data-series)

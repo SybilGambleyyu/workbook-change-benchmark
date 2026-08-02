@@ -984,6 +984,82 @@ def _scenario_manager_worksheet_without_stored_input_value(
     return ElementTree.tostring(worksheet, encoding="utf-8", xml_declaration=True)
 
 
+def _raw_data_validation_list_source_state(
+    path: Path, sheet_name: str, target_range: str
+) -> dict[str, Any] | None:
+    """Read WCAB's one stored list-validation source declaration.
+
+    A validation list's source is a ``formula1`` child on a worksheet-local
+    ``dataValidation`` record. This narrow reader accepts only the generated
+    one-container/one-rule shape and never evaluates the source expression or
+    decides whether a future entry is valid.
+    """
+
+    try:
+        with ZipFile(path) as archive:
+            worksheet_member = _worksheet_member_for_sheet(archive, sheet_name)
+            if worksheet_member is None:
+                return None
+            worksheet = ElementTree.fromstring(archive.read(worksheet_member))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    if worksheet.tag != f"{{{_SPREADSHEETML_NS}}}worksheet":
+        return None
+    data_validations_tag = f"{{{_SPREADSHEETML_NS}}}dataValidations"
+    data_validation_tag = f"{{{_SPREADSHEETML_NS}}}dataValidation"
+    formula1_tag = f"{{{_SPREADSHEETML_NS}}}formula1"
+    containers = worksheet.findall(data_validations_tag)
+    if len(containers) != 1:
+        return None
+    validations = list(containers[0])
+    if len(validations) != 1 or validations[0].tag != data_validation_tag:
+        return None
+    validation = validations[0]
+    formulas = validation.findall(formula1_tag)
+    if validation.get("sqref") != target_range or len(validation) != 1 or len(formulas) != 1:
+        return None
+    formula = formulas[0]
+    return {
+        "worksheet_member": worksheet_member,
+        "container_attributes": tuple(sorted(containers[0].attrib.items())),
+        "validation_attributes": tuple(sorted(validation.attrib.items())),
+        "formula1_attributes": tuple(sorted(formula.attrib.items())),
+        "formula1_text": formula.text,
+        "formula1_child_count": len(formula),
+    }
+
+
+def _data_validation_worksheet_without_source_formula(
+    path: Path, sheet_name: str, target_range: str
+) -> bytes | None:
+    """Return WCAB's validation worksheet with its one ``formula1`` erased."""
+
+    if _raw_data_validation_list_source_state(path, sheet_name, target_range) is None:
+        return None
+    try:
+        with ZipFile(path) as archive:
+            worksheet_member = _worksheet_member_for_sheet(archive, sheet_name)
+            if worksheet_member is None:
+                return None
+            worksheet = ElementTree.fromstring(archive.read(worksheet_member))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    data_validation_tag = f"{{{_SPREADSHEETML_NS}}}dataValidation"
+    formula1_tag = f"{{{_SPREADSHEETML_NS}}}formula1"
+    validations = [
+        validation
+        for validation in worksheet.iter(data_validation_tag)
+        if validation.get("sqref") == target_range
+    ]
+    if len(validations) != 1:
+        return None
+    formulas = validations[0].findall(formula1_tag)
+    if len(formulas) != 1:
+        return None
+    formulas[0].text = None
+    return ElementTree.tostring(worksheet, encoding="utf-8", xml_declaration=True)
+
+
 def _raw_what_if_data_table_state(
     path: Path, sheet_name: str, master_cell: str
 ) -> dict[str, Any] | None:
@@ -1767,6 +1843,203 @@ def _validate_fact(
             before_count == fact.get("baseline_count")
             and after_count == fact.get("candidate_count"),
             f"{truth['id']}: expected {kind} {fact.get('baseline_count')} -> {fact.get('candidate_count')}, got {before_count} -> {after_count}",
+            errors,
+        )
+        return
+
+    if kind == "data_validation_list_source_changed":
+        validation_sheet = fact.get("validation_sheet")
+        target_range = fact.get("target_range")
+        source_sheet = fact.get("source_sheet")
+        baseline_source_range = fact.get("baseline_source_range")
+        candidate_source_range = fact.get("candidate_source_range")
+        input_cell = fact.get("input_cell")
+        model_sheet = fact.get("model_sheet")
+        model_cell = fact.get("model_cell")
+        dashboard_sheet = fact.get("dashboard_sheet")
+        dashboard_cell = fact.get("dashboard_cell")
+
+        def validation_state(workbook: Workbook) -> dict[str, Any] | None:
+            if not isinstance(validation_sheet, str) or validation_sheet not in workbook.sheetnames:
+                return None
+            validations = list(workbook[validation_sheet].data_validations.dataValidation)
+            if len(validations) != 1:
+                return None
+            validation = validations[0]
+            return {
+                "type": validation.type,
+                "sqref": str(validation.sqref),
+                "formula1": validation.formula1,
+                "formula2": validation.formula2,
+                "allow_blank": validation.allowBlank,
+                "dropdown_hidden": validation.showDropDown,
+                "show_error_message": validation.showErrorMessage,
+                "error_style": validation.errorStyle,
+                "error_title": validation.errorTitle,
+                "error": validation.error,
+                "show_input_message": validation.showInputMessage,
+                "prompt_title": validation.promptTitle,
+                "prompt": validation.prompt,
+            }
+
+        def source_values(workbook: Workbook, source_range: Any) -> tuple[Any, ...] | None:
+            if (
+                not isinstance(source_sheet, str)
+                or not isinstance(source_range, str)
+                or source_sheet not in workbook.sheetnames
+            ):
+                return None
+            try:
+                cells = workbook[source_sheet][source_range]
+            except ValueError:
+                return None
+            if not isinstance(cells, tuple) or any(not isinstance(row, tuple) for row in cells):
+                return None
+            return tuple(cell.value for row in cells for cell in row)
+
+        def workbook_cell(workbook: Workbook, sheet_name: Any, coordinate: Any) -> Any | None:
+            if (
+                not isinstance(sheet_name, str)
+                or not isinstance(coordinate, str)
+                or sheet_name not in workbook.sheetnames
+            ):
+                return None
+            try:
+                return workbook[sheet_name][coordinate]
+            except ValueError:
+                return None
+
+        before_state = (
+            _raw_data_validation_list_source_state(baseline_path, validation_sheet, target_range)
+            if isinstance(validation_sheet, str) and isinstance(target_range, str)
+            else None
+        )
+        after_state = (
+            _raw_data_validation_list_source_state(candidate_path, validation_sheet, target_range)
+            if isinstance(validation_sheet, str) and isinstance(target_range, str)
+            else None
+        )
+        before_validation = validation_state(baseline)
+        after_validation = validation_state(candidate)
+        before_baseline_source_values = source_values(baseline, baseline_source_range)
+        after_baseline_source_values = source_values(candidate, baseline_source_range)
+        before_candidate_source_values = source_values(baseline, candidate_source_range)
+        after_candidate_source_values = source_values(candidate, candidate_source_range)
+        before_input = workbook_cell(baseline, validation_sheet, input_cell)
+        after_input = workbook_cell(candidate, validation_sheet, input_cell)
+        before_model = workbook_cell(baseline, model_sheet, model_cell)
+        after_model = workbook_cell(candidate, model_sheet, model_cell)
+        before_dashboard = workbook_cell(baseline, dashboard_sheet, dashboard_cell)
+        after_dashboard = workbook_cell(candidate, dashboard_sheet, dashboard_cell)
+        expected_validation_attributes = tuple(
+            sorted(
+                {
+                    "allowBlank": "0",
+                    "error": "Choose an approved status.",
+                    "errorStyle": "stop",
+                    "errorTitle": "Invalid status",
+                    "prompt": "Choose a documented status.",
+                    "promptTitle": "Approved status",
+                    "showDropDown": "0",
+                    "showErrorMessage": "1",
+                    "showInputMessage": "0",
+                    "sqref": "B2",
+                    "type": "list",
+                }.items()
+            )
+        )
+        expected_rule = {
+            "type": "list",
+            "sqref": "B2",
+            "formula2": None,
+            "allow_blank": False,
+            "dropdown_hidden": False,
+            "show_error_message": True,
+            "error_style": "stop",
+            "error_title": "Invalid status",
+            "error": "Choose an approved status.",
+            "show_input_message": False,
+            "prompt_title": "Approved status",
+            "prompt": "Choose a documented status.",
+        }
+        expected_baseline_values = ("Draft", "Review", "Approved")
+        expected_candidate_values = ("Draft", "Suspended", "Rejected")
+        graph = _direct_graph(candidate)
+        _assert(
+            validation_sheet == "Inputs"
+            and target_range == "B2"
+            and fact.get("validation_type") == "list"
+            and fact.get("baseline_source_formula") == "=Lists!$A$2:$A$4"
+            and fact.get("candidate_source_formula") == "=Lists!$B$2:$B$4"
+            and fact.get("allow_blank") is False
+            and fact.get("dropdown_hidden") is False
+            and fact.get("show_error_message") is True
+            and fact.get("error_style") == "stop"
+            and fact.get("error_title") == "Invalid status"
+            and fact.get("error") == "Choose an approved status."
+            and fact.get("show_input_message") is False
+            and fact.get("prompt_title") == "Approved status"
+            and fact.get("prompt") == "Choose a documented status."
+            and source_sheet == "Lists"
+            and baseline_source_range == "A2:A4"
+            and candidate_source_range == "B2:B4"
+            and fact.get("baseline_source_values") == list(expected_baseline_values)
+            and fact.get("candidate_source_values") == list(expected_candidate_values)
+            and input_cell == "B2"
+            and fact.get("input_value") == "Draft"
+            and model_sheet == "Model"
+            and model_cell == "B2"
+            and fact.get("model_formula") == "=Inputs!$B$2"
+            and dashboard_sheet == "Dashboard"
+            and dashboard_cell == "B4"
+            and fact.get("dashboard_formula") == "=Model!$B$2"
+            and before_state is not None
+            and after_state is not None
+            and before_state["worksheet_member"] == "xl/worksheets/sheet1.xml"
+            and after_state["worksheet_member"] == "xl/worksheets/sheet1.xml"
+            and before_state["container_attributes"] == (("count", "1"),)
+            and after_state["container_attributes"] == (("count", "1"),)
+            and before_state["validation_attributes"] == expected_validation_attributes
+            and after_state["validation_attributes"] == expected_validation_attributes
+            and before_state["formula1_attributes"] == ()
+            and after_state["formula1_attributes"] == ()
+            and before_state["formula1_text"] == "=Lists!$A$2:$A$4"
+            and after_state["formula1_text"] == "=Lists!$B$2:$B$4"
+            and before_state["formula1_child_count"] == 0
+            and after_state["formula1_child_count"] == 0
+            and before_validation == {**expected_rule, "formula1": "=Lists!$A$2:$A$4"}
+            and after_validation == {**expected_rule, "formula1": "=Lists!$B$2:$B$4"}
+            and before_baseline_source_values == expected_baseline_values
+            and after_baseline_source_values == expected_baseline_values
+            and before_candidate_source_values == expected_candidate_values
+            and after_candidate_source_values == expected_candidate_values
+            and before_input is not None
+            and after_input is not None
+            and _cell_kind(before_input) == "value"
+            and _cell_kind(after_input) == "value"
+            and before_input.value == after_input.value == "Draft"
+            and before_model is not None
+            and after_model is not None
+            and _cell_kind(before_model) == "formula"
+            and _cell_kind(after_model) == "formula"
+            and before_model.value == after_model.value == "=Inputs!$B$2"
+            and before_dashboard is not None
+            and after_dashboard is not None
+            and _cell_kind(before_dashboard) == "formula"
+            and _cell_kind(after_dashboard) == "formula"
+            and before_dashboard.value == after_dashboard.value == "=Model!$B$2"
+            and _data_validation_worksheet_without_source_formula(
+                baseline_path, validation_sheet, target_range
+            )
+            == _data_validation_worksheet_without_source_formula(
+                candidate_path, validation_sheet, target_range
+            )
+            and _xlsx_member_differences(baseline_path, candidate_path)
+            == {before_state["worksheet_member"]}
+            and _calculation_properties(baseline_path) == _calculation_properties(candidate_path)
+            and {(model_sheet, model_cell), (dashboard_sheet, dashboard_cell)}
+            <= _reachable(graph, (validation_sheet, input_cell)),
+            f"{truth['id']}: expected only one list-validation formula1 source declaration to change with stable rule, source values, formulas, and package boundary",
             errors,
         )
         return

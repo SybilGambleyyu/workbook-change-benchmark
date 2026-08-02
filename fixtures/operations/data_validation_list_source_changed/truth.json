@@ -1,0 +1,72 @@
+{
+  "coverage": [
+    "The pair changes only the raw formula1 source declaration in the Inputs worksheet's one list data-validation record. It does not edit the target range, rule metadata, source-list values, current input, ordinary formulas, or calculation properties.",
+    "The observed contract is a stored validation source. WCAB does not evaluate the list formula, determine whether any future entry is valid, accept or reject an entry, calculate the workbook, or claim Excel-client behavior.",
+    "The direct static Inputs-to-model-to-dashboard path is a lower bound only if a user later enters a value. It is not proof that a validation rule permits that value or of a resulting calculation."
+  ],
+  "coverage_expectations": [],
+  "facts": [
+    {
+      "allow_blank": false,
+      "baseline_source_formula": "=Lists!$A$2:$A$4",
+      "baseline_source_range": "A2:A4",
+      "baseline_source_values": [
+        "Draft",
+        "Review",
+        "Approved"
+      ],
+      "candidate_source_formula": "=Lists!$B$2:$B$4",
+      "candidate_source_range": "B2:B4",
+      "candidate_source_values": [
+        "Draft",
+        "Suspended",
+        "Rejected"
+      ],
+      "dashboard_cell": "B4",
+      "dashboard_formula": "=Model!$B$2",
+      "dashboard_sheet": "Dashboard",
+      "dropdown_hidden": false,
+      "error": "Choose an approved status.",
+      "error_style": "stop",
+      "error_title": "Invalid status",
+      "input_cell": "B2",
+      "input_value": "Draft",
+      "kind": "data_validation_list_source_changed",
+      "model_cell": "B2",
+      "model_formula": "=Inputs!$B$2",
+      "model_sheet": "Model",
+      "prompt": "Choose a documented status.",
+      "prompt_title": "Approved status",
+      "show_error_message": true,
+      "show_input_message": false,
+      "source_sheet": "Lists",
+      "target_range": "B2",
+      "validation_sheet": "Inputs",
+      "validation_type": "list"
+    }
+  ],
+  "family": "operations",
+  "id": "operations.data_validation_list_source_changed",
+  "must_reach": [
+    {
+      "source": {
+        "cell": "B2",
+        "sheet": "Inputs"
+      },
+      "targets": [
+        {
+          "cell": "B2",
+          "sheet": "Model"
+        },
+        {
+          "cell": "B4",
+          "sheet": "Dashboard"
+        }
+      ]
+    }
+  ],
+  "review_expectation": "block",
+  "schema_version": 3,
+  "title": "A list validation switches its permitted-status source",
+  "topology": "pair"
+}
