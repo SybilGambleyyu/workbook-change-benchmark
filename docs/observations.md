@@ -180,8 +180,10 @@ native `value_changed` record and the candidate profile's
 `dynamic_reference_cells` feature. For the external-data refresh case, it
 requires FormulaFence's `external_data_connections_changed` details to contain
 the exact connection ID and `refresh_on_load` false-to-true transition; the
-stored control is a fact, not a coverage declaration. The adapter leaves
-`review` as `null`: FormulaFence surfaces evidence but does not impose WCAB's
-reference policy as a universal approval decision. Any intentionally unmapped
-fact or coverage expectation becomes an adapter note and remains missing from
-its respective recall metric.
+stored control is a fact, not a coverage declaration. For the array-mode case,
+it requires `array_formula_mode_changed` at the exact anchor with the declared
+legacy-CSE and dynamic modes plus the declared output range; a generic array
+change is not enough. The adapter leaves `review` as `null`: FormulaFence
+surfaces evidence but does not impose WCAB's reference policy as a universal
+approval decision. Any intentionally unmapped fact or coverage expectation
+becomes an adapter note and remains missing from its respective recall metric.

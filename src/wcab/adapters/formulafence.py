@@ -34,6 +34,7 @@ _FACT_TO_CHANGE: dict[str, tuple[str, str | None]] = {
     "sheet_visibility_changed": ("sheet_visibility_changed", None),
     "formula_cell_unlocked": ("cell_protection_assignments_changed", None),
     "manual_calculation_incomplete": ("calculation_settings_changed", None),
+    "array_formula_mode_changed": ("array_formula_mode_changed", "location"),
     "external_data_connection_refresh_on_load_changed": (
         "external_data_connections_changed",
         None,
@@ -221,6 +222,33 @@ def _external_data_connection_refresh_on_load_observed(
     )
 
 
+def _array_formula_mode_observed(change: dict[str, Any], fact: dict[str, Any]) -> bool:
+    """Require FormulaFence to identify this exact CSE-to-dynamic transition."""
+
+    if change.get("kind") != "array_formula_mode_changed":
+        return False
+    sheet = fact.get("sheet")
+    cell = fact.get("cell")
+    if not isinstance(sheet, str) or not isinstance(cell, str):
+        return False
+    if change.get("location") != f"{sheet}!{cell}":
+        return False
+    details = change.get("details")
+    if not isinstance(details, dict):
+        return False
+    before = details.get("before")
+    after = details.get("after")
+    expected_before = {
+        "mode": fact.get("baseline_mode"),
+        "output_range": fact.get("baseline_output_range"),
+    }
+    expected_after = {
+        "mode": fact.get("candidate_mode"),
+        "output_range": fact.get("candidate_output_range"),
+    }
+    return before == expected_before and after == expected_after
+
+
 def _portfolio_entry(report: dict[str, Any], path: str) -> dict[str, Any] | None:
     workbooks = report.get("workbooks", [])
     if not isinstance(workbooks, list):
@@ -332,6 +360,12 @@ def evaluate_diff_case(case_dir: str | Path, *, executable: str = "formulafence"
         if kind == "external_data_connection_refresh_on_load_changed":
             observed = any(
                 _external_data_connection_refresh_on_load_observed(change, fact)
+                for change in changes
+                if isinstance(change, dict)
+            )
+        if kind == "array_formula_mode_changed":
+            observed = any(
+                _array_formula_mode_observed(change, fact)
                 for change in changes
                 if isinstance(change, dict)
             )

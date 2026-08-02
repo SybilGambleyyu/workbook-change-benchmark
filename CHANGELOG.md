@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.7.0 — 2026-08-02
+
+- Add a deterministic legacy-CSE to dynamic-array formula-mode case. The
+  anchor formula and currently stored output range remain unchanged, while
+  raw OOXML metadata changes the formula from fixed output semantics to a
+  resizable dynamic array.
+- Add the exact `array_formula_mode_changed` fact, independent raw-OOXML
+  metadata validator, and a corruption regression test so the contract does
+  not rely on the truth file alone.
+- Extend the optional FormulaFence adapter to require the exact `FF018`
+  legacy-CSE-to-dynamic transition and output range rather than accepting a
+  generic array-mode diff.
+
 ## 0.6.0 — 2026-08-02
 
 - Add a deterministic relationship-backed external-data connection case where

@@ -22,6 +22,7 @@ from openpyxl.formatting.rule import CellIsRule
 from openpyxl.styles import PatternFill, Protection
 from openpyxl.workbook.defined_name import DefinedName
 from openpyxl.worksheet.datavalidation import DataValidation
+from openpyxl.worksheet.formula import ArrayFormula
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
 from .manifest import write_manifest
@@ -36,6 +37,7 @@ _SPREADSHEETML_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 _PACKAGE_RELATIONSHIPS_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
 _DOCUMENT_RELATIONSHIPS_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 _CONTENT_TYPES_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
+_DYNAMIC_ARRAY_NS = "http://schemas.microsoft.com/office/spreadsheetml/2017/dynamicarray"
 
 
 def _configure_workbook(workbook: Workbook, *, title: str) -> None:
@@ -402,6 +404,92 @@ def _external_data_refresh_workbook() -> Workbook:
     dashboard["A1"] = "Board output"
     dashboard["B4"] = "=Summary!$B$2"
     return workbook
+
+
+def _array_formula_semantics_workbook() -> Workbook:
+    """Build a fixed legacy CSE array with a direct downstream consumer.
+
+    The candidate receives raw dynamic-array metadata after saving. Its anchor
+    formula and currently stored output range intentionally remain unchanged:
+    the review-relevant change is the formula mode, not a claimed calculation.
+    """
+
+    workbook = Workbook()
+    _configure_workbook(workbook, title="WCAB array formula semantics fixture")
+    inputs = workbook.active
+    inputs.title = "Inputs"
+    inputs["A1"] = "a"
+    inputs["A2"] = "bb"
+    inputs["A3"] = "ccc"
+
+    model = workbook.create_sheet("Model")
+    model["A1"] = "Array formula anchor"
+    model["B1"].value = ArrayFormula(ref="B1:B3", text="=LEN(Inputs!A1:A3)")
+
+    dashboard = workbook.create_sheet("Dashboard")
+    dashboard["A1"] = "Anchor consumer"
+    dashboard["B2"] = "=Model!B1"
+    return workbook
+
+
+def _add_dynamic_array_metadata(path: Path) -> None:
+    """Mark the generated ``Model!B1`` array formula as a dynamic array.
+
+    Openpyxl serializes the legacy CSE anchor but does not write the Office
+    dynamic-array cell-metadata binding. This compact, public OOXML shape
+    follows the serialization documented by XlsxWriter: the formula cell gets
+    ``cm=1`` and that cell-metadata record resolves to an ``XLDAPR`` record
+    whose ``fDynamic`` property is true.
+    """
+
+    def mutate(members: dict[str, bytes]) -> None:
+        def insert_before_closing(member: str, closing: bytes, addition: bytes) -> None:
+            contents = members[member]
+            if contents.count(closing) != 1:
+                raise ValueError(f"array formula fixture has unexpected {member} markup")
+            members[member] = contents.replace(closing, addition + closing, 1)
+
+        anchor = b'<c r="B1"><f t="array" ref="B1:B3">'
+        marked_anchor = b'<c r="B1" cm="1"><f t="array" ref="B1:B3">'
+        worksheet_member = "xl/worksheets/sheet2.xml"
+        if members[worksheet_member].count(anchor) != 1:
+            raise ValueError("array formula fixture has an unexpected Model!B1 contract")
+        members[worksheet_member] = members[worksheet_member].replace(anchor, marked_anchor, 1)
+
+        insert_before_closing(
+            "[Content_Types].xml",
+            b"</Types>",
+            (
+                b'<Override PartName="/xl/metadata.xml" '
+                b'ContentType="application/vnd.openxmlformats-officedocument.'
+                b'spreadsheetml.sheetMetadata+xml"/>'
+            ),
+        )
+        insert_before_closing(
+            "xl/_rels/workbook.xml.rels",
+            b"</Relationships>",
+            (
+                b'<Relationship Id="rIdWCABDynamicArrayMetadata" '
+                b'Type="http://schemas.openxmlformats.org/officeDocument/2006/'
+                b'relationships/sheetMetadata" Target="metadata.xml"/>'
+            ),
+        )
+        members["xl/metadata.xml"] = (
+            b'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            b'<metadata xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+            b'xmlns:xda="' + _DYNAMIC_ARRAY_NS.encode("ascii") + b'">'
+            b'<metadataTypes count="1"><metadataType name="XLDAPR" '
+            b'minSupportedVersion="120000" copy="1" pasteAll="1" pasteValues="1" '
+            b'merge="1" splitFirst="1" rowColShift="1" clearFormats="1" '
+            b'clearComments="1" assign="1" coerce="1" cellMeta="1"/>'
+            b'</metadataTypes><futureMetadata name="XLDAPR" count="1"><bk><extLst>'
+            b'<ext uri="{bdbb8cdc-fa1e-496e-a857-3c3f30c029c3}">'
+            b'<xda:dynamicArrayProperties fDynamic="1" fCollapsed="0"/>'
+            b'</ext></extLst></bk></futureMetadata><cellMetadata count="1"><bk>'
+            b'<rc t="1" v="0"/></bk></cellMetadata></metadata>'
+        )
+
+    _rewrite_xlsx_parts(path, mutate)
 
 
 def _add_external_data_connection(path: Path, *, refresh_on_load: bool) -> None:
@@ -822,6 +910,48 @@ def _build_governance_external_data_refresh(root: Path) -> None:
     )
 
 
+def _build_structural_array_formula_mode(root: Path) -> None:
+    """Build a legacy-CSE to dynamic-array transition without formula text churn."""
+
+    directory = root / "structural" / "array_formula_mode_changed"
+    directory.mkdir(parents=True, exist_ok=True)
+    _save_workbook(_array_formula_semantics_workbook(), directory / "baseline.xlsx")
+    candidate = directory / "candidate.xlsx"
+    _save_workbook(_array_formula_semantics_workbook(), candidate)
+    _add_dynamic_array_metadata(candidate)
+    _write_json(
+        directory / "truth.json",
+        _truth(
+            case_id="structural.array_formula_mode_changed",
+            title="An unchanged array formula switches from fixed CSE to dynamic spill semantics",
+            family="structural",
+            review_expectation="block",
+            facts=[
+                {
+                    "kind": "array_formula_mode_changed",
+                    "sheet": "Model",
+                    "cell": "B1",
+                    "formula": "=LEN(Inputs!A1:A3)",
+                    "baseline_mode": "legacy_cse",
+                    "candidate_mode": "dynamic",
+                    "baseline_output_range": "B1:B3",
+                    "candidate_output_range": "B1:B3",
+                }
+            ],
+            must_reach=[
+                {
+                    "source": {"sheet": "Model", "cell": "B1"},
+                    "targets": [{"sheet": "Dashboard", "cell": "B2"}],
+                }
+            ],
+            coverage=[
+                "The legacy CSE range and the candidate's currently stored output range coincide; a dynamic array can resize or be blocked when Excel recalculates.",
+                "The validator checks stored formula mode and metadata only. It does not calculate a result, predict a future spill extent, identify blockers, or assert client-version compatibility.",
+            ],
+        ),
+    )
+
+
 def _build_structural_three_d_scope(root: Path) -> None:
     directory = root / "structural" / "three_d_scope_expansion"
     directory.mkdir(parents=True, exist_ok=True)
@@ -1084,6 +1214,7 @@ _BUILDERS: tuple[Callable[[Path], None], ...] = (
     _build_governance_manual_calculation,
     _build_governance_static_cycle,
     _build_governance_external_data_refresh,
+    _build_structural_array_formula_mode,
     _build_structural_three_d_scope,
     _build_structural_formula_rewrite,
     _build_structural_table_scope,
@@ -1107,6 +1238,7 @@ CASE_IDS = (
     "governance.manual_calculation_incomplete",
     "governance.static_cycle_introduced",
     "governance.external_data_refresh_on_open",
+    "structural.array_formula_mode_changed",
     "structural.three_d_scope_expansion",
     "structural.formula_rewrite_after_column_insert",
     "structural.structured_table_scope_expansion",

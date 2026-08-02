@@ -34,7 +34,7 @@ gates, static analyzers, and agent workflows that propose workbook edits.
 
 ## Scope and non-goals
 
-Version `0.6` covers formula-to-value replacements, formula reference drift,
+Version `0.7` covers formula-to-value replacements, formula reference drift,
 value changes with downstream effects, external formula references, named
 ranges, data validation, conditional formatting, sheet visibility, direct cell
 protection, calculation settings, static cycles, portfolio dependencies,
@@ -43,7 +43,8 @@ that leave a structured-reference formula textually unchanged. It also covers
 new `INDIRECT` references whose dependency target comes from workbook text,
 unchanged `INDIRECT` and `OFFSET` formulas whose address or displacement driver
 changes, and an external-data connection whose refresh-on-open behavior changes
-without any worksheet-cell edit.
+without any worksheet-cell edit. It also covers an unchanged array formula
+switching from a fixed legacy CSE output range to dynamic-array semantics.
 
 The benchmark does **not** evaluate formula execution or claim that a
 candidate's numerical results are correct.  A case's `review_expectation` is a
@@ -154,7 +155,9 @@ the introduced-dynamic case from FormulaFence's native warning, maps the
 unchanged-formula driver cases from the observed input change plus the
 candidate profile's dynamic-reference feature, and checks the exact
 connection-level refresh-on-open transition in FormulaFence's `FF023` evidence.
-It keeps unmapped facts explicit; it does not treat the benign structural-rewrite
+For the array-mode case, it requires the exact legacy-CSE-to-dynamic transition
+and output range in FormulaFence's `FF018` evidence. It keeps unmapped facts
+explicit; it does not treat the benign structural-rewrite
 annotation as a generic semantic-equivalence claim.
 
 ## Reproducibility

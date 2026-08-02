@@ -7,9 +7,10 @@ source.
 Version 3 adds `coverage_expectations`: machine-matchable disclosures for
 important analysis boundaries. WCAB 0.5 extends that same stable envelope with
 cases where an unchanged `INDIRECT` or `OFFSET` formula receives a changed
-selector, and WCAB 0.6 adds a relationship-backed external-data
-refresh-on-open fact. Version 2 remains available in the immutable v0.2.0 and
-v0.3.0 releases.
+selector, WCAB 0.6 adds a relationship-backed external-data refresh-on-open
+fact, and WCAB 0.7 adds an unchanged anchor formula that moves from fixed
+legacy-CSE to dynamic-array semantics. Version 2 remains available in the
+immutable v0.2.0 and v0.3.0 releases.
 
 ```json
 {
@@ -48,6 +49,7 @@ Facts are observed directly from the fixture files by `wcab validate`.
 | `formula_cell_unlocked` | `sheet`, `cell` | A formula cell is explicitly unlocked while its sheet remains protected. |
 | `manual_calculation_incomplete` | none | Candidate calculation metadata is `manual` and records incomplete calculation. |
 | `external_data_connection_refresh_on_load_changed` | `connection_id`, `baseline_refresh_on_load`, `candidate_refresh_on_load` | The relationship-backed connection with this workbook-local ID explicitly changes `refreshOnLoad` from `false` to `true`. The validator reads raw OOXML only. |
+| `array_formula_mode_changed` | `sheet`, `cell`, `formula`, `baseline_mode`, `candidate_mode`, `baseline_output_range`, `candidate_output_range` | The declared unchanged array anchor moves from `legacy_cse` to `dynamic`, with its stored formula text and output range exactly as declared. The validator reads the raw OOXML cell-metadata binding. |
 | `static_cycle_introduced` | `cells` | Every declared direct A1 cell reaches itself in the local static dependency graph. |
 | `three_d_scope_changed` | `formula_sheet`, `formula_cell`, `inserted_sheet`, `after_sheet`, `before_sheet` | Formula text remains unchanged while a sheet is inserted inside the declared tab span. |
 | `structural_formula_rewrite` | `baseline`, `candidate` | Declared before/after formula locations and text exist. This is an annotation, not a general proof of equivalence. |
@@ -75,6 +77,21 @@ part. It does not open a connection, test credentials or Trust Center policy,
 retrieve data, calculate formulas, or infer a downstream result. Connection
 paths, URLs, names, commands, and credentials are deliberately not truth
 fields.
+
+## Array-formula mode
+
+Microsoft distinguishes dynamic arrays from legacy Ctrl+Shift+Enter (CSE)
+arrays: dynamic arrays can resize their spill output, while CSE arrays have a
+fixed output range. Its [dynamic-array versus legacy-CSE guidance](https://support.microsoft.com/en-US/Excel/dynamic-array-formulas-vs-legacy-cse-array-formulas)
+also notes that the same formula can be moved from an entire CSE range to one
+dynamic anchor cell.
+
+WCAB's array-mode case consequently preserves `=LEN(Inputs!A1:A3)` and its
+currently stored `B1:B3` output range. The candidate adds only the
+relationship-backed metadata binding that marks `Model!B1` as dynamic. The
+validator checks the anchor's raw array formula, `cm` cell-metadata index, and
+`XLDAPR` `fDynamic=true` record; it does not execute the formula, predict a
+future spill extent, locate a blocker, or claim Excel-client compatibility.
 
 ## Scoreable coverage expectations
 

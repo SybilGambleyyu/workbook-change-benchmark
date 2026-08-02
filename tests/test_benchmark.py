@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from hashlib import sha256
 from pathlib import Path
+from zipfile import ZIP_DEFLATED, ZipFile
 
 from wcab.adapters import formulafence
 from wcab.build import CASE_IDS, build_all
@@ -84,6 +85,19 @@ def test_committed_manifest_matches_fixture_tree() -> None:
             "candidate_refresh_on_load": True,
         }
     ]
+    array_row = next(row for row in rows if row["id"] == "structural.array_formula_mode_changed")
+    assert array_row["facts"] == [
+        {
+            "kind": "array_formula_mode_changed",
+            "sheet": "Model",
+            "cell": "B1",
+            "formula": "=LEN(Inputs!A1:A3)",
+            "baseline_mode": "legacy_cse",
+            "candidate_mode": "dynamic",
+            "baseline_output_range": "B1:B3",
+            "candidate_output_range": "B1:B3",
+        }
+    ]
     assert (fixture_root / "manifest.jsonl").read_text(encoding="utf-8") == manifest_text(rows)
 
 
@@ -148,6 +162,34 @@ def test_validator_rejects_a_false_external_data_refresh_fact(tmp_path: Path) ->
     truth["facts"][0]["candidate_refresh_on_load"] = False
     truth_path.write_text(json.dumps(truth), encoding="utf-8")
     assert validate_case(case)
+
+
+def test_validator_rejects_a_false_array_formula_mode_fact(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "structural" / "array_formula_mode_changed"
+    truth_path = case / "truth.json"
+    truth = json.loads(truth_path.read_text(encoding="utf-8"))
+    truth["facts"][0]["candidate_mode"] = "legacy_cse"
+    truth_path.write_text(json.dumps(truth), encoding="utf-8")
+    assert validate_case(case)
+
+
+def test_validator_rejects_a_missing_dynamic_array_metadata_binding(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = fixture_root / "structural" / "array_formula_mode_changed" / "candidate.xlsx"
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    members["xl/metadata.xml"] = members["xl/metadata.xml"].replace(
+        b'fDynamic="1"', b'fDynamic="0"', 1
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
 
 
 def test_formulafence_adapter_maps_a_pair_fact(monkeypatch, tmp_path: Path) -> None:
@@ -306,6 +348,65 @@ def test_formulafence_adapter_requires_the_exact_external_data_refresh_transitio
     assert result["status"] == "missed"
     assert result["matched"] == []
     assert result["missed"] == ["external_data_connection_refresh_on_load_changed"]
+
+
+def test_formulafence_adapter_maps_the_exact_array_formula_mode_transition(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "array_formula_mode_changed",
+                    "location": "Model!B1",
+                    "details": {
+                        "before": {"mode": "legacy_cse", "output_range": "B1:B3"},
+                        "after": {"mode": "dynamic", "output_range": "B1:B3"},
+                    },
+                }
+            ],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "structural" / "array_formula_mode_changed"
+    )
+    assert result["status"] == "matched"
+    assert result["matched"] == ["array_formula_mode_changed"]
+
+
+def test_formulafence_adapter_rejects_an_inexact_array_formula_mode_transition(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "array_formula_mode_changed",
+                    "location": "Model!B1",
+                    "details": {
+                        "before": {"mode": "legacy_cse", "output_range": "B1:B3"},
+                        "after": {"mode": "dynamic", "output_range": "B1:B4"},
+                    },
+                }
+            ],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "structural" / "array_formula_mode_changed"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["array_formula_mode_changed"]
 
 
 def test_formulafence_adapter_maps_a_portfolio_impact(monkeypatch, tmp_path: Path) -> None:

@@ -53,6 +53,23 @@ formula can remain unchanged while the Table's stored range grows. WCAB schema
 version 2 therefore adds a generated Table-expansion case that checks those
 observable facts without evaluating a formula or asserting a result value.
 
+## Array-formula semantics
+
+Microsoft's [dynamic-array versus legacy-CSE guidance](https://support.microsoft.com/en-US/Excel/dynamic-array-formulas-vs-legacy-cse-array-formulas)
+distinguishes a dynamic array entered in one anchor cell from a legacy CSE
+formula entered across a fixed range. It also documents that dynamic arrays
+resize as source data changes while legacy CSE ranges do not. That creates a
+change-review concern beyond formula text: retaining the same array-capable
+formula and currently stored range can still change editability, resizing, and
+spill-blocker behavior.
+
+WCAB 0.7 therefore uses a small original `LEN` array formula rather than a
+private workbook or a calculated result. The candidate adds the compact OOXML
+cell-metadata binding used by dynamic-array writers, while the validator checks
+only the stored mode, formula text, and range. It deliberately does not
+calculate the array, predict a future spill extent, or assert client-version
+compatibility.
+
 ## Evidence scoring without a false-positive fiction
 
 The [NIST static-analysis methodology](https://www.nist.gov/system/files/documents/2021/03/24/CAS%202012%20Static%20Analysis%20Tool%20Study%20Methodology.pdf)

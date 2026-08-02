@@ -23,6 +23,7 @@ _DYNAMIC_REFERENCE_FUNCTION = re.compile(r"(?i)\b(?P<function>INDIRECT|OFFSET)\s
 _SPREADSHEETML_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 _PACKAGE_RELATIONSHIPS_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
 _DOCUMENT_RELATIONSHIPS_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+_DYNAMIC_ARRAY_NS = "http://schemas.microsoft.com/office/spreadsheetml/2017/dynamicarray"
 
 
 class FixtureValidationError(ValueError):
@@ -107,6 +108,164 @@ def _external_data_connection_refresh_on_load(path: Path, connection_id: int) ->
         return None
     flag = matches[0].get("refreshOnLoad")
     return {"0": False, "1": True}.get(flag)
+
+
+def _relationship_target(
+    relationships: ElementTree.Element,
+    relationship_id: str,
+    *,
+    relationship_type: str | None = None,
+) -> str | None:
+    """Return one generated-package relationship target without following it."""
+
+    relationship_tag = f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationship"
+    matches = [
+        relationship
+        for relationship in relationships.findall(relationship_tag)
+        if relationship.get("Id") == relationship_id
+        and (relationship_type is None or relationship.get("Type") == relationship_type)
+    ]
+    if len(matches) != 1:
+        return None
+    target = matches[0].get("Target")
+    if not isinstance(target, str) or not target or target.startswith("../"):
+        return None
+    return target.lstrip("/")
+
+
+def _dynamic_array_cell_metadata_indexes(archive: ZipFile) -> set[int] | None:
+    """Read the generated package's cell-metadata bindings for dynamic arrays.
+
+    This mirrors only the compact OOXML relationship used by WCAB's fixture:
+    a workbook ``sheetMetadata`` relationship, an ``XLDAPR`` future-metadata
+    record with ``fDynamic=true``, and one-based ``cm`` indices into
+    ``cellMetadata``. It intentionally does not calculate formulas or infer a
+    dynamic result extent.
+    """
+
+    try:
+        relationships = ElementTree.fromstring(archive.read("xl/_rels/workbook.xml.rels"))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    relationship_tag = f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationship"
+    targets = [
+        relationship.get("Target")
+        for relationship in relationships.findall(relationship_tag)
+        if relationship.get("Type") == f"{_DOCUMENT_RELATIONSHIPS_NS}/sheetMetadata"
+    ]
+    if not targets:
+        return set()
+    if len(targets) != 1 or targets[0] != "metadata.xml":
+        return None
+    try:
+        metadata = ElementTree.fromstring(archive.read("xl/metadata.xml"))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+
+    def tag(name: str) -> str:
+        return f"{{{_SPREADSHEETML_NS}}}{name}"
+
+    metadata_types = [
+        item.get("name", "")
+        for item in metadata.findall(f"./{tag('metadataTypes')}/{tag('metadataType')}")
+    ]
+    dynamic_future_indexes: dict[str, set[int]] = {}
+    dynamic_properties_tag = f"{{{_DYNAMIC_ARRAY_NS}}}dynamicArrayProperties"
+    for future_metadata in metadata.findall(tag("futureMetadata")):
+        name = future_metadata.get("name")
+        if not name:
+            continue
+        indexes = {
+            index
+            for index, block in enumerate(future_metadata.findall(tag("bk")))
+            if any(
+                item.tag == dynamic_properties_tag
+                and item.get("fDynamic", "").casefold() in {"1", "true"}
+                for item in block.iter()
+            )
+        }
+        if indexes:
+            dynamic_future_indexes[name] = indexes
+
+    cell_metadata = metadata.find(tag("cellMetadata"))
+    if cell_metadata is None:
+        return set()
+    dynamic_cells: set[int] = set()
+    for cell_index, block in enumerate(cell_metadata.findall(tag("bk")), start=1):
+        for record in block.findall(tag("rc")):
+            try:
+                type_index = int(record.get("t", ""))
+                value_index = int(record.get("v", ""))
+            except ValueError:
+                continue
+            if not 1 <= type_index <= len(metadata_types):
+                continue
+            if value_index in dynamic_future_indexes.get(metadata_types[type_index - 1], set()):
+                dynamic_cells.add(cell_index)
+                break
+    return dynamic_cells
+
+
+def _array_formula_state(
+    path: Path, sheet_name: str, coordinate: str
+) -> tuple[str, str | None, str | None] | None:
+    """Classify a generated raw-OOXML array anchor as CSE or dynamic.
+
+    The returned tuple is ``(mode, formula_text, output_range)``. This helper
+    is deliberately limited to the generated fixture's anchor representation;
+    any incomplete metadata becomes ``unclassified`` rather than a guess.
+    """
+
+    try:
+        with ZipFile(path) as archive:
+            workbook = ElementTree.fromstring(archive.read("xl/workbook.xml"))
+            sheets = workbook.find(f"{{{_SPREADSHEETML_NS}}}sheets")
+            if sheets is None:
+                return None
+            sheet_tag = f"{{{_SPREADSHEETML_NS}}}sheet"
+            matching_sheets = [
+                sheet for sheet in sheets.findall(sheet_tag) if sheet.get("name") == sheet_name
+            ]
+            if len(matching_sheets) != 1:
+                return None
+            relationship_id = matching_sheets[0].get(f"{{{_DOCUMENT_RELATIONSHIPS_NS}}}id")
+            if not isinstance(relationship_id, str):
+                return None
+            relationships = ElementTree.fromstring(archive.read("xl/_rels/workbook.xml.rels"))
+            target = _relationship_target(
+                relationships,
+                relationship_id,
+                relationship_type=f"{_DOCUMENT_RELATIONSHIPS_NS}/worksheet",
+            )
+            if target is None:
+                return None
+            worksheet_member = target if target.startswith("xl/") else f"xl/{target}"
+            worksheet = ElementTree.fromstring(archive.read(worksheet_member))
+            cell_tag = f"{{{_SPREADSHEETML_NS}}}c"
+            cells = [cell for cell in worksheet.iter(cell_tag) if cell.get("r") == coordinate]
+            if len(cells) != 1:
+                return None
+            formula = cells[0].find(f"{{{_SPREADSHEETML_NS}}}f")
+            if formula is None:
+                return None
+            formula_text = f"={formula.text or ''}"
+            output_range = formula.get("ref")
+            if formula.get("t") != "array":
+                return "ordinary", formula_text, output_range
+            metadata_index = cells[0].get("cm")
+            if metadata_index is None:
+                return "legacy_cse", formula_text, output_range
+            try:
+                cell_metadata_index = int(metadata_index)
+            except ValueError:
+                return "unclassified", formula_text, output_range
+            dynamic_cells = _dynamic_array_cell_metadata_indexes(archive)
+            if dynamic_cells is None:
+                return "unclassified", formula_text, output_range
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    mode = "dynamic" if cell_metadata_index in dynamic_cells else "unclassified"
+    return mode, formula_text, output_range
 
 
 def _direct_graph(workbook: Workbook) -> dict[tuple[str, str], set[tuple[str, str]]]:
@@ -320,6 +479,39 @@ def _validate_fact(
             and before_refresh_on_load is fact.get("baseline_refresh_on_load")
             and after_refresh_on_load is fact.get("candidate_refresh_on_load"),
             f"{truth['id']}: expected connection {connection_id!r} refresh-on-open false -> true",
+            errors,
+        )
+        return
+
+    if kind == "array_formula_mode_changed":
+        sheet_name = fact.get("sheet")
+        coordinate = fact.get("cell")
+        before = (
+            _array_formula_state(baseline_path, sheet_name, coordinate)
+            if isinstance(sheet_name, str) and isinstance(coordinate, str)
+            else None
+        )
+        after = (
+            _array_formula_state(candidate_path, sheet_name, coordinate)
+            if isinstance(sheet_name, str) and isinstance(coordinate, str)
+            else None
+        )
+        expected_before = (
+            fact.get("baseline_mode"),
+            fact.get("formula"),
+            fact.get("baseline_output_range"),
+        )
+        expected_after = (
+            fact.get("candidate_mode"),
+            fact.get("formula"),
+            fact.get("candidate_output_range"),
+        )
+        _assert(
+            before == expected_before
+            and after == expected_after
+            and fact.get("baseline_mode") == "legacy_cse"
+            and fact.get("candidate_mode") == "dynamic",
+            f"{truth['id']}: expected unchanged {sheet_name}!{coordinate} formula to switch legacy CSE -> dynamic array mode",
             errors,
         )
         return

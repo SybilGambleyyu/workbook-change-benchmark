@@ -1,0 +1,39 @@
+{
+  "coverage": [
+    "The legacy CSE range and the candidate's currently stored output range coincide; a dynamic array can resize or be blocked when Excel recalculates.",
+    "The validator checks stored formula mode and metadata only. It does not calculate a result, predict a future spill extent, identify blockers, or assert client-version compatibility."
+  ],
+  "coverage_expectations": [],
+  "facts": [
+    {
+      "baseline_mode": "legacy_cse",
+      "baseline_output_range": "B1:B3",
+      "candidate_mode": "dynamic",
+      "candidate_output_range": "B1:B3",
+      "cell": "B1",
+      "formula": "=LEN(Inputs!A1:A3)",
+      "kind": "array_formula_mode_changed",
+      "sheet": "Model"
+    }
+  ],
+  "family": "structural",
+  "id": "structural.array_formula_mode_changed",
+  "must_reach": [
+    {
+      "source": {
+        "cell": "B1",
+        "sheet": "Model"
+      },
+      "targets": [
+        {
+          "cell": "B2",
+          "sheet": "Dashboard"
+        }
+      ]
+    }
+  ],
+  "review_expectation": "block",
+  "schema_version": 3,
+  "title": "An unchanged array formula switches from fixed CSE to dynamic spill semantics",
+  "topology": "pair"
+}
