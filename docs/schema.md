@@ -15,8 +15,10 @@ WCAB 0.9 adds an unchanged direct circular formula whose stored iterative
 calculation setting changes, WCAB 0.10 adds a precision-as-displayed
 calculation control change without a cell edit, and WCAB 0.11 adds a raw saved
 formula-result change without a formula or input edit. WCAB 0.12 adds a raw
-workbook serial-date-system control change with unchanged cell content. Version
-2 remains available in the immutable v0.2.0 and v0.3.0 releases.
+workbook serial-date-system control change with unchanged cell content, and
+WCAB 0.13 adds an active worksheet AutoFilter criterion change with unchanged
+cell content and formulas. Version 2 remains available in the immutable v0.2.0
+and v0.3.0 releases.
 
 ```json
 {
@@ -51,6 +53,7 @@ Facts are observed directly from the fixture files by `wcab validate`.
 | `defined_name_changed` | `name` | A defined name's stored destination differs. |
 | `data_validation_count_changed` | `sheet`, `baseline_count`, `candidate_count` | Worksheet data-validation count differs as declared. |
 | `conditional_formatting_count_changed` | `sheet`, `baseline_count`, `candidate_count` | Conditional-formatting range count differs as declared. |
+| `auto_filter_criteria_changed` | `sheet`, `filter_ref`, `filter_column_id`, `baseline_filter_value`, `candidate_filter_value`, `subtotal_cell`, `subtotal_formula`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | One raw worksheet AutoFilter list criterion changes while its filter shell, formulas, direct dependency edge, and every package member except the report worksheet remain unchanged. The validator does not apply the filter or calculate a result. |
 | `sheet_visibility_changed` | `sheet`, `baseline_state`, `candidate_state` | The stored sheet state changes. |
 | `formula_cell_unlocked` | `sheet`, `cell` | A formula cell is explicitly unlocked while its sheet remains protected. |
 | `manual_calculation_incomplete` | none | Candidate calculation metadata is `manual` and records incomplete calculation. |
@@ -123,6 +126,26 @@ formula expressions and direct dependency edges, and compares `workbook.xml`
 after removing only those two date-control attributes. It does not execute a
 formula, convert the serial, predict a displayed calendar date, open or save a
 workbook, or claim behavior for a particular client.
+
+## Active AutoFilter criteria
+
+Microsoft's [filter guidance](https://support.microsoft.com/en-us/excel/get-started/filter-data-in-a-range-or-table-in-excel)
+documents that filters show rows meeting the selected criteria and hide the
+rest. Its [`SUBTOTAL` reference](https://support.microsoft.com/en-us/excel/functions/subtotal-function)
+states that rows excluded by a filter are always excluded, so a stored
+criterion can be review-material even when formulas stay textually stable.
+
+WCAB's active-filter pair keeps the `Report!A1:B5` AutoFilter shell, its
+column ID, `Report!D2=SUBTOTAL(109,B2:B5)`, and
+`Dashboard!B4=Report!$D$2` unchanged while the sole column-0 list value moves
+from `North` to `South`. The validator resolves the worksheet through its
+workbook relationship, checks one raw `<autoFilter>`, `<filterColumn>`,
+`<filters>`, and `<filter>` declaration on each side, compares the worksheet
+after removing that sole criterion container, checks the formula texts and
+direct dependency edge, and requires the report worksheet to be the only
+changed package member. It does not execute Excel's filter logic, calculate
+the subtotal, infer a visible row set, or claim a display, copy, chart, or
+print result.
 
 ## Iterative calculation
 

@@ -34,7 +34,7 @@ gates, static analyzers, and agent workflows that propose workbook edits.
 
 ## Scope and non-goals
 
-Version `0.12` covers formula-to-value replacements, formula reference drift,
+Version `0.13` covers formula-to-value replacements, formula reference drift,
 value changes with downstream effects, external formula references, named
 ranges, data validation, conditional formatting, sheet visibility, direct cell
 protection, calculation settings, static cycles, portfolio dependencies,
@@ -55,6 +55,11 @@ It also covers a workbook-wide 1900-to-1904 date-system control change while
 an explicit compatibility control, a raw numeric serial, its date number
 format, and local formulas remain unchanged. It does not infer an Excel-client
 display or calculate a converted date.
+It also covers an active worksheet AutoFilter criterion moving from `North` to
+`South` while `Report!D2=SUBTOTAL(109,B2:B5)` and its `Dashboard!B4` consumer
+remain unchanged. It records the stored control only: it does not apply a
+filter, calculate a subtotal, infer visible rows, or claim a display or print
+outcome.
 
 The benchmark does **not** evaluate formula execution or claim that a
 candidate's numerical results are correct.  A case's `review_expectation` is a
@@ -181,7 +186,13 @@ requires `workbook_date_system_changed` plus `FF117`: normalized `date1904`
 must move from `false` to `true`, explicit `dateCompatibility` must remain
 `true`, and no unrecognized date controls may appear. WCAB independently
 validates the raw serial, style, formulas, and package-member boundary. It
-keeps unmapped facts explicit; it does not treat the benign
+requires `filter_visibility_controls_changed` and `FF036` for the active
+AutoFilter case. FormulaFence intentionally reports its aggregate, redacted
+control profile rather than the selected values; WCAB's raw validator
+independently establishes the `North`-to-`South` criterion transition, stable
+`SUBTOTAL` and dashboard formulas, direct dependency edge, and worksheet-only
+package change. Neither layer applies the filter or claims a subtotal result.
+The adapter keeps unmapped facts explicit; it does not treat the benign
 structural-rewrite annotation as a generic semantic-equivalence claim.
 
 ## Reproducibility

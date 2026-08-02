@@ -31,6 +31,7 @@ _FACT_TO_CHANGE: dict[str, tuple[str, str | None]] = {
     "defined_name_changed": ("defined_name_changed", None),
     "data_validation_count_changed": ("data_validation_changed", None),
     "conditional_formatting_count_changed": ("conditional_formatting_changed", None),
+    "auto_filter_criteria_changed": ("filter_visibility_controls_changed", None),
     "sheet_visibility_changed": ("sheet_visibility_changed", None),
     "formula_cell_unlocked": ("cell_protection_assignments_changed", None),
     "manual_calculation_incomplete": ("calculation_settings_changed", None),
@@ -346,6 +347,62 @@ def _workbook_date_system_finding_observed(finding: dict[str, Any], fact: dict[s
     )
 
 
+def _auto_filter_criteria_details_observed(details: Any, fact: dict[str, Any]) -> bool:
+    """Require the exact redacted FormulaFence AutoFilter evidence shape."""
+
+    if (
+        fact.get("sheet") != "Report"
+        or fact.get("filter_ref") != "A1:B5"
+        or fact.get("filter_column_id") != 0
+        or fact.get("baseline_filter_value") != "North"
+        or fact.get("candidate_filter_value") != "South"
+    ):
+        return False
+    expected_surface = {
+        "present": True,
+        "worksheet_auto_filter_count": 1,
+        "table_auto_filter_count": 0,
+        "filter_column_count": 1,
+        "filter_criterion_count": 1,
+        "sort_state_count": 0,
+        "sort_condition_count": 0,
+        "default_hidden_sheet_count": 0,
+        "default_zero_height_sheet_count": 0,
+        "default_zero_width_sheet_count": 0,
+        "hidden_row_count": 0,
+        "zero_height_row_count": 0,
+        "outlined_row_count": 0,
+        "collapsed_row_count": 0,
+        "hidden_column_count": 0,
+        "zero_width_column_count": 0,
+        "outlined_column_count": 0,
+        "collapsed_column_count": 0,
+        "visible_row_override_count": 0,
+        "unrecognized_control_count": 0,
+    }
+    return details == {
+        "before": expected_surface,
+        "after": expected_surface,
+        "filter_visibility_definition_material_changed": True,
+    }
+
+
+def _auto_filter_criteria_observed(change: dict[str, Any], fact: dict[str, Any]) -> bool:
+    """Match FormulaFence's active-filter control record."""
+
+    return change.get("kind") == "filter_visibility_controls_changed" and (
+        _auto_filter_criteria_details_observed(change.get("details"), fact)
+    )
+
+
+def _auto_filter_criteria_finding_observed(finding: dict[str, Any], fact: dict[str, Any]) -> bool:
+    """Require FormulaFence's matching high-severity FF036 finding."""
+
+    return finding.get("rule_id") == "FF036" and _auto_filter_criteria_details_observed(
+        finding.get("details"), fact
+    )
+
+
 def _formula_cached_result_details_observed(details: Any, fact: dict[str, Any]) -> bool:
     """Match FormulaFence's intentionally redacted saved-result details.
 
@@ -569,6 +626,16 @@ def evaluate_diff_case(case_dir: str | Path, *, executable: str = "formulafence"
                 if isinstance(change, dict)
             ) and any(
                 _workbook_date_system_finding_observed(finding, fact)
+                for finding in findings
+                if isinstance(finding, dict)
+            )
+        if kind == "auto_filter_criteria_changed":
+            observed = any(
+                _auto_filter_criteria_observed(change, fact)
+                for change in changes
+                if isinstance(change, dict)
+            ) and any(
+                _auto_filter_criteria_finding_observed(finding, fact)
                 for finding in findings
                 if isinstance(finding, dict)
             )

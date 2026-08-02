@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.13.0 — 2026-08-03
+
+- Add a deterministic active-AutoFilter case. Its worksheet `Report!A1:B5`
+  filter-column-0 list criterion moves from `North` to `South`, while
+  `Report!D2=SUBTOTAL(109,B2:B5)` and its `Dashboard!B4` consumer remain
+  unchanged.
+- Add the exact `auto_filter_criteria_changed` fact, a raw-OOXML validator,
+  and corruption regressions. WCAB records the stored AutoFilter declaration
+  and formula/dependency boundary; it does not apply the filter, calculate a
+  subtotal, infer a visible row set, or claim a client display or print result.
+- Extend the optional FormulaFence adapter to require its matching redacted
+  `filter_visibility_controls_changed` evidence and high-severity `FF036`,
+  while WCAB independently proves the raw criterion values.
+
 ## 0.12.0 — 2026-08-03
 
 - Add a deterministic workbook serial-date-system case. Its raw

@@ -299,6 +299,103 @@ def _raw_cell_state(
     )
 
 
+def _raw_auto_filter_state(
+    path: Path, sheet_name: str
+) -> (
+    tuple[
+        str,
+        tuple[tuple[str, str], ...],
+        int,
+        tuple[tuple[str, str], ...],
+        tuple[tuple[str, str], ...],
+        tuple[str, ...],
+    ]
+    | None
+):
+    """Read WCAB's one explicit worksheet AutoFilter criterion.
+
+    The narrow reader proves a raw stored control transition without applying a
+    filter, changing row visibility, or calculating a ``SUBTOTAL`` result.
+    """
+
+    try:
+        with ZipFile(path) as archive:
+            worksheet_member = _worksheet_member_for_sheet(archive, sheet_name)
+            if worksheet_member is None:
+                return None
+            worksheet = ElementTree.fromstring(archive.read(worksheet_member))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    auto_filter_tag = f"{{{_SPREADSHEETML_NS}}}autoFilter"
+    filter_column_tag = f"{{{_SPREADSHEETML_NS}}}filterColumn"
+    filters_tag = f"{{{_SPREADSHEETML_NS}}}filters"
+    filter_tag = f"{{{_SPREADSHEETML_NS}}}filter"
+    auto_filters = worksheet.findall(auto_filter_tag)
+    if len(auto_filters) != 1:
+        return None
+    auto_filter = auto_filters[0]
+    filter_columns = auto_filter.findall(filter_column_tag)
+    if len(filter_columns) != 1:
+        return None
+    filter_column = filter_columns[0]
+    if len(auto_filter) != 1 or auto_filter[0] is not filter_column:
+        return None
+    try:
+        column_id = int(filter_column.get("colId", ""))
+    except ValueError:
+        return None
+    filters = filter_column.findall(filters_tag)
+    if len(filters) != 1:
+        return None
+    if len(filter_column) != 1 or filter_column[0] is not filters[0]:
+        return None
+    filter_elements = filters[0].findall(filter_tag)
+    if len(filter_elements) != 1 or len(filters[0]) != 1 or filters[0][0] is not filter_elements[0]:
+        return None
+    values: list[str] = []
+    for filter_element in filter_elements:
+        value = filter_element.get("val")
+        if not isinstance(value, str):
+            return None
+        values.append(value)
+    if len(values) != 1:
+        return None
+    return (
+        worksheet_member,
+        tuple(sorted(auto_filter.attrib.items())),
+        column_id,
+        tuple(sorted(filter_column.attrib.items())),
+        tuple(sorted(filters[0].attrib.items())),
+        tuple(values),
+    )
+
+
+def _worksheet_without_auto_filter_criteria(path: Path, sheet_name: str) -> bytes | None:
+    """Return one raw worksheet with its sole AutoFilter criterion removed."""
+
+    if _raw_auto_filter_state(path, sheet_name) is None:
+        return None
+    try:
+        with ZipFile(path) as archive:
+            worksheet_member = _worksheet_member_for_sheet(archive, sheet_name)
+            if worksheet_member is None:
+                return None
+            worksheet = ElementTree.fromstring(archive.read(worksheet_member))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    auto_filter_tag = f"{{{_SPREADSHEETML_NS}}}autoFilter"
+    filter_column_tag = f"{{{_SPREADSHEETML_NS}}}filterColumn"
+    auto_filters = worksheet.findall(auto_filter_tag)
+    if len(auto_filters) != 1:
+        return None
+    auto_filter = auto_filters[0]
+    filter_columns = auto_filter.findall(filter_column_tag)
+    if len(filter_columns) != 1:
+        return None
+    auto_filter.remove(filter_columns[0])
+    return ElementTree.tostring(worksheet, encoding="utf-8", xml_declaration=True)
+
+
 def _raw_cell_number_format(path: Path, sheet_name: str, coordinate: str) -> str | None:
     """Resolve the generated cell's custom number format from raw styles XML."""
 
@@ -849,6 +946,88 @@ def _validate_fact(
             and after_formula.value == formula
             and (formula_sheet, formula_cell) in graph.get((input_sheet, input_cell), set()),
             f"{truth['id']}: expected unchanged stored input/formula and calcPr fullPrecision true -> false only",
+            errors,
+        )
+        return
+
+    if kind == "auto_filter_criteria_changed":
+        sheet_name = fact.get("sheet")
+        filter_reference = fact.get("filter_ref")
+        filter_column_id = fact.get("filter_column_id")
+        baseline_filter_value = fact.get("baseline_filter_value")
+        candidate_filter_value = fact.get("candidate_filter_value")
+        subtotal_cell = fact.get("subtotal_cell")
+        subtotal_formula = fact.get("subtotal_formula")
+        dashboard_sheet = fact.get("dashboard_sheet")
+        dashboard_cell = fact.get("dashboard_cell")
+        dashboard_formula = fact.get("dashboard_formula")
+        before_filter = (
+            _raw_auto_filter_state(baseline_path, sheet_name)
+            if isinstance(sheet_name, str)
+            else None
+        )
+        after_filter = (
+            _raw_auto_filter_state(candidate_path, sheet_name)
+            if isinstance(sheet_name, str)
+            else None
+        )
+        before_subtotal = (
+            _raw_cell_state(baseline_path, sheet_name, subtotal_cell)
+            if isinstance(sheet_name, str) and isinstance(subtotal_cell, str)
+            else None
+        )
+        after_subtotal = (
+            _raw_cell_state(candidate_path, sheet_name, subtotal_cell)
+            if isinstance(sheet_name, str) and isinstance(subtotal_cell, str)
+            else None
+        )
+        before_dashboard = (
+            _raw_cell_state(baseline_path, dashboard_sheet, dashboard_cell)
+            if isinstance(dashboard_sheet, str) and isinstance(dashboard_cell, str)
+            else None
+        )
+        after_dashboard = (
+            _raw_cell_state(candidate_path, dashboard_sheet, dashboard_cell)
+            if isinstance(dashboard_sheet, str) and isinstance(dashboard_cell, str)
+            else None
+        )
+        graph = _direct_graph(candidate)
+        _assert(
+            isinstance(sheet_name, str)
+            and isinstance(filter_reference, str)
+            and type(filter_column_id) is int
+            and isinstance(baseline_filter_value, str)
+            and isinstance(candidate_filter_value, str)
+            and baseline_filter_value != candidate_filter_value
+            and isinstance(subtotal_cell, str)
+            and isinstance(subtotal_formula, str)
+            and isinstance(dashboard_sheet, str)
+            and isinstance(dashboard_cell, str)
+            and isinstance(dashboard_formula, str)
+            and before_filter is not None
+            and after_filter is not None
+            and before_filter[0] == after_filter[0]
+            and before_filter[1] == (("ref", filter_reference),)
+            and after_filter[1] == (("ref", filter_reference),)
+            and before_filter[2] == filter_column_id
+            and after_filter[2] == filter_column_id
+            and before_filter[3] == after_filter[3]
+            and before_filter[4] == after_filter[4]
+            and before_filter[5] == (baseline_filter_value,)
+            and after_filter[5] == (candidate_filter_value,)
+            and before_subtotal is not None
+            and after_subtotal is not None
+            and before_subtotal == after_subtotal
+            and before_subtotal[3] == subtotal_formula
+            and before_dashboard is not None
+            and after_dashboard is not None
+            and before_dashboard == after_dashboard
+            and before_dashboard[3] == dashboard_formula
+            and _worksheet_without_auto_filter_criteria(baseline_path, sheet_name)
+            == _worksheet_without_auto_filter_criteria(candidate_path, sheet_name)
+            and _xlsx_member_differences(baseline_path, candidate_path) == {before_filter[0]}
+            and (dashboard_sheet, dashboard_cell) in graph.get((sheet_name, subtotal_cell), set()),
+            f"{truth['id']}: expected one raw AutoFilter criterion change only with stable formulas and dependency edge",
             errors,
         )
         return

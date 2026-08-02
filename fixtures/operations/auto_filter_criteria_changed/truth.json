@@ -1,0 +1,43 @@
+{
+  "coverage": [
+    "The pair changes only one raw worksheet AutoFilter criterion. It does not edit a cell value, formula text, style, calculation property, row state, or dependency edge.",
+    "Excel filters control which rows are shown, and SUBTOTAL excludes rows omitted by a filter. WCAB does not apply the filter, calculate a subtotal, infer a visible row set, or claim what an Excel client will display or print.",
+    "The validator reads raw OOXML filter declarations, formula text, and package-member differences. It treats the criterion transition as stored-control review evidence, not proof of a calculated outcome."
+  ],
+  "coverage_expectations": [],
+  "facts": [
+    {
+      "baseline_filter_value": "North",
+      "candidate_filter_value": "South",
+      "dashboard_cell": "B4",
+      "dashboard_formula": "=Report!$D$2",
+      "dashboard_sheet": "Dashboard",
+      "filter_column_id": 0,
+      "filter_ref": "A1:B5",
+      "kind": "auto_filter_criteria_changed",
+      "sheet": "Report",
+      "subtotal_cell": "D2",
+      "subtotal_formula": "=SUBTOTAL(109,B2:B5)"
+    }
+  ],
+  "family": "operations",
+  "id": "operations.auto_filter_criteria_changed",
+  "must_reach": [
+    {
+      "source": {
+        "cell": "D2",
+        "sheet": "Report"
+      },
+      "targets": [
+        {
+          "cell": "B4",
+          "sheet": "Dashboard"
+        }
+      ]
+    }
+  ],
+  "review_expectation": "block",
+  "schema_version": 3,
+  "title": "An active AutoFilter criterion changes a subtotal control",
+  "topology": "pair"
+}

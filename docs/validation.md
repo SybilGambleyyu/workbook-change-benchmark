@@ -1,6 +1,6 @@
 # Validation record
 
-This record describes the WCAB 0.12.0 / schema-version-3 validation run on
+This record describes the WCAB 0.13.0 / schema-version-3 validation run on
 2026-08-03. It is reproducible from this repository; no network service or
 private workbook is required.
 
@@ -32,16 +32,16 @@ wcab validate --fixtures fixtures
 
 Results:
 
-- 27 cases: 26 paired-workbook cases and one directory portfolio case.
-- 29 observable truth facts across 22 `block` and five `review` cases.
+- 28 cases: 27 paired-workbook cases and one directory portfolio case.
+- 30 observable truth facts across 23 `block` and five `review` cases.
 - Three scoreable coverage expectations: one newly introduced `INDIRECT`
   boundary and two unchanged-formula selector changes (`INDIRECT` address text
   and `OFFSET` column displacement).
-- 84 generated fixture files: 56 workbooks, 27 truth manifests, and one JSONL
+- 87 generated fixture files: 58 workbooks, 28 truth manifests, and one JSONL
   case catalogue, all generated from source.
-- Sixty-three unit tests passed locally under Python 3.13, including
+- Seventy-one unit tests passed locally under Python 3.13, including
   independent regeneration and byte-for-byte fixture-tree equality.
-- The fixture validator accepted all 27 cases.
+- The fixture validator accepted all 28 cases.
 - The external-data pair has identical package members except for
   `xl/connections.xml`; both archives pass ZIP integrity checks and remain
   readable by openpyxl. Its relationship-backed source is a non-routable
@@ -70,6 +70,13 @@ Results:
   `workbookPr/@date1904` changes exactly from false to true. The validation run
   did not calculate, convert a serial, predict a displayed date, open, or save
   either workbook.
+- The active-AutoFilter pair has identical package members except for
+  `xl/worksheets/sheet1.xml`; both archives pass ZIP integrity checks and
+  remain readable by openpyxl. Its sole raw `Report!A1:B5` column-0 list value
+  changes from `North` to `South`, while its `SUBTOTAL(109,B2:B5)` and
+  dashboard formulas remain unchanged. The validation run did not apply a
+  filter, calculate a subtotal, infer a visible row set, or open or save either
+  workbook.
 - The saved-formula-result pair has identical package members except for
   `xl/worksheets/sheet2.xml`; both archives pass ZIP integrity checks and
   remain readable by openpyxl. Its direct input, formula expression,
@@ -85,7 +92,7 @@ Results:
 
 ## Distribution supplement
 
-The 0.12.0 release retains the one-row-per-case `manifest.jsonl` catalogue and
+The 0.13.0 release retains the one-row-per-case `manifest.jsonl` catalogue and
 the tool-neutral observation protocol at version 2. Each catalogue row retains
 the schema-version-3 truth contract and includes byte counts and SHA-256
 digests for the workbooks it names.
@@ -93,11 +100,11 @@ digests for the workbooks it names.
 Commands:
 
 ```bash
-python -m build --outdir /tmp/wcab-v012-dist
-twine check /tmp/wcab-v012-dist/*
+python -m build --outdir /tmp/wcab-v013-dist
+twine check /tmp/wcab-v013-dist/*
 python -m venv /tmp/wcab-wheel-test
 /tmp/wcab-wheel-test/bin/python -m pip install \
-  /tmp/wcab-v012-dist/workbook_change_benchmark-0.12.0-py3-none-any.whl
+  /tmp/wcab-v013-dist/workbook_change_benchmark-0.13.0-py3-none-any.whl
 /tmp/wcab-wheel-test/bin/wcab validate --fixtures fixtures
 /tmp/wcab-wheel-test/bin/wcab manifest --fixtures fixtures --output /tmp/manifest.jsonl
 cmp fixtures/manifest.jsonl /tmp/manifest.jsonl
@@ -111,14 +118,14 @@ Results:
 
 - The source distribution and universal wheel passed `twine check`.
 - Fresh Python 3.13 wheel and source-distribution installations both reported
-  version 0.12.0 and validated all 27 fixtures; the wheel emitted
+  version 0.13.0 and validated all 28 fixtures; the wheel emitted
   byte-identical JSONL output.
-- The full sixty-three-test suite, lint, and format checks passed locally under
+- The full seventy-one-test suite, lint, and format checks passed locally under
   Python 3.13 and in hosted release CI under Python 3.10 and 3.13.
 - The generated unsupported template scored as zero analyzed coverage, zero
   expected-fact recall, and zero coverage-disclosure recall, confirming that
   unsupported cases cannot become a pass.
-- The FormulaFence normalizer emitted 28 matched facts, one intentionally
+- The FormulaFence normalizer emitted 29 matched facts, one intentionally
   unmapped fact, three matched coverage declarations, and no invented review
   disposition.
 
@@ -133,9 +140,9 @@ wcab formulafence --fixtures fixtures --strict
 
 Results:
 
-- All 28 currently mappable diff/portfolio facts were observed.
+- All 29 currently mappable diff/portfolio facts were observed.
 - All three mappable coverage expectations were matched; no mapped fact,
-  coverage expectation, or targeted lint rule was missed across all 27 cases.
+  coverage expectation, or targeted lint rule was missed across all 28 cases.
 - The schema-version-2 structured Table scope case was observed as a
   `table_definition_changed` diff, even though its summary formula text stays
   unchanged.
@@ -174,6 +181,13 @@ Results:
   reported workbook-level evidence only; WCAB's independent raw validation
   established the stable serial, style, formulas, and package boundary. Neither
   report claims a converted or displayed date.
+- The WCAB 0.13 active-AutoFilter case was observed as one exact
+  `filter_visibility_controls_changed` record and `FF036`: FormulaFence's
+  redacted profile retained one worksheet filter, one filter column, one
+  criterion, and no other visibility controls while its material-definition
+  flag changed. WCAB's independent raw validation established the
+  `North`-to-`South` criterion and stable formulas; neither report applies the
+  filter, calculates a subtotal, or claims a visible result.
 - The WCAB 0.11 saved-formula-result case was observed as one exact
   `formula_cached_result_changed` record and `FF042`: FormulaFence reports
   two formula cells, one numeric saved result, one missing saved result, and

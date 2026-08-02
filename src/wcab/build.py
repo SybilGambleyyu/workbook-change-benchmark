@@ -53,6 +53,12 @@ _WORKBOOK_DATE_SYSTEM_SERIAL = 45292
 _WORKBOOK_DATE_SYSTEM_NUMBER_FORMAT = "yyyy-mm-dd"
 _WORKBOOK_DATE_SYSTEM_FORMULA = "=Inputs!$B$2+30"
 _WORKBOOK_DATE_SYSTEM_DASHBOARD_FORMULA = "=Model!$B$2"
+_AUTO_FILTER_REF = "A1:B5"
+_AUTO_FILTER_COLUMN_ID = 0
+_AUTO_FILTER_BASELINE_VALUE = "North"
+_AUTO_FILTER_CANDIDATE_VALUE = "South"
+_AUTO_FILTER_SUBTOTAL_FORMULA = "=SUBTOTAL(109,B2:B5)"
+_AUTO_FILTER_DASHBOARD_FORMULA = "=Report!$D$2"
 
 
 def _configure_workbook(workbook: Workbook, *, title: str) -> None:
@@ -246,6 +252,33 @@ def _operations_workbook() -> Workbook:
     sheet.conditional_formatting.add(
         "F6:F9", CellIsRule(operator="greaterThan", formula=["50"], fill=high_margin)
     )
+    return workbook
+
+
+def _auto_filter_criteria_workbook(filter_value: str) -> Workbook:
+    """Build a report with an active stored AutoFilter criterion.
+
+    The generated pair differs only in the criterion text. Its ``SUBTOTAL``
+    formula and downstream consumer deliberately remain fixed: WCAB records
+    the stored filter boundary and never calculates which rows or result an
+    Excel client would display.
+    """
+
+    workbook = Workbook()
+    _configure_workbook(workbook, title="WCAB AutoFilter criterion fixture")
+    report = workbook.active
+    report.title = "Report"
+    report.append(["Region", "Amount"])
+    for region, amount in (("North", 100), ("North", 200), ("South", 300), ("South", 400)):
+        report.append([region, amount])
+    report["D1"] = "Visible amount total"
+    report["D2"] = _AUTO_FILTER_SUBTOTAL_FORMULA
+    report.auto_filter.ref = _AUTO_FILTER_REF
+    report.auto_filter.add_filter_column(_AUTO_FILTER_COLUMN_ID, [filter_value])
+
+    dashboard = workbook.create_sheet("Dashboard")
+    dashboard["A4"] = "Visible regional amount total"
+    dashboard["B4"] = _AUTO_FILTER_DASHBOARD_FORMULA
     return workbook
 
 
@@ -1026,6 +1059,54 @@ def _build_operations_conditional_formatting(root: Path) -> None:
     )
 
 
+def _build_operations_auto_filter_criteria(root: Path) -> None:
+    """Build an active-filter transition with stable cells and formulas."""
+
+    directory = root / "operations" / "auto_filter_criteria_changed"
+    directory.mkdir(parents=True, exist_ok=True)
+    _save_workbook(
+        _auto_filter_criteria_workbook(_AUTO_FILTER_BASELINE_VALUE), directory / "baseline.xlsx"
+    )
+    _save_workbook(
+        _auto_filter_criteria_workbook(_AUTO_FILTER_CANDIDATE_VALUE), directory / "candidate.xlsx"
+    )
+    _write_json(
+        directory / "truth.json",
+        _truth(
+            case_id="operations.auto_filter_criteria_changed",
+            title="An active AutoFilter criterion changes a subtotal control",
+            family="operations",
+            review_expectation="block",
+            facts=[
+                {
+                    "kind": "auto_filter_criteria_changed",
+                    "sheet": "Report",
+                    "filter_ref": _AUTO_FILTER_REF,
+                    "filter_column_id": _AUTO_FILTER_COLUMN_ID,
+                    "baseline_filter_value": _AUTO_FILTER_BASELINE_VALUE,
+                    "candidate_filter_value": _AUTO_FILTER_CANDIDATE_VALUE,
+                    "subtotal_cell": "D2",
+                    "subtotal_formula": _AUTO_FILTER_SUBTOTAL_FORMULA,
+                    "dashboard_sheet": "Dashboard",
+                    "dashboard_cell": "B4",
+                    "dashboard_formula": _AUTO_FILTER_DASHBOARD_FORMULA,
+                }
+            ],
+            must_reach=[
+                {
+                    "source": {"sheet": "Report", "cell": "D2"},
+                    "targets": [{"sheet": "Dashboard", "cell": "B4"}],
+                }
+            ],
+            coverage=[
+                "The pair changes only one raw worksheet AutoFilter criterion. It does not edit a cell value, formula text, style, calculation property, row state, or dependency edge.",
+                "Excel filters control which rows are shown, and SUBTOTAL excludes rows omitted by a filter. WCAB does not apply the filter, calculate a subtotal, infer a visible row set, or claim what an Excel client will display or print.",
+                "The validator reads raw OOXML filter declarations, formula text, and package-member differences. It treats the criterion transition as stored-control review evidence, not proof of a calculated outcome.",
+            ],
+        ),
+    )
+
+
 def _build_governance_visibility(root: Path) -> None:
     def mutate(workbook: Workbook) -> None:
         workbook["ReviewControls"].sheet_state = "visible"
@@ -1690,6 +1771,7 @@ _BUILDERS: tuple[Callable[[Path], None], ...] = (
     _build_operations_sumifs_shape,
     _build_operations_data_validation,
     _build_operations_conditional_formatting,
+    _build_operations_auto_filter_criteria,
     _build_governance_visibility,
     _build_governance_protection,
     _build_governance_manual_calculation,
@@ -1719,6 +1801,7 @@ CASE_IDS = (
     "operations.sumifs_range_shape",
     "operations.data_validation_removed",
     "operations.conditional_formatting_removed",
+    "operations.auto_filter_criteria_changed",
     "governance.hidden_sheet_revealed",
     "governance.formula_cell_unlocked",
     "governance.manual_calculation_incomplete",

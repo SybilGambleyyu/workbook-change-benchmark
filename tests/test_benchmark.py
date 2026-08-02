@@ -22,6 +22,36 @@ def _tree_hashes(root: Path) -> dict[str, str]:
     }
 
 
+def _auto_filter_criteria_details() -> dict[str, object]:
+    surface = {
+        "present": True,
+        "worksheet_auto_filter_count": 1,
+        "table_auto_filter_count": 0,
+        "filter_column_count": 1,
+        "filter_criterion_count": 1,
+        "sort_state_count": 0,
+        "sort_condition_count": 0,
+        "default_hidden_sheet_count": 0,
+        "default_zero_height_sheet_count": 0,
+        "default_zero_width_sheet_count": 0,
+        "hidden_row_count": 0,
+        "zero_height_row_count": 0,
+        "outlined_row_count": 0,
+        "collapsed_row_count": 0,
+        "hidden_column_count": 0,
+        "zero_width_column_count": 0,
+        "outlined_column_count": 0,
+        "collapsed_column_count": 0,
+        "visible_row_override_count": 0,
+        "unrecognized_control_count": 0,
+    }
+    return {
+        "before": surface,
+        "after": surface,
+        "filter_visibility_definition_material_changed": True,
+    }
+
+
 def test_committed_fixtures_validate() -> None:
     assert validate_all(PROJECT_ROOT / "fixtures") == {}
 
@@ -73,6 +103,24 @@ def test_committed_manifest_matches_fixture_tree() -> None:
             "driver": {"sheet": "Inputs", "cell": "E12"},
             "formula": {"sheet": "Summary", "cell": "B2"},
             "functions": ["INDIRECT"],
+        }
+    ]
+    auto_filter_row = next(
+        row for row in rows if row["id"] == "operations.auto_filter_criteria_changed"
+    )
+    assert auto_filter_row["facts"] == [
+        {
+            "kind": "auto_filter_criteria_changed",
+            "sheet": "Report",
+            "filter_ref": "A1:B5",
+            "filter_column_id": 0,
+            "baseline_filter_value": "North",
+            "candidate_filter_value": "South",
+            "subtotal_cell": "D2",
+            "subtotal_formula": "=SUBTOTAL(109,B2:B5)",
+            "dashboard_sheet": "Dashboard",
+            "dashboard_cell": "B4",
+            "dashboard_formula": "=Report!$D$2",
         }
     ]
     external_data_row = next(
@@ -427,6 +475,123 @@ def test_precision_as_displayed_pair_changes_only_workbook_xml(tmp_path: Path) -
         for member in sorted(baseline_members)
         if baseline_members[member] != candidate_members[member]
     ] == ["xl/workbook.xml"]
+
+
+def test_validator_rejects_a_false_auto_filter_criteria_fact(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "operations" / "auto_filter_criteria_changed"
+    truth_path = case / "truth.json"
+    truth = json.loads(truth_path.read_text(encoding="utf-8"))
+    truth["facts"][0]["candidate_filter_value"] = "West"
+    truth_path.write_text(json.dumps(truth), encoding="utf-8")
+    assert validate_case(case)
+
+
+def test_validator_rejects_a_corrupted_auto_filter_criterion(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = fixture_root / "operations" / "auto_filter_criteria_changed" / "candidate.xlsx"
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    namespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    worksheet = ElementTree.fromstring(members["xl/worksheets/sheet1.xml"])
+    filter_element = next(worksheet.iter(f"{{{namespace}}}filter"))
+    filter_element.set("val", "North")
+    members["xl/worksheets/sheet1.xml"] = ElementTree.tostring(
+        worksheet, encoding="utf-8", xml_declaration=True
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_validator_rejects_an_unrelated_auto_filter_control_change(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = fixture_root / "operations" / "auto_filter_criteria_changed" / "candidate.xlsx"
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    namespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    worksheet = ElementTree.fromstring(members["xl/worksheets/sheet1.xml"])
+    filter_column = worksheet.find(f".//{{{namespace}}}filterColumn")
+    filter_column.set("showButton", "0")
+    members["xl/worksheets/sheet1.xml"] = ElementTree.tostring(
+        worksheet, encoding="utf-8", xml_declaration=True
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_validator_rejects_an_extra_auto_filter_control(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = fixture_root / "operations" / "auto_filter_criteria_changed" / "candidate.xlsx"
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    namespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    worksheet = ElementTree.fromstring(members["xl/worksheets/sheet1.xml"])
+    filter_column = worksheet.find(f".//{{{namespace}}}filterColumn")
+    assert filter_column is not None
+    ElementTree.SubElement(filter_column, f"{{{namespace}}}top10", {"val": "1"})
+    members["xl/worksheets/sheet1.xml"] = ElementTree.tostring(
+        worksheet, encoding="utf-8", xml_declaration=True
+    )
+    staging = candidate.with_suffix(".staging.xlsx")
+    with ZipFile(staging, "w", ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_validator_rejects_a_corrupted_auto_filter_subtotal_formula(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = fixture_root / "operations" / "auto_filter_criteria_changed" / "candidate.xlsx"
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    namespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    worksheet = ElementTree.fromstring(members["xl/worksheets/sheet1.xml"])
+    subtotal_cell = next(
+        cell for cell in worksheet.iter(f"{{{namespace}}}c") if cell.get("r") == "D2"
+    )
+    subtotal_cell.find(f"{{{namespace}}}f").text = "SUM(B2:B5)"
+    members["xl/worksheets/sheet1.xml"] = ElementTree.tostring(
+        worksheet, encoding="utf-8", xml_declaration=True
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_auto_filter_criteria_pair_changes_only_its_report_worksheet(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "operations" / "auto_filter_criteria_changed"
+    with ZipFile(case / "baseline.xlsx") as baseline, ZipFile(case / "candidate.xlsx") as candidate:
+        baseline_members = {
+            entry.filename: baseline.read(entry.filename) for entry in baseline.infolist()
+        }
+        candidate_members = {
+            entry.filename: candidate.read(entry.filename) for entry in candidate.infolist()
+        }
+    assert set(baseline_members) == set(candidate_members)
+    assert [
+        member
+        for member in sorted(baseline_members)
+        if baseline_members[member] != candidate_members[member]
+    ] == ["xl/worksheets/sheet1.xml"]
 
 
 def test_validator_rejects_a_false_workbook_date_system_fact(tmp_path: Path) -> None:
@@ -1115,6 +1280,60 @@ def test_formulafence_adapter_requires_the_workbook_date_system_finding(
     assert result["status"] == "missed"
     assert result["matched"] == []
     assert result["missed"] == ["workbook_date_system_changed"]
+
+
+def test_formulafence_adapter_maps_the_exact_auto_filter_criteria_change(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _auto_filter_criteria_details()
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "filter_visibility_controls_changed",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF036", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "operations" / "auto_filter_criteria_changed"
+    )
+    assert result["status"] == "matched"
+    assert result["matched"] == ["auto_filter_criteria_changed"]
+
+
+def test_formulafence_adapter_requires_the_auto_filter_finding(monkeypatch, tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "filter_visibility_controls_changed",
+                    "location": None,
+                    "details": _auto_filter_criteria_details(),
+                }
+            ],
+            "findings": [],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "operations" / "auto_filter_criteria_changed"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["auto_filter_criteria_changed"]
 
 
 def test_formulafence_adapter_maps_the_exact_formula_cached_result_change(

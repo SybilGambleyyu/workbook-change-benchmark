@@ -204,7 +204,13 @@ value change. For the workbook-date-system case, it requires one
 and zero unrecognized date controls. WCAB's raw validator—not the adapter—then
 establishes the stable serial, style, formulas, direct dependency edges, and
 workbook.xml-only package change; neither report calculates a date or infers a
-client display. The adapter leaves `review` as `null`: FormulaFence
-surfaces evidence but does not impose WCAB's reference policy as a universal
-approval decision. Any intentionally unmapped fact or coverage expectation
+client display. For the active-AutoFilter case, it requires one exact
+`filter_visibility_controls_changed` record and `FF036` with FormulaFence's
+redacted one-filter-column/one-criterion profile and material-definition flag.
+WCAB's raw validator—not the adapter—then establishes the `North`-to-`South`
+criterion, stable `SUBTOTAL` and dashboard formulas, direct dependency edge,
+and report-worksheet-only package change. Neither report applies the filter,
+calculates a subtotal, or infers a visible row set. The adapter leaves `review`
+as `null`: FormulaFence surfaces evidence but does not impose WCAB's reference
+policy as a universal approval decision. Any intentionally unmapped fact or coverage expectation
 becomes an adapter note and remains missing from its respective recall metric.

@@ -146,6 +146,25 @@ controls explicit, preserves a raw `45292` numeric serial and its
 style metadata only. It neither converts the serial nor asserts what date a
 client will display, and it does not calculate, open, or save a workbook.
 
+## Active AutoFilter criteria without a cell edit
+
+Microsoft's [filter guidance](https://support.microsoft.com/en-us/excel/get-started/filter-data-in-a-range-or-table-in-excel)
+explains that AutoFilter shows the requested subset and hides the rest; a
+filtered subset can then be copied, charted, or printed. Its
+[`SUBTOTAL` reference](https://support.microsoft.com/en-us/excel/functions/subtotal-function)
+states that rows excluded by a filter are always excluded. Consequently, an
+active criterion can be review-material even when no formula text or stored
+cell value changes.
+
+WCAB 0.13 records that control boundary in one original synthetic pair. The
+sole list criterion in `Report!A1:B5` moves from `North` to `South`, while
+`Report!D2=SUBTOTAL(109,B2:B5)` and `Dashboard!B4=Report!$D$2` remain unchanged.
+The raw validator checks the stored `<autoFilter>`, `<filterColumn>`,
+`<filters>`, and `<filter>` declaration plus the formula/dependency and
+package-member boundary. It does not apply a filter, calculate the subtotal,
+infer which rows a client shows, or claim a displayed, copied, charted, or
+printed result.
+
 ## Array-formula semantics
 
 Microsoft's [dynamic-array versus legacy-CSE guidance](https://support.microsoft.com/en-US/Excel/dynamic-array-formulas-vs-legacy-cse-array-formulas)
