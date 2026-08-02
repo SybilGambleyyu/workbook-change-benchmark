@@ -62,4 +62,5 @@ wcab validate --fixtures fixtures
 ```
 
 See the [source repository](https://github.com/SybilGambleyyu/workbook-change-benchmark)
-for the schema, validation contract, and releases. The dataset is MIT licensed.
+for the truth schema, tool-neutral observation protocol, validation contract,
+and releases. The dataset is MIT licensed.

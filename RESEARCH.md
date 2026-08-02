@@ -52,3 +52,16 @@ change-review case that ordinary formula text comparison misses: the stored
 formula can remain unchanged while the Table's stored range grows. WCAB schema
 version 2 therefore adds a generated Table-expansion case that checks those
 observable facts without evaluating a formula or asserting a result value.
+
+## Evidence scoring without a false-positive fiction
+
+The [NIST static-analysis methodology](https://www.nist.gov/system/files/documents/2021/03/24/CAS%202012%20Static%20Analysis%20Tool%20Study%20Methodology.pdf)
+defines precision as reported true findings divided by all reported findings,
+and recall as reported true findings divided by all known findings. WCAB's
+truth is intentionally not a complete list of every difference in a workbook:
+it declares review-relevant facts plus coverage boundaries. Calling every
+unlisted tool observation a false positive would therefore misrepresent the
+oracle. Version 0.3 adds a normalized adapter protocol that measures recall of
+declared facts, analyzed coverage, and reference-policy agreement, while
+preserving unrecognized observations for review instead of forcing a precision
+claim.

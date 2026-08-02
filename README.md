@@ -99,6 +99,36 @@ does not prescribe one tool's report format.
 The complete fact schema is in [docs/schema.md](docs/schema.md), and the
 reproducible validation record is in [docs/validation.md](docs/validation.md).
 
+## Score another tool without adopting its report schema
+
+WCAB supplies a normalized observation protocol for adapters around any local
+diff or review tool. Start from an explicitly unsupported template, let the
+adapter replace cases with exact observed WCAB facts, then score the report:
+
+```bash
+wcab observation-template --fixtures fixtures --output observations.json
+# Run your adapter to populate observations.json.
+wcab score --fixtures fixtures --observations observations.json --output score.json
+```
+
+The score reports expected-fact recall, analyzed coverage, and agreement with
+the benchmark's reference review convention. It deliberately lists
+unrecognized observations instead of calling them false positives: WCAB facts
+are targeted change assertions, not a claim to enumerate every possible
+workbook difference. See [docs/observations.md](docs/observations.md) for the
+complete protocol and strict-mode behavior.
+
+The optional FormulaFence reference adapter can also emit normalized
+observations directly. It records mapped change facts but intentionally leaves
+review dispositions unset because FormulaFence is an analyzer, not a universal
+approval-policy engine:
+
+```bash
+wcab formulafence-observations --fixtures fixtures \
+  --executable formulafence --output formulafence-observations.json
+wcab score --fixtures fixtures --observations formulafence-observations.json
+```
+
 ## Optional FormulaFence reference adapter
 
 The repository includes a local adapter for FormulaFence to demonstrate how a

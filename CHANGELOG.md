@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.0 — 2026-08-02
+
+- Add a tool-neutral normalized observation protocol, template command, and
+  deterministic score report for expected-fact recall, coverage, and
+  reference-policy agreement.
+- Add an optional FormulaFence normalizer that emits mapped observations while
+  leaving approval-policy decisions explicitly unset.
+- Keep unrecognized facts explicit rather than calling them false positives
+  against WCAB's intentionally targeted oracle.
+
 ## 0.2.0 — 2026-08-02
 
 - Upgrade the fixture contract to schema version 2 and add a deterministic

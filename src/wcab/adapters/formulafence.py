@@ -15,6 +15,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
 
+from ..build import CASE_IDS, FIXTURE_SCHEMA_VERSION
+from ..score import OBSERVATION_SCHEMA_VERSION
+
 
 class FormulaFenceAdapterError(RuntimeError):
     """FormulaFence could not produce a usable local JSON report."""
@@ -42,6 +45,11 @@ _LINT_EXPECTATIONS = {
     "governance.formula_cell_unlocked": "FF085",
     "governance.manual_calculation_incomplete": "FF086",
     "governance.static_cycle_introduced": "FF090",
+}
+
+_PORTFOLIO_FACT_EVIDENCE = {
+    "portfolio_value_changed": {"native_change_kind": "value_changed"},
+    "portfolio_external_reference": {"native_rule_id": "FF079"},
 }
 
 
@@ -283,4 +291,66 @@ def evaluate_reference_suite(
         "lint_rule_count": len(lint_results),
         "lint_rule_misses": lint_missed,
         "lint_rules": lint_results,
+    }
+
+
+def reference_observations(root: str | Path, *, executable: str = "formulafence") -> dict[str, Any]:
+    """Emit scoreable normalized observations from the local FormulaFence adapter.
+
+    This reuses the adapter's documented mapping from native FormulaFence
+    evidence to WCAB facts. A matched fact is copied from WCAB truth only after
+    the native change/rule mapping matched; the optional evidence object names
+    that native mapping. FormulaFence is an analyzer rather than a policy
+    engine, so this adapter intentionally leaves every review disposition null.
+    """
+
+    fixture_root = Path(root)
+    directories: dict[str, tuple[Path, dict[str, Any]]] = {}
+    for truth_path in fixture_root.rglob("truth.json"):
+        truth = _load_truth(truth_path.parent)
+        case_id = truth.get("id")
+        if not isinstance(case_id, str):
+            raise FormulaFenceAdapterError(f"{truth_path}: fixture case id must be a string")
+        directories[case_id] = (truth_path.parent, truth)
+    if set(directories) != set(CASE_IDS):
+        raise FormulaFenceAdapterError("fixture tree does not match the WCAB case catalogue")
+
+    cases: list[dict[str, Any]] = []
+    for case_id in CASE_IDS:
+        directory, truth = directories[case_id]
+        result = evaluate_diff_case(directory, executable=executable)
+        matched = set(result["matched"])
+        facts: list[dict[str, Any]] = []
+        for fact in truth.get("facts", []):
+            kind = str(fact.get("kind"))
+            if kind not in matched:
+                continue
+            if kind in _PORTFOLIO_FACT_EVIDENCE:
+                evidence = _PORTFOLIO_FACT_EVIDENCE[kind]
+            else:
+                expectation = _FACT_TO_CHANGE.get(kind)
+                if expectation is None:
+                    continue
+                evidence = {"native_change_kind": expectation[0]}
+            facts.append({"evidence": evidence, "fact": fact})
+        coverage = []
+        if result["unmapped"]:
+            coverage.append(
+                "FormulaFence adapter mapping intentionally unavailable for: "
+                + ", ".join(sorted(result["unmapped"]))
+            )
+        cases.append(
+            {
+                "coverage": coverage,
+                "facts": facts,
+                "id": case_id,
+                "review": None,
+                "status": "analyzed",
+            }
+        )
+    return {
+        "benchmark": {"fixture_schema_versions": [FIXTURE_SCHEMA_VERSION]},
+        "cases": cases,
+        "schema_version": OBSERVATION_SCHEMA_VERSION,
+        "tool": {"name": "FormulaFence"},
     }
