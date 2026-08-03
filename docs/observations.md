@@ -214,7 +214,19 @@ identity, or trust assertion; WCAB's raw validator independently establishes
 the root-relationship source-ID retarget, exact transform sequence, and
 `_xmlsignatures/sig1.xml`-only boundary. Neither report executes a transform
 or validates a digest, signature, certificate, trust chain, or consumer
-decision. For the QueryTable case,
+decision. For the threaded-comment resolution case, it requires one exact
+high-severity `threaded_comment_controls_changed` record and matching `FF045`:
+FormulaFence's redacted one-thread profile retains one worksheet binding, one
+threaded-comment part, one comment thread/comment/person, zero replies or
+mentions, two local bindings, and no external or unrecognized metadata while
+only `resolved_comment_count` moves from `0` to `1` and
+`threaded_comment_definition_material_changed=true`. FormulaFence exposes no
+comment text, comment-cell reference, timestamp, relationship ID, comment ID, person
+ID, or identity data. WCAB's raw validator—not the adapter—establishes the
+fixed synthetic package graph, ordinary cells/formula context, and
+`xl/threadedComments/threadedComment1.xml`-only boundary. Neither layer proves
+review or approval, resolves a notification, authenticates a person, enforces
+authorization, opens a client, or claims workflow completion. For the QueryTable case,
 it requires one exact `query_table_refresh_controls_changed` record and
 matching `FF023`: its redacted profile must retain one
 `ImportedData` table, connection ID 1, fixed refresh/edit/fill/growth controls,

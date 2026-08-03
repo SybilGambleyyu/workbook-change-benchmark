@@ -86,6 +86,12 @@ complementary root-relationships selector retarget with a Relationships
 Transform immediately followed by C14N; it deliberately keeps every published
 aggregate selector count equal. Each records only a declared structural package
 scope, never cryptographic verification or a trust decision.
+WCAB 0.40 adds one worksheet-associated modern threaded-comment thread whose
+stored top-level resolution state moves from unresolved to resolved while its
+text, person record, relationship graph, ordinary cells, formulas, and all
+other package members remain fixed. It records stored comment metadata only;
+it does not expose discussion content or identity data, prove a review or
+approval, trigger notifications, or claim workflow/client behavior.
 Version 2 remains
 available in the immutable v0.2.0 and v0.3.0 releases.
 
@@ -145,6 +151,7 @@ Facts are observed directly from the fixture files by `wcab validate`.
 | `external_data_connection_web_query_url_changed` | `connection_id`, `connection_member`, `connection_content_type`, `workbook_relationships_member`, `relationship_id`, `relationship_type`, `refresh_on_load`, `baseline_url`, `candidate_url`, `saved_value_sheet`, `saved_value_cell`, `saved_value`, `summary_sheet`, `summary_cell`, `summary_formula`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | One relationship-backed web-query connection retains its ID, type, refresh controls, relationship, content type, stored imported cell, ordinary formulas, calculation properties, and every package member except `xl/connections.xml` while raw `webPr/@url` moves between declared reserved URLs. The validator reads local OOXML only; it does not resolve, open, fetch, authenticate to, trust, refresh, calculate, or claim a client result. |
 | `package_signature_manifest_direct_part_retargeted` | `root_relationships_member`, `origin_member`, `origin_relationships_member`, `origin_relationship_id`, `origin_relationship_type`, `signature_member`, `signature_relationship_id`, `signature_relationship_type`, `signature_content_type`, `signed_info_reference_uri`, `baseline_manifest_uri`, `candidate_manifest_uri`, `baseline_direct_part_class`, `candidate_direct_part_class`, `stable_sheet`, `stable_value_cell`, `stable_value`, `stable_formula_cell`, `stable_formula` | One structurally shaped OPC digital-signature envelope retains its origin/signature relationship graph, content types, `SignedInfo` local-object reference, ordinary cells/formula context, calculation properties, and every package member except `_xmlsignatures/sig1.xml` while its one `Object/Manifest` direct-part URI moves from the workbook part to a worksheet part. The fixture's digest/signature values are synthetic; the validator does not verify cryptography, transforms, certificates, identity, trust, or a consumer decision. |
 | `package_signature_manifest_relationship_selector_retargeted` | `root_relationships_member`, `origin_member`, `origin_relationships_member`, `origin_relationship_id`, `origin_relationship_type`, `signature_member`, `signature_relationship_id`, `signature_relationship_type`, `signature_content_type`, `signed_info_reference_uri`, `manifest_uri`, `relationship_transform_algorithm`, `canonicalization_algorithm`, `office_document_relationship_id`, `office_document_relationship_type`, `office_document_relationship_target`, `baseline_selector_source_id`, `candidate_selector_source_id`, `baseline_selected_relationship_type`, `baseline_selected_relationship_target`, `candidate_selected_relationship_type`, `candidate_selected_relationship_target`, `stable_sheet`, `stable_value_cell`, `stable_value`, `stable_formula_cell`, `stable_formula` | One structurally shaped OPC digital-signature envelope retains its package graph, Manifest URI, Relationships Transform followed immediately by C14N, ordinary cells/formula context, calculation properties, and every package member except `_xmlsignatures/sig1.xml` while one root-relationship selector `SourceId` changes. The selector identifies a relationship entry, not proof its target part was signed. The fixture's digest/signature values are synthetic; the validator neither executes transforms nor verifies cryptography, certificates, identity, trust, or a consumer decision. |
+| `threaded_comment_resolution_state_changed` | `threaded_comment_sheet`, `worksheet_member`, `worksheet_relationships_member`, `workbook_relationships_member`, `threaded_comment_member`, `threaded_comment_content_type`, `threaded_comment_relationship_type`, `person_member`, `person_content_type`, `person_relationship_type`, `worksheet_threaded_comment_sheet_count`, `threaded_comment_part_count`, `comment_thread_count`, `comment_count`, `reply_count`, `baseline_resolved_comment_count`, `candidate_resolved_comment_count`, `comment_with_text_count`, `mention_count`, `mentioned_person_count`, `person_part_count`, `person_count`, `orphan_person_count`, `binding_relationship_count`, `external_relationship_count`, `unrecognized_threaded_comment_count`, `stable_sheet`, `stable_value_cell`, `stable_value`, `stable_formula_cell`, `stable_formula` | One worksheet-associated modern-comment package retains its text, person part, bindings, content types, ordinary cells/formula context, calculation properties, and every package member except its threaded-comments part while the top-level stored resolution token changes from unresolved to resolved. The validator reads bounded local OOXML only: it does not expose comment text or identity data, prove a review/approval, contact a person service, trigger a notification, authorize an action, or claim client/workflow behavior. |
 | `query_table_refresh_on_load_changed` | `sheet`, `connection_id`, `connection_member`, `connection_url`, `query_table_member`, `worksheet_member`, `worksheet_relationships_member`, `relationship_id`, `relationship_type`, `baseline_refresh_on_load`, `candidate_refresh_on_load`, `background_refresh`, `refresh_disabled`, `remove_data_on_save`, `fill_formulas`, `connection_edit_disabled`, `growth_behavior`, `saved_value_cell`, `saved_value`, `summary_sheet`, `summary_cell`, `summary_formula`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | One direct internal worksheet QueryTable relationship and one fixed internal workbook connection retain their controls, saved cells, formulas, calculation properties, and every package member except the QueryTable part while raw `queryTable/@refreshOnLoad` changes from `false` to `true`. The validator does not open a connection, fetch a URL, refresh, materialize data, calculate, or claim a client result. |
 | `cell_hyperlink_target_changed` | `sheet`, `cell`, `cell_value`, `worksheet_member`, `worksheet_relationships_member`, `relationship_id`, `relationship_type`, `target_mode`, `baseline_target`, `candidate_target`, `summary_sheet`, `summary_cell`, `summary_formula`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | One worksheet `hyperlink` declaration retains its visible cell value, relationship ID/type/mode, no local location/display/tooltip, formulas, calculation properties, and every package member except its worksheet relationship part while the one external relationship `Target` moves between the declared reserved URLs. The validator does not resolve, open, fetch, visit, execute, calculate, or claim that a client follows a target. |
 | `pivot_cache_refresh_on_load_changed` | `cache_id`, `source_type`, `source_sheet`, `source_ref`, `pivot_sheet`, `pivot_ref`, `pivot_output_cell`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula`, `baseline_refresh_on_load`, `candidate_refresh_on_load` | One relationship-bound local worksheet PivotCache changes raw `refreshOnLoad` from `false` to `true`; its source binding, PivotTable location, stored report/dashboard cells, calculation properties, and every package member except its cache definition remain unchanged. The validator neither refreshes nor renders a PivotTable. |
@@ -636,6 +643,28 @@ The generated digest and signature values are deliberately synthetic. WCAB
 does not validate a digest, signature, canonicalization, transform, certificate,
 identity, revocation, trust chain, timestamp, policy, or a package consumer's
 decision. It records only the declared structural package scope.
+
+## Modern threaded-comment resolution state
+
+Microsoft's [Threaded Comments specification](https://learn.microsoft.com/en-us/openspecs/office_standards/ms-xlsx/e0fb917a-1107-409a-852f-13b47aea70dc)
+describes cell-associated comment threads as OOXML data stored separately from
+ordinary cell content, and the [Excel comment API](https://learn.microsoft.com/en-us/office/dev/add-ins/excel/excel-add-ins-comments)
+distinguishes resolving and reopening a thread. That makes the persisted state
+a review surface even when cell values and formulas remain unchanged.
+
+WCAB 0.40 contains one worksheet-associated `ThreadedComments` part and one
+linked Persons part. The sole top-level comment keeps its synthetic text,
+timestamp, cell binding, comment/person identifiers, and person display data
+fixed while raw `threadedComment/@done` moves from `0` to `1`. The person and
+worksheet/workbook relationship parts, content types, `Controls!B10=12`,
+`Controls!D10=B10*C10`, calculation properties, and every other package member
+are byte-identical. The raw validator checks the bounded local graph and
+compares comment XML after erasing only that resolution token.
+
+The pair records a stored state only. It does not expose content or identity
+through the adapter contract, prove that anybody reviewed or approved a
+workbook, resolve a notification, authenticate a person, check authorization,
+open an Excel client, or claim workflow completion.
 
 ## XLM Auto_Open binding
 

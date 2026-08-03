@@ -1,6 +1,6 @@
 # Validation record
 
-This record describes the WCAB 0.39.0 / schema-version-3 validation run. It is
+This record describes the WCAB 0.40.0 / schema-version-3 validation run. It is
 reproducible from this repository; no network service or private workbook is
 required.
 
@@ -32,16 +32,16 @@ wcab validate --fixtures fixtures
 
 Results:
 
-- 56 cases: 55 paired-workbook cases and one directory portfolio case.
-- 58 observable truth facts across 46 `block` and 10 `review` cases.
+- 57 cases: 56 paired-workbook cases and one directory portfolio case.
+- 59 observable truth facts across 47 `block` and 10 `review` cases.
 - Three scoreable coverage expectations: one newly introduced `INDIRECT`
   boundary and two unchanged-formula selector changes (`INDIRECT` address text
   and `OFFSET` column displacement).
-- 171 generated fixture files: 114 workbooks, 56 truth manifests, and one JSONL
+- 174 generated fixture files: 116 workbooks, 57 truth manifests, and one JSONL
   case catalogue, all generated from source.
-- Two hundred sixty-two unit tests passed locally under Python 3.13, including
+- Two hundred sixty-seven unit tests passed locally under Python 3.13, including
   independent regeneration and byte-for-byte fixture-tree equality.
-- The fixture validator accepted all 56 cases.
+- The fixture validator accepted all 57 cases.
 - The external-data refresh pair has identical package members except for
   `xl/connections.xml`; both archives pass ZIP integrity checks and remain
   readable by openpyxl. Its relationship-backed source is a non-routable
@@ -79,6 +79,18 @@ Results:
   selected relationship is not proof its target part was signed; the validation
   run does not execute a transform or verify a digest, signature, certificate,
   identity, trust chain, or consumer decision.
+- The modern threaded-comment resolution pair has identical package members
+  except `xl/threadedComments/threadedComment1.xml`; both archives pass ZIP
+  integrity checks and remain readable by openpyxl. Its one top-level comment
+  keeps its synthetic text, timestamp, identifiers, cell binding, linked person
+  record, content types, worksheet/workbook relationships, stable
+  `Controls!B10=12` value, `Controls!D10=B10*C10` formula, and calculation
+  properties fixed while raw `threadedComment/@done` changes from `0` to `1`.
+  The validator reads only the bounded local OOXML shape and compares the
+  comment part after erasing that token. It does not expose or assess comment
+  content or identity, prove review or approval, send notifications,
+  authenticate or authorize a person, open a client, or claim workflow
+  completion.
 - The QueryTable pair has identical package members except for
   `xl/queryTables/queryTable1.xml`; both archives pass ZIP integrity checks and
   remain readable by openpyxl. Its direct `ImportedData` worksheet-to-QueryTable
@@ -361,7 +373,7 @@ Results:
 
 ## Distribution supplement
 
-The 0.39.0 release retains the one-row-per-case `manifest.jsonl` catalogue and
+The 0.40.0 release retains the one-row-per-case `manifest.jsonl` catalogue and
 the tool-neutral observation protocol at version 2. Each catalogue row retains
 the schema-version-3 truth contract and includes byte counts and SHA-256
 digests for the workbooks it names.
@@ -369,26 +381,26 @@ digests for the workbooks it names.
 Commands:
 
 ```bash
-python -m build --outdir /tmp/wcab-v039-dist
-twine check /tmp/wcab-v039-dist/*
-python -m venv /tmp/wcab-v039-wheel-test
-/tmp/wcab-v039-wheel-test/bin/python -m pip install \
-  /tmp/wcab-v039-dist/workbook_change_benchmark-0.39.0-py3-none-any.whl
-/tmp/wcab-v039-wheel-test/bin/python -c 'import wcab; print(wcab.__version__)'
-/tmp/wcab-v039-wheel-test/bin/wcab validate --fixtures fixtures
-/tmp/wcab-v039-wheel-test/bin/wcab manifest --fixtures fixtures --output /tmp/wcab-v039-wheel-manifest.jsonl
-cmp fixtures/manifest.jsonl /tmp/wcab-v039-wheel-manifest.jsonl
-/tmp/wcab-v039-wheel-test/bin/wcab observation-template --fixtures fixtures \
-  --output /tmp/wcab-v039-wheel-observations.json
-/tmp/wcab-v039-wheel-test/bin/wcab score --fixtures fixtures \
-  --observations /tmp/wcab-v039-wheel-observations.json
-python -m venv /tmp/wcab-v039-sdist-test
-/tmp/wcab-v039-sdist-test/bin/python -m pip install \
-  /tmp/wcab-v039-dist/workbook_change_benchmark-0.39.0.tar.gz
-/tmp/wcab-v039-sdist-test/bin/python -c 'import wcab; print(wcab.__version__)'
-/tmp/wcab-v039-sdist-test/bin/wcab validate --fixtures fixtures
-/tmp/wcab-v039-sdist-test/bin/wcab manifest --fixtures fixtures --output /tmp/wcab-v039-sdist-manifest.jsonl
-cmp fixtures/manifest.jsonl /tmp/wcab-v039-sdist-manifest.jsonl
+python -m build --outdir /tmp/wcab-v040-dist
+twine check /tmp/wcab-v040-dist/*
+python -m venv /tmp/wcab-v040-wheel-test
+/tmp/wcab-v040-wheel-test/bin/python -m pip install \
+  /tmp/wcab-v040-dist/workbook_change_benchmark-0.40.0-py3-none-any.whl
+/tmp/wcab-v040-wheel-test/bin/python -c 'import wcab; print(wcab.__version__)'
+/tmp/wcab-v040-wheel-test/bin/wcab validate --fixtures fixtures
+/tmp/wcab-v040-wheel-test/bin/wcab manifest --fixtures fixtures --output /tmp/wcab-v040-wheel-manifest.jsonl
+cmp fixtures/manifest.jsonl /tmp/wcab-v040-wheel-manifest.jsonl
+/tmp/wcab-v040-wheel-test/bin/wcab observation-template --fixtures fixtures \
+  --output /tmp/wcab-v040-wheel-observations.json
+/tmp/wcab-v040-wheel-test/bin/wcab score --fixtures fixtures \
+  --observations /tmp/wcab-v040-wheel-observations.json
+python -m venv /tmp/wcab-v040-sdist-test
+/tmp/wcab-v040-sdist-test/bin/python -m pip install \
+  /tmp/wcab-v040-dist/workbook_change_benchmark-0.40.0.tar.gz
+/tmp/wcab-v040-sdist-test/bin/python -c 'import wcab; print(wcab.__version__)'
+/tmp/wcab-v040-sdist-test/bin/wcab validate --fixtures fixtures
+/tmp/wcab-v040-sdist-test/bin/wcab manifest --fixtures fixtures --output /tmp/wcab-v040-sdist-manifest.jsonl
+cmp fixtures/manifest.jsonl /tmp/wcab-v040-sdist-manifest.jsonl
 ```
 
 Results:
@@ -398,14 +410,14 @@ Results:
   their uploaded assets in the GitHub release, avoiding a self-referential
   source-distribution checksum in this record.
 - Fresh Python 3.13 wheel and source-distribution installations both reported
-  version 0.39.0 and validated all 56 fixtures; both emitted byte-identical
+  version 0.40.0 and validated all 57 fixtures; both emitted byte-identical
   JSONL output.
-- The full 262-test suite, lint, and format checks passed locally under Python
+- The full 267-test suite, lint, and format checks passed locally under Python
   3.13.
 - The generated unsupported template scored as zero analyzed coverage, zero
   expected-fact recall, and zero coverage-disclosure recall, confirming that
   unsupported cases cannot become a pass.
-- The FormulaFence normalizer emitted 57 matched facts, one intentionally
+- The FormulaFence normalizer emitted 58 matched facts, one intentionally
   unmapped fact, three matched coverage declarations, and no invented review
   disposition.
 
@@ -420,9 +432,9 @@ wcab formulafence --fixtures fixtures --strict
 
 Results:
 
-- All 57 currently mappable diff/portfolio facts were observed.
+- All 58 currently mappable diff/portfolio facts were observed.
 - All three mappable coverage expectations were matched; no mapped fact,
-  coverage expectation, or targeted lint rule was missed across all 56 cases.
+  coverage expectation, or targeted lint rule was missed across all 57 cases.
 - The schema-version-2 structured Table scope case was observed as a
   `table_definition_changed` diff, even though its summary formula text stays
   unchanged.
@@ -514,6 +526,18 @@ Results:
   `_xmlsignatures/sig1.xml`-only boundary; neither report executed a transform
   or verified a digest, signature, certificate, trust chain, or consumer
   decision.
+- The WCAB 0.40 modern threaded-comment resolution case was observed as one
+  exact high-severity `threaded_comment_controls_changed` record and `FF045`.
+  FormulaFence's redacted profile retained one worksheet-bound comment part,
+  one thread/comment/person, no replies or mentions, two internal bindings,
+  and no external or unrecognized metadata while `resolved_comment_count`
+  moved from `0` to `1` and only its definition-material flag differed. It did
+  not expose text, comment-cell reference, timestamp, relationship ID, comment ID,
+  person ID, or identity data. WCAB independently established the bounded
+  synthetic package graph, stable ordinary cell/formula context, and
+  `xl/threadedComments/threadedComment1.xml`-only boundary. Neither layer
+  proves review or approval, sends a notification, authenticates or authorizes
+  a person, opens a client, or claims workflow completion.
 - The WCAB 0.30 QueryTable case was observed as one exact
   `query_table_refresh_controls_changed` record and `FF023`: FormulaFence's
   redacted profile retained one `ImportedData` table, connection ID 1, fixed

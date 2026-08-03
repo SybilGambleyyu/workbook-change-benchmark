@@ -1,0 +1,51 @@
+{
+  "coverage": [
+    "The pair changes only xl/threadedComments/threadedComment1.xml: one top-level threadedComment/@done token moves from 0 to 1. Its synthetic text, timestamps, IDs, cell binding, person record, worksheet/workbook relationships, content types, ordinary cells, formulas, calculation properties, and every other package member stay fixed.",
+    "The pair records one stored thread-resolution state only. It does not reveal or assess discussion content, prove that a person reviewed or approved anything, resolve a notification, authenticate an author, enforce authorization, open a client, or claim a completed workflow.",
+    "The raw XML validates the exact synthetic package shape locally. An adapter must instead require FormulaFence's redacted one-thread profile, the resolved-comment count transition, threaded-comment definition-material signal, and FF045 evidence; it must never require text, a comment-cell reference, timestamp, relationship ID, comment ID, person ID, or identity data."
+  ],
+  "coverage_expectations": [],
+  "facts": [
+    {
+      "baseline_resolved_comment_count": 0,
+      "binding_relationship_count": 2,
+      "candidate_resolved_comment_count": 1,
+      "comment_count": 1,
+      "comment_thread_count": 1,
+      "comment_with_text_count": 1,
+      "external_relationship_count": 0,
+      "kind": "threaded_comment_resolution_state_changed",
+      "mention_count": 0,
+      "mentioned_person_count": 0,
+      "orphan_person_count": 0,
+      "person_content_type": "application/vnd.ms-excel.person+xml",
+      "person_count": 1,
+      "person_member": "xl/persons/person.xml",
+      "person_part_count": 1,
+      "person_relationship_type": "http://schemas.microsoft.com/office/2017/10/relationships/person",
+      "reply_count": 0,
+      "stable_formula": "=B10*C10",
+      "stable_formula_cell": "D10",
+      "stable_sheet": "Controls",
+      "stable_value": 12,
+      "stable_value_cell": "B10",
+      "threaded_comment_content_type": "application/vnd.ms-excel.threadedcomments+xml",
+      "threaded_comment_member": "xl/threadedComments/threadedComment1.xml",
+      "threaded_comment_part_count": 1,
+      "threaded_comment_relationship_type": "http://schemas.microsoft.com/office/2017/10/relationships/threadedComment",
+      "threaded_comment_sheet": "Controls",
+      "unrecognized_threaded_comment_count": 0,
+      "workbook_relationships_member": "xl/_rels/workbook.xml.rels",
+      "worksheet_member": "xl/worksheets/sheet1.xml",
+      "worksheet_relationships_member": "xl/worksheets/_rels/sheet1.xml.rels",
+      "worksheet_threaded_comment_sheet_count": 1
+    }
+  ],
+  "family": "governance",
+  "id": "governance.threaded_comment_resolution_state_changed",
+  "must_reach": [],
+  "review_expectation": "block",
+  "schema_version": 3,
+  "title": "A threaded comment thread is marked resolved",
+  "topology": "pair"
+}

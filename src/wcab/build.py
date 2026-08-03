@@ -270,6 +270,28 @@ _PACKAGE_SIGNATURE_ROOT_RELATIONSHIPS_MANIFEST_URI = (
 )
 _PACKAGE_SIGNATURE_BASELINE_SELECTOR_SOURCE_ID = _PACKAGE_SIGNATURE_OFFICE_DOCUMENT_RELATIONSHIP_ID
 _PACKAGE_SIGNATURE_CANDIDATE_SELECTOR_SOURCE_ID = _PACKAGE_SIGNATURE_ORIGIN_RELATIONSHIP_ID
+_THREADED_COMMENT_NS = "http://schemas.microsoft.com/office/spreadsheetml/2018/threadedcomments"
+_THREADED_COMMENT_RELATIONSHIP = (
+    "http://schemas.microsoft.com/office/2017/10/relationships/threadedComment"
+)
+_THREADED_COMMENT_PERSON_RELATIONSHIP = (
+    "http://schemas.microsoft.com/office/2017/10/relationships/person"
+)
+_THREADED_COMMENT_CONTENT_TYPE = "application/vnd.ms-excel.threadedcomments+xml"
+_THREADED_COMMENT_PERSON_CONTENT_TYPE = "application/vnd.ms-excel.person+xml"
+_THREADED_COMMENT_SHEET = "Controls"
+_THREADED_COMMENT_WORKSHEET_MEMBER = "xl/worksheets/sheet1.xml"
+_THREADED_COMMENT_WORKSHEET_RELATIONSHIPS_MEMBER = "xl/worksheets/_rels/sheet1.xml.rels"
+_THREADED_COMMENT_MEMBER = "xl/threadedComments/threadedComment1.xml"
+_THREADED_COMMENT_PERSON_MEMBER = "xl/persons/person.xml"
+_THREADED_COMMENT_WORKSHEET_RELATIONSHIP_ID = "rIdWCABThreadedComment"
+_THREADED_COMMENT_PERSON_WORKBOOK_RELATIONSHIP_ID = "rIdWCABThreadedPerson"
+_THREADED_COMMENT_PERSON_ID = "{66666666-6666-6666-6666-666666666666}"
+_THREADED_COMMENT_ROOT_ID = "{77777777-7777-7777-7777-777777777777}"
+_THREADED_COMMENT_CELL = "B10"
+_THREADED_COMMENT_TIMESTAMP = "2024-01-01T00:00:00Z"
+_THREADED_COMMENT_TEXT = "WCAB synthetic review thread"
+_THREADED_COMMENT_PERSON_NAME = "WCAB Reviewer"
 _QUERY_TABLE_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/queryTable"
 _QUERY_TABLE_CONNECTIONS_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/connections"
 _QUERY_TABLE_CONTENT_TYPE = (
@@ -2691,6 +2713,124 @@ def _add_package_signature_manifest(
             f"{{{signature}}}DigestValue",
         ).text = "WCAB-PRIVATE-MANIFEST-DIGEST"
         members[_PACKAGE_SIGNATURE_MEMBER] = serialize(envelope)
+
+    _rewrite_xlsx_parts(path, mutate)
+
+
+def _add_threaded_comment_resolution_state(path: Path, *, resolved: bool) -> None:
+    """Attach one bounded modern-comment thread with a chosen resolution state.
+
+    The generated comment is deliberately synthetic. Both packages retain the
+    same comment text, person record, content types, and relationship graph;
+    only the top-level ``threadedComment/@done`` token differs. This records a
+    stored discussion-state control, not a notification, approval, identity,
+    authorization, client action, or completed human workflow.
+    """
+
+    def serialize(root: ElementTree.Element) -> bytes:
+        return ElementTree.tostring(root, encoding="utf-8", xml_declaration=True)
+
+    def add_override(
+        content_types: ElementTree.Element,
+        member: str,
+        content_type: str,
+    ) -> None:
+        override_tag = f"{{{_CONTENT_TYPES_NS}}}Override"
+        existing = [
+            item
+            for item in content_types.findall(override_tag)
+            if item.get("PartName") == f"/{member}"
+        ]
+        if not existing:
+            ElementTree.SubElement(
+                content_types,
+                override_tag,
+                {"PartName": f"/{member}", "ContentType": content_type},
+            )
+            return
+        if len(existing) != 1 or existing[0].get("ContentType") != content_type:
+            raise ValueError(f"threaded-comment fixture has unexpected content type for {member}")
+
+    def mutate(members: dict[str, bytes]) -> None:
+        if _THREADED_COMMENT_MEMBER in members or _THREADED_COMMENT_PERSON_MEMBER in members:
+            raise ValueError("threaded-comment fixture already has its comment package parts")
+        if _THREADED_COMMENT_WORKSHEET_RELATIONSHIPS_MEMBER in members:
+            raise ValueError("threaded-comment fixture expected no worksheet relationships")
+
+        content_types = ElementTree.fromstring(members["[Content_Types].xml"])
+        add_override(
+            content_types,
+            _THREADED_COMMENT_MEMBER,
+            _THREADED_COMMENT_CONTENT_TYPE,
+        )
+        add_override(
+            content_types,
+            _THREADED_COMMENT_PERSON_MEMBER,
+            _THREADED_COMMENT_PERSON_CONTENT_TYPE,
+        )
+        members["[Content_Types].xml"] = serialize(content_types)
+
+        relationship_tag = f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationship"
+        workbook_relationships = ElementTree.fromstring(members["xl/_rels/workbook.xml.rels"])
+        if any(
+            relationship.get("Id") == _THREADED_COMMENT_PERSON_WORKBOOK_RELATIONSHIP_ID
+            for relationship in workbook_relationships.findall(relationship_tag)
+        ):
+            raise ValueError("threaded-comment fixture already has its person relationship")
+        ElementTree.SubElement(
+            workbook_relationships,
+            relationship_tag,
+            {
+                "Id": _THREADED_COMMENT_PERSON_WORKBOOK_RELATIONSHIP_ID,
+                "Type": _THREADED_COMMENT_PERSON_RELATIONSHIP,
+                "Target": "persons/person.xml",
+            },
+        )
+        members["xl/_rels/workbook.xml.rels"] = serialize(workbook_relationships)
+
+        worksheet_relationships = ElementTree.Element(
+            f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationships"
+        )
+        ElementTree.SubElement(
+            worksheet_relationships,
+            relationship_tag,
+            {
+                "Id": _THREADED_COMMENT_WORKSHEET_RELATIONSHIP_ID,
+                "Type": _THREADED_COMMENT_RELATIONSHIP,
+                "Target": "../threadedComments/threadedComment1.xml",
+            },
+        )
+        members[_THREADED_COMMENT_WORKSHEET_RELATIONSHIPS_MEMBER] = serialize(
+            worksheet_relationships
+        )
+
+        comments = ElementTree.Element(f"{{{_THREADED_COMMENT_NS}}}ThreadedComments")
+        comment = ElementTree.SubElement(
+            comments,
+            f"{{{_THREADED_COMMENT_NS}}}threadedComment",
+            {
+                "ref": _THREADED_COMMENT_CELL,
+                "dT": _THREADED_COMMENT_TIMESTAMP,
+                "personId": _THREADED_COMMENT_PERSON_ID,
+                "id": _THREADED_COMMENT_ROOT_ID,
+                "done": "1" if resolved else "0",
+            },
+        )
+        ElementTree.SubElement(
+            comment, f"{{{_THREADED_COMMENT_NS}}}text"
+        ).text = _THREADED_COMMENT_TEXT
+        members[_THREADED_COMMENT_MEMBER] = serialize(comments)
+
+        people = ElementTree.Element(f"{{{_THREADED_COMMENT_NS}}}personList")
+        ElementTree.SubElement(
+            people,
+            f"{{{_THREADED_COMMENT_NS}}}person",
+            {
+                "displayName": _THREADED_COMMENT_PERSON_NAME,
+                "id": _THREADED_COMMENT_PERSON_ID,
+            },
+        )
+        members[_THREADED_COMMENT_PERSON_MEMBER] = serialize(people)
 
     _rewrite_xlsx_parts(path, mutate)
 
@@ -5589,6 +5729,71 @@ def _build_governance_package_signature_relationship_selector_retarget(
     )
 
 
+def _build_governance_threaded_comment_resolution_state(root: Path) -> None:
+    """Build one modern-comment thread whose stored resolution state changes."""
+
+    directory = root / "governance" / "threaded_comment_resolution_state_changed"
+    directory.mkdir(parents=True, exist_ok=True)
+    baseline = directory / "baseline.xlsx"
+    candidate = directory / "candidate.xlsx"
+    _save_workbook(_governance_workbook(), baseline)
+    _save_workbook(_governance_workbook(), candidate)
+    _add_threaded_comment_resolution_state(baseline, resolved=False)
+    _add_threaded_comment_resolution_state(candidate, resolved=True)
+    _write_json(
+        directory / "truth.json",
+        _truth(
+            case_id="governance.threaded_comment_resolution_state_changed",
+            title="A threaded comment thread is marked resolved",
+            family="governance",
+            review_expectation="block",
+            facts=[
+                {
+                    "kind": "threaded_comment_resolution_state_changed",
+                    "threaded_comment_sheet": _THREADED_COMMENT_SHEET,
+                    "worksheet_member": _THREADED_COMMENT_WORKSHEET_MEMBER,
+                    "worksheet_relationships_member": (
+                        _THREADED_COMMENT_WORKSHEET_RELATIONSHIPS_MEMBER
+                    ),
+                    "workbook_relationships_member": "xl/_rels/workbook.xml.rels",
+                    "threaded_comment_member": _THREADED_COMMENT_MEMBER,
+                    "threaded_comment_content_type": _THREADED_COMMENT_CONTENT_TYPE,
+                    "threaded_comment_relationship_type": _THREADED_COMMENT_RELATIONSHIP,
+                    "person_member": _THREADED_COMMENT_PERSON_MEMBER,
+                    "person_content_type": _THREADED_COMMENT_PERSON_CONTENT_TYPE,
+                    "person_relationship_type": _THREADED_COMMENT_PERSON_RELATIONSHIP,
+                    "worksheet_threaded_comment_sheet_count": 1,
+                    "threaded_comment_part_count": 1,
+                    "comment_thread_count": 1,
+                    "comment_count": 1,
+                    "reply_count": 0,
+                    "baseline_resolved_comment_count": 0,
+                    "candidate_resolved_comment_count": 1,
+                    "comment_with_text_count": 1,
+                    "mention_count": 0,
+                    "mentioned_person_count": 0,
+                    "person_part_count": 1,
+                    "person_count": 1,
+                    "orphan_person_count": 0,
+                    "binding_relationship_count": 2,
+                    "external_relationship_count": 0,
+                    "unrecognized_threaded_comment_count": 0,
+                    "stable_sheet": "Controls",
+                    "stable_value_cell": "B10",
+                    "stable_value": 12,
+                    "stable_formula_cell": "D10",
+                    "stable_formula": "=B10*C10",
+                }
+            ],
+            coverage=[
+                "The pair changes only xl/threadedComments/threadedComment1.xml: one top-level threadedComment/@done token moves from 0 to 1. Its synthetic text, timestamps, IDs, cell binding, person record, worksheet/workbook relationships, content types, ordinary cells, formulas, calculation properties, and every other package member stay fixed.",
+                "The pair records one stored thread-resolution state only. It does not reveal or assess discussion content, prove that a person reviewed or approved anything, resolve a notification, authenticate an author, enforce authorization, open a client, or claim a completed workflow.",
+                "The raw XML validates the exact synthetic package shape locally. An adapter must instead require FormulaFence's redacted one-thread profile, the resolved-comment count transition, threaded-comment definition-material signal, and FF045 evidence; it must never require text, a comment-cell reference, timestamp, relationship ID, comment ID, person ID, or identity data.",
+            ],
+        ),
+    )
+
+
 def _build_governance_query_table_refresh(root: Path) -> None:
     """Build a pair whose QueryTable, not connection, requests refresh on open."""
 
@@ -6943,6 +7148,7 @@ _BUILDERS: tuple[Callable[[Path], None], ...] = (
     _build_governance_external_data_connection_source,
     _build_governance_package_signature_manifest_retarget,
     _build_governance_package_signature_relationship_selector_retarget,
+    _build_governance_threaded_comment_resolution_state,
     _build_governance_query_table_refresh,
     _build_governance_cell_hyperlink_target,
     _build_governance_pivot_cache_refresh,
@@ -7001,6 +7207,7 @@ CASE_IDS = (
     "governance.external_data_connection_source_changed",
     "governance.package_signature_manifest_retargeted",
     "governance.package_signature_relationship_selector_retargeted",
+    "governance.threaded_comment_resolution_state_changed",
     "governance.query_table_refresh_on_open",
     "governance.cell_hyperlink_target_changed",
     "governance.pivot_cache_refresh_on_open",

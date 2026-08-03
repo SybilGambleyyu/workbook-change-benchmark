@@ -72,6 +72,10 @@ _FACT_TO_CHANGE: dict[str, tuple[str, str | None]] = {
         "digital_signature_controls_changed",
         None,
     ),
+    "threaded_comment_resolution_state_changed": (
+        "threaded_comment_controls_changed",
+        None,
+    ),
     "query_table_refresh_on_load_changed": ("query_table_refresh_controls_changed", None),
     "cell_hyperlink_target_changed": ("cell_hyperlink_controls_changed", None),
     "pivot_cache_refresh_on_load_changed": ("pivot_cache_refresh_controls_changed", None),
@@ -570,6 +574,91 @@ def _package_signature_manifest_relationship_selector_retargeted_finding_observe
         and _package_signature_manifest_relationship_selector_retargeted_details_observed(
             finding.get("details"), fact
         )
+    )
+
+
+def _threaded_comment_resolution_state_fact_is_expected(fact: dict[str, Any]) -> bool:
+    """Check only the safe aggregate contract for WCAB's comment-state pair.
+
+    FormulaFence intentionally withholds comment text, cell locations,
+    timestamps, relationship IDs, comment IDs, person IDs, and identity data.
+    The raw WCAB validator owns that package-specific context.
+    """
+
+    return (
+        fact.get("worksheet_threaded_comment_sheet_count") == 1
+        and fact.get("threaded_comment_part_count") == 1
+        and fact.get("comment_thread_count") == 1
+        and fact.get("comment_count") == 1
+        and fact.get("reply_count") == 0
+        and fact.get("baseline_resolved_comment_count") == 0
+        and fact.get("candidate_resolved_comment_count") == 1
+        and fact.get("comment_with_text_count") == 1
+        and fact.get("mention_count") == 0
+        and fact.get("mentioned_person_count") == 0
+        and fact.get("person_part_count") == 1
+        and fact.get("person_count") == 1
+        and fact.get("orphan_person_count") == 0
+        and fact.get("binding_relationship_count") == 2
+        and fact.get("external_relationship_count") == 0
+        and fact.get("unrecognized_threaded_comment_count") == 0
+    )
+
+
+def _threaded_comment_resolution_state_details_observed(
+    details: Any,
+    fact: dict[str, Any],
+) -> bool:
+    """Require the exact redacted FF045 resolution-state signal."""
+
+    if not _threaded_comment_resolution_state_fact_is_expected(fact):
+        return False
+    profile = {
+        "present": True,
+        "worksheet_threaded_comment_sheet_count": 1,
+        "threaded_comment_part_count": 1,
+        "comment_thread_count": 1,
+        "comment_count": 1,
+        "reply_count": 0,
+        "resolved_comment_count": 0,
+        "comment_with_text_count": 1,
+        "mention_count": 0,
+        "mentioned_person_count": 0,
+        "person_part_count": 1,
+        "person_count": 1,
+        "orphan_person_count": 0,
+        "binding_relationship_count": 2,
+        "external_relationship_count": 0,
+        "unrecognized_threaded_comment_count": 0,
+    }
+    return details == {
+        "before": profile,
+        "after": {**profile, "resolved_comment_count": 1},
+        "threaded_comment_definition_material_changed": True,
+    }
+
+
+def _threaded_comment_resolution_state_observed(
+    change: dict[str, Any], fact: dict[str, Any]
+) -> bool:
+    """Match FormulaFence's high-severity modern-comment control record."""
+
+    return (
+        change.get("kind") == "threaded_comment_controls_changed"
+        and change.get("severity") == "high"
+        and _threaded_comment_resolution_state_details_observed(change.get("details"), fact)
+    )
+
+
+def _threaded_comment_resolution_state_finding_observed(
+    finding: dict[str, Any], fact: dict[str, Any]
+) -> bool:
+    """Require FormulaFence's matching high-severity FF045 finding."""
+
+    return (
+        finding.get("rule_id") == "FF045"
+        and finding.get("severity") == "high"
+        and _threaded_comment_resolution_state_details_observed(finding.get("details"), fact)
     )
 
 
@@ -2818,6 +2907,16 @@ def evaluate_diff_case(case_dir: str | Path, *, executable: str = "formulafence"
                 _package_signature_manifest_relationship_selector_retargeted_finding_observed(
                     finding, fact
                 )
+                for finding in findings
+                if isinstance(finding, dict)
+            )
+        if kind == "threaded_comment_resolution_state_changed":
+            observed = any(
+                _threaded_comment_resolution_state_observed(change, fact)
+                for change in changes
+                if isinstance(change, dict)
+            ) and any(
+                _threaded_comment_resolution_state_finding_observed(finding, fact)
                 for finding in findings
                 if isinstance(finding, dict)
             )

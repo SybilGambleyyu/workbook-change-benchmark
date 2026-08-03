@@ -315,6 +315,32 @@ def _package_signature_manifest_relationship_selector_retargeted_details() -> di
     }
 
 
+def _threaded_comment_resolution_state_details() -> dict[str, object]:
+    profile = {
+        "present": True,
+        "worksheet_threaded_comment_sheet_count": 1,
+        "threaded_comment_part_count": 1,
+        "comment_thread_count": 1,
+        "comment_count": 1,
+        "reply_count": 0,
+        "resolved_comment_count": 0,
+        "comment_with_text_count": 1,
+        "mention_count": 0,
+        "mentioned_person_count": 0,
+        "person_part_count": 1,
+        "person_count": 1,
+        "orphan_person_count": 0,
+        "binding_relationship_count": 2,
+        "external_relationship_count": 0,
+        "unrecognized_threaded_comment_count": 0,
+    }
+    return {
+        "before": profile,
+        "after": {**profile, "resolved_comment_count": 1},
+        "threaded_comment_definition_material_changed": True,
+    }
+
+
 def _cell_hyperlink_target_details() -> dict[str, object]:
     profile = {
         "present": True,
@@ -1309,6 +1335,49 @@ def test_committed_manifest_matches_fixture_tree() -> None:
             "stable_formula": "=B10*C10",
         }
     ]
+    threaded_comment_row = next(
+        row for row in rows if row["id"] == "governance.threaded_comment_resolution_state_changed"
+    )
+    assert threaded_comment_row["facts"] == [
+        {
+            "kind": "threaded_comment_resolution_state_changed",
+            "threaded_comment_sheet": "Controls",
+            "worksheet_member": "xl/worksheets/sheet1.xml",
+            "worksheet_relationships_member": "xl/worksheets/_rels/sheet1.xml.rels",
+            "workbook_relationships_member": "xl/_rels/workbook.xml.rels",
+            "threaded_comment_member": "xl/threadedComments/threadedComment1.xml",
+            "threaded_comment_content_type": "application/vnd.ms-excel.threadedcomments+xml",
+            "threaded_comment_relationship_type": (
+                "http://schemas.microsoft.com/office/2017/10/relationships/threadedComment"
+            ),
+            "person_member": "xl/persons/person.xml",
+            "person_content_type": "application/vnd.ms-excel.person+xml",
+            "person_relationship_type": (
+                "http://schemas.microsoft.com/office/2017/10/relationships/person"
+            ),
+            "worksheet_threaded_comment_sheet_count": 1,
+            "threaded_comment_part_count": 1,
+            "comment_thread_count": 1,
+            "comment_count": 1,
+            "reply_count": 0,
+            "baseline_resolved_comment_count": 0,
+            "candidate_resolved_comment_count": 1,
+            "comment_with_text_count": 1,
+            "mention_count": 0,
+            "mentioned_person_count": 0,
+            "person_part_count": 1,
+            "person_count": 1,
+            "orphan_person_count": 0,
+            "binding_relationship_count": 2,
+            "external_relationship_count": 0,
+            "unrecognized_threaded_comment_count": 0,
+            "stable_sheet": "Controls",
+            "stable_value_cell": "B10",
+            "stable_value": 12,
+            "stable_formula_cell": "D10",
+            "stable_formula": "=B10*C10",
+        }
+    ]
     query_table_row = next(
         row for row in rows if row["id"] == "governance.query_table_refresh_on_open"
     )
@@ -2155,6 +2224,74 @@ def test_validator_rejects_a_corrupted_package_signature_relationship_selector(
     selector.set("SourceId", "rIdWCABOfficeDocument")
     members[signature_member] = ElementTree.tostring(
         signature,
+        encoding="utf-8",
+        xml_declaration=True,
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_threaded_comment_resolution_pair_changes_only_its_done_state(
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "governance" / "threaded_comment_resolution_state_changed"
+    assert validate_case(case) == []
+    with ZipFile(case / "baseline.xlsx") as baseline, ZipFile(case / "candidate.xlsx") as candidate:
+        assert baseline.testzip() is None
+        assert candidate.testzip() is None
+        baseline_members = {
+            entry.filename: baseline.read(entry.filename) for entry in baseline.infolist()
+        }
+        candidate_members = {
+            entry.filename: candidate.read(entry.filename) for entry in candidate.infolist()
+        }
+    assert set(baseline_members) == set(candidate_members)
+    threaded_member = "xl/threadedComments/threadedComment1.xml"
+    assert [
+        member
+        for member in sorted(baseline_members)
+        if baseline_members[member] != candidate_members[member]
+    ] == [threaded_member]
+
+    namespace = "http://schemas.microsoft.com/office/spreadsheetml/2018/threadedcomments"
+    comment_path = f"{{{namespace}}}threadedComment"
+    baseline_comments = ElementTree.fromstring(baseline_members[threaded_member])
+    candidate_comments = ElementTree.fromstring(candidate_members[threaded_member])
+    baseline_comment = baseline_comments.find(comment_path)
+    candidate_comment = candidate_comments.find(comment_path)
+    assert baseline_comment is not None
+    assert candidate_comment is not None
+    assert baseline_comment.get("done") == "0"
+    assert candidate_comment.get("done") == "1"
+    baseline_comment.set("done", "")
+    candidate_comment.set("done", "")
+    assert ElementTree.tostring(baseline_comments) == ElementTree.tostring(candidate_comments)
+
+
+def test_validator_rejects_a_corrupted_threaded_comment_resolution_state(
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = (
+        fixture_root / "governance" / "threaded_comment_resolution_state_changed" / "candidate.xlsx"
+    )
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    threaded_member = "xl/threadedComments/threadedComment1.xml"
+    namespace = "http://schemas.microsoft.com/office/spreadsheetml/2018/threadedcomments"
+    comments = ElementTree.fromstring(members[threaded_member])
+    comment = comments.find(f"{{{namespace}}}threadedComment")
+    assert comment is not None
+    comment.set("done", "0")
+    members[threaded_member] = ElementTree.tostring(
+        comments,
         encoding="utf-8",
         xml_declaration=True,
     )
@@ -5066,6 +5203,98 @@ def test_formulafence_adapter_requires_coverage_change_for_selector_retarget(
     assert result["status"] == "missed"
     assert result["matched"] == []
     assert result["missed"] == ["package_signature_manifest_relationship_selector_retargeted"]
+
+
+def test_formulafence_adapter_maps_the_exact_threaded_comment_resolution_state(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _threaded_comment_resolution_state_details()
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "threaded_comment_controls_changed",
+                    "location": None,
+                    "severity": "high",
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF045", "severity": "high", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "threaded_comment_resolution_state_changed"
+    )
+    assert result["status"] == "matched"
+    assert result["matched"] == ["threaded_comment_resolution_state_changed"]
+
+
+def test_formulafence_adapter_requires_the_exact_threaded_comment_resolution_profile(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _threaded_comment_resolution_state_details()
+        details["after"]["resolved_comment_count"] = 0
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "threaded_comment_controls_changed",
+                    "location": None,
+                    "severity": "high",
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF045", "severity": "high", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "threaded_comment_resolution_state_changed"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["threaded_comment_resolution_state_changed"]
+
+
+def test_formulafence_adapter_requires_threaded_comment_ff045(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "threaded_comment_controls_changed",
+                    "location": None,
+                    "severity": "high",
+                    "details": _threaded_comment_resolution_state_details(),
+                }
+            ],
+            "findings": [],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "threaded_comment_resolution_state_changed"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["threaded_comment_resolution_state_changed"]
 
 
 def test_formulafence_adapter_maps_the_exact_query_table_refresh_change(

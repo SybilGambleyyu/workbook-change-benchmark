@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.40.0 — 2026-08-02
+
+- Add a deterministic modern threaded-comment resolution-state pair. Its sole
+  top-level `threadedComment/@done` token moves from `0` to `1`, while comment
+  text, person record, content types, worksheet/workbook relationship graph,
+  ordinary cells/formula context, calculation properties, and every other
+  package member stay fixed.
+- Add the exact `threaded_comment_resolution_state_changed` fact, bounded raw
+  OOXML validator, `done`-only comparison, package-isolation check, and
+  corruption regressions. The fixture records a stored comment-thread state;
+  it does not expose discussion text or identity data, prove review or
+  approval, send notifications, authenticate a person, enforce authorization,
+  or claim workflow/client behavior.
+- Extend the optional FormulaFence adapter to require one exact high-severity
+  `threaded_comment_controls_changed` / `FF045` signal with a redacted
+  one-thread profile and `resolved_comment_count` transition from `0` to `1`.
+  The adapter never relies on text, a comment-cell reference, timestamp, relationship
+  ID, comment ID, person ID, or identity data.
+
 ## 0.39.0 — 2026-08-03
 
 - Add a deterministic OPC package-signature relationship-selector retarget.

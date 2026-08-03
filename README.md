@@ -34,7 +34,7 @@ gates, static analyzers, and agent workflows that propose workbook edits.
 
 ## Scope and non-goals
 
-Version `0.39` covers formula-to-value replacements, formula reference drift,
+Version `0.40` covers formula-to-value replacements, formula reference drift,
 value changes with downstream effects, external formula references, named
 ranges, data validation, conditional formatting, sheet visibility, direct cell
 and workbook-structure protection, calculation settings, static cycles,
@@ -83,7 +83,14 @@ selector count while its one `RelationshipReference/@SourceId` moves from the
 root office-document relationship to the root signature-origin relationship.
 It records a selected relationship entry only, not proof that its target part
 was signed, and likewise does not execute a transform or make a cryptographic
-or trust claim. It also covers an
+or trust claim. It also covers one worksheet-associated modern threaded-comment
+thread whose top-level stored `done` state moves from unresolved to resolved
+while its synthetic text, person record, relationships, content types, ordinary
+cells, formulas, calculation properties, and every other package member stay
+fixed. It records a persisted discussion-state control only: it does not expose
+comment content or identity through a tool report, prove a review or approval,
+resolve a notification, authenticate an author, authorize an action, or claim
+a completed workflow. It also covers an
 external-workbook link policy that switches from never to always updating when
 the workbook opens. It also covers
 an unchanged external-workbook formula whose local `externalLink` package
@@ -364,6 +371,17 @@ the introduced-dynamic case from FormulaFence's native warning, maps the
 unchanged-formula driver cases from the observed input change plus the
 candidate profile's dynamic-reference feature, and checks the exact
 connection-level refresh-on-open transition in FormulaFence's `FF023` evidence.
+For the modern threaded-comment resolution case, it requires one exact
+high-severity `threaded_comment_controls_changed` record and matching `FF045`:
+the redacted one-thread profile retains its part, person, binding, text-count,
+and no-coverage-gap aggregates while only `resolved_comment_count` moves from
+`0` to `1` and `threaded_comment_definition_material_changed` is true.
+FormulaFence does not expose discussion text, a comment-cell reference, timestamp,
+relationship ID, comment ID, person ID, or identity data; WCAB's raw validator
+independently proves the bounded local package graph and
+`xl/threadedComments/threadedComment1.xml`-only boundary. Neither layer proves
+that anyone reviewed or approved a workbook, triggers notifications, authenticates
+an author, authorizes an action, opens a client, or claims workflow completion.
 For the QueryTable case, it separately requires FormulaFence's exact redacted
 `query_table_refresh_controls_changed` profile and matching `FF023`, including
 the isolated QueryTable-level false-to-true request, fixed connection controls,

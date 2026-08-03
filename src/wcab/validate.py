@@ -84,6 +84,21 @@ _PACKAGE_SIGNATURE_RELATIONSHIP_TRANSFORM = (
     "http://schemas.openxmlformats.org/package/2006/digital-signature/RelationshipTransform"
 )
 _PACKAGE_SIGNATURE_C14N_ALGORITHM = "http://www.w3.org/TR/2001/REC-xml-c14n-20010315"
+_THREADED_COMMENT_NS = "http://schemas.microsoft.com/office/spreadsheetml/2018/threadedcomments"
+_THREADED_COMMENT_RELATIONSHIP = (
+    "http://schemas.microsoft.com/office/2017/10/relationships/threadedComment"
+)
+_THREADED_COMMENT_PERSON_RELATIONSHIP = (
+    "http://schemas.microsoft.com/office/2017/10/relationships/person"
+)
+_THREADED_COMMENT_CONTENT_TYPE = "application/vnd.ms-excel.threadedcomments+xml"
+_THREADED_COMMENT_PERSON_CONTENT_TYPE = "application/vnd.ms-excel.person+xml"
+_THREADED_COMMENT_PERSON_ID = "{66666666-6666-6666-6666-666666666666}"
+_THREADED_COMMENT_ROOT_ID = "{77777777-7777-7777-7777-777777777777}"
+_THREADED_COMMENT_CELL = "B10"
+_THREADED_COMMENT_TIMESTAMP = "2024-01-01T00:00:00Z"
+_THREADED_COMMENT_TEXT = "WCAB synthetic review thread"
+_THREADED_COMMENT_PERSON_NAME = "WCAB Reviewer"
 _POWER_PIVOT_DATA_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/powerPivotData"
 _POWER_PIVOT_DATA_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.model+data"
 _POWER_PIVOT_DATA_PAYLOAD = (
@@ -500,6 +515,150 @@ def _raw_package_signature_relationship_selector_state(
         "selector_source_id": selector_source_id,
         "selected_relationship_attributes": tuple(sorted(selected_relationships[0].attrib.items())),
         "envelope_without_selector_source_id": envelope_without_selector_source_id,
+    }
+
+
+def _raw_threaded_comment_resolution_state(
+    path: Path,
+    sheet_name: str,
+) -> dict[str, Any] | None:
+    """Read WCAB's bounded modern-comment resolution declaration.
+
+    This checks one local worksheet/threaded-comment/person package graph and
+    one top-level ``done`` state. It does not render a comment, disclose its
+    text or identity in public output, contact a person service, trigger a
+    notification, authenticate an author, or infer any review outcome.
+    """
+
+    worksheet_relationships_member: str | None = None
+    try:
+        with ZipFile(path) as archive:
+            worksheet_member = _worksheet_member_for_sheet(archive, sheet_name)
+            if worksheet_member is None:
+                return None
+            worksheet_directory, worksheet_filename = worksheet_member.rsplit("/", maxsplit=1)
+            worksheet_relationships_member = (
+                f"{worksheet_directory}/_rels/{worksheet_filename}.rels"
+            )
+            worksheet_relationships = ElementTree.fromstring(
+                archive.read(worksheet_relationships_member)
+            )
+            workbook_relationships = ElementTree.fromstring(
+                archive.read("xl/_rels/workbook.xml.rels")
+            )
+            content_types = ElementTree.fromstring(archive.read("[Content_Types].xml"))
+            comments = ElementTree.fromstring(
+                archive.read("xl/threadedComments/threadedComment1.xml")
+            )
+            people = ElementTree.fromstring(archive.read("xl/persons/person.xml"))
+    except (BadZipFile, KeyError, OSError, ValueError, ElementTree.ParseError):
+        return None
+
+    relationship_tag = f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationship"
+    override_tag = f"{{{_CONTENT_TYPES_NS}}}Override"
+    comment_tag = f"{{{_THREADED_COMMENT_NS}}}threadedComment"
+    text_tag = f"{{{_THREADED_COMMENT_NS}}}text"
+    person_tag = f"{{{_THREADED_COMMENT_NS}}}person"
+    threaded_relationships = [
+        relationship
+        for relationship in worksheet_relationships.findall(relationship_tag)
+        if relationship.get("Type") == _THREADED_COMMENT_RELATIONSHIP
+    ]
+    person_relationships = [
+        relationship
+        for relationship in workbook_relationships.findall(relationship_tag)
+        if relationship.get("Type") == _THREADED_COMMENT_PERSON_RELATIONSHIP
+    ]
+    threaded_content_types = [
+        override
+        for override in content_types.findall(override_tag)
+        if override.get("PartName") == "/xl/threadedComments/threadedComment1.xml"
+    ]
+    person_content_types = [
+        override
+        for override in content_types.findall(override_tag)
+        if override.get("PartName") == "/xl/persons/person.xml"
+    ]
+    if (
+        worksheet_relationships.tag != f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationships"
+        or worksheet_relationships.attrib
+        or len(worksheet_relationships) != 1
+        or len(threaded_relationships) != 1
+        or set(threaded_relationships[0].attrib) != {"Id", "Type", "Target"}
+        or threaded_relationships[0].get("Target") != "../threadedComments/threadedComment1.xml"
+        or len(person_relationships) != 1
+        or set(person_relationships[0].attrib) != {"Id", "Type", "Target"}
+        or person_relationships[0].get("Target") != "persons/person.xml"
+        or len(threaded_content_types) != 1
+        or set(threaded_content_types[0].attrib) != {"PartName", "ContentType"}
+        or threaded_content_types[0].get("ContentType") != _THREADED_COMMENT_CONTENT_TYPE
+        or len(person_content_types) != 1
+        or set(person_content_types[0].attrib) != {"PartName", "ContentType"}
+        or person_content_types[0].get("ContentType") != _THREADED_COMMENT_PERSON_CONTENT_TYPE
+        or comments.tag != f"{{{_THREADED_COMMENT_NS}}}ThreadedComments"
+        or comments.attrib
+        or len(comments) != 1
+        or comments[0].tag != comment_tag
+        or set(comments[0].attrib) != {"ref", "dT", "personId", "id", "done"}
+        or comments[0].get("ref") != _THREADED_COMMENT_CELL
+        or comments[0].get("dT") != _THREADED_COMMENT_TIMESTAMP
+        or comments[0].get("personId") != _THREADED_COMMENT_PERSON_ID
+        or comments[0].get("id") != _THREADED_COMMENT_ROOT_ID
+        or len(comments[0]) != 1
+        or comments[0][0].tag != text_tag
+        or comments[0][0].attrib
+        or len(comments[0][0])
+        or comments[0][0].text != _THREADED_COMMENT_TEXT
+        or people.tag != f"{{{_THREADED_COMMENT_NS}}}personList"
+        or people.attrib
+        or len(people) != 1
+        or people[0].tag != person_tag
+        or set(people[0].attrib) != {"displayName", "id"}
+        or people[0].get("displayName") != _THREADED_COMMENT_PERSON_NAME
+        or people[0].get("id") != _THREADED_COMMENT_PERSON_ID
+        or len(people[0])
+    ):
+        return None
+
+    done = comments[0].get("done")
+    if done not in {"0", "1"}:
+        return None
+    comments[0].set("done", "")
+    comment_without_done = ElementTree.tostring(
+        comments,
+        encoding="utf-8",
+        xml_declaration=True,
+    )
+    return {
+        "worksheet_member": worksheet_member,
+        "worksheet_relationships_member": worksheet_relationships_member,
+        "workbook_relationships_member": "xl/_rels/workbook.xml.rels",
+        "threaded_comment_member": "xl/threadedComments/threadedComment1.xml",
+        "threaded_comment_relationship_attributes": tuple(
+            sorted(threaded_relationships[0].attrib.items())
+        ),
+        "threaded_comment_content_type_attributes": tuple(
+            sorted(threaded_content_types[0].attrib.items())
+        ),
+        "person_member": "xl/persons/person.xml",
+        "person_relationship_attributes": tuple(sorted(person_relationships[0].attrib.items())),
+        "person_content_type_attributes": tuple(sorted(person_content_types[0].attrib.items())),
+        "worksheet_threaded_comment_sheet_count": 1,
+        "threaded_comment_part_count": 1,
+        "comment_thread_count": 1,
+        "comment_count": 1,
+        "reply_count": 0,
+        "resolved_comment_count": int(done == "1"),
+        "comment_with_text_count": 1,
+        "mention_count": 0,
+        "mentioned_person_count": 0,
+        "person_part_count": 1,
+        "person_count": 1,
+        "orphan_person_count": 0,
+        "binding_relationship_count": 2,
+        "external_relationship_count": 0,
+        "unrecognized_threaded_comment_count": 0,
+        "comment_without_done": comment_without_done,
     }
 
 
@@ -7629,6 +7788,201 @@ def _validate_fact(
             and _xlsx_member_differences(baseline_path, candidate_path) == {signature_member}
             and _calculation_properties(baseline_path) == _calculation_properties(candidate_path),
             f"{truth['id']}: expected one OPC package-signature relationship-selector retarget only",
+            errors,
+        )
+        return
+
+    if kind == "threaded_comment_resolution_state_changed":
+        threaded_comment_sheet = fact.get("threaded_comment_sheet")
+        worksheet_member = fact.get("worksheet_member")
+        worksheet_relationships_member = fact.get("worksheet_relationships_member")
+        workbook_relationships_member = fact.get("workbook_relationships_member")
+        threaded_comment_member = fact.get("threaded_comment_member")
+        threaded_comment_content_type = fact.get("threaded_comment_content_type")
+        threaded_comment_relationship_type = fact.get("threaded_comment_relationship_type")
+        person_member = fact.get("person_member")
+        person_content_type = fact.get("person_content_type")
+        person_relationship_type = fact.get("person_relationship_type")
+        stable_sheet = fact.get("stable_sheet")
+        stable_value_cell = fact.get("stable_value_cell")
+        stable_value = fact.get("stable_value")
+        stable_formula_cell = fact.get("stable_formula_cell")
+        stable_formula = fact.get("stable_formula")
+        before_state = (
+            _raw_threaded_comment_resolution_state(baseline_path, threaded_comment_sheet)
+            if isinstance(threaded_comment_sheet, str)
+            else None
+        )
+        after_state = (
+            _raw_threaded_comment_resolution_state(candidate_path, threaded_comment_sheet)
+            if isinstance(threaded_comment_sheet, str)
+            else None
+        )
+        before_value = (
+            _raw_cell_state(baseline_path, stable_sheet, stable_value_cell)
+            if isinstance(stable_sheet, str) and isinstance(stable_value_cell, str)
+            else None
+        )
+        after_value = (
+            _raw_cell_state(candidate_path, stable_sheet, stable_value_cell)
+            if isinstance(stable_sheet, str) and isinstance(stable_value_cell, str)
+            else None
+        )
+        before_formula = (
+            _raw_cell_state(baseline_path, stable_sheet, stable_formula_cell)
+            if isinstance(stable_sheet, str) and isinstance(stable_formula_cell, str)
+            else None
+        )
+        after_formula = (
+            _raw_cell_state(candidate_path, stable_sheet, stable_formula_cell)
+            if isinstance(stable_sheet, str) and isinstance(stable_formula_cell, str)
+            else None
+        )
+        expected_threaded_relationship_attributes = (
+            tuple(
+                sorted(
+                    {
+                        "Id": "rIdWCABThreadedComment",
+                        "Type": threaded_comment_relationship_type,
+                        "Target": "../threadedComments/threadedComment1.xml",
+                    }.items()
+                )
+            )
+            if isinstance(threaded_comment_relationship_type, str)
+            else None
+        )
+        expected_person_relationship_attributes = (
+            tuple(
+                sorted(
+                    {
+                        "Id": "rIdWCABThreadedPerson",
+                        "Type": person_relationship_type,
+                        "Target": "persons/person.xml",
+                    }.items()
+                )
+            )
+            if isinstance(person_relationship_type, str)
+            else None
+        )
+        expected_threaded_content_type_attributes = (
+            tuple(
+                sorted(
+                    {
+                        "PartName": f"/{threaded_comment_member}",
+                        "ContentType": threaded_comment_content_type,
+                    }.items()
+                )
+            )
+            if isinstance(threaded_comment_member, str)
+            and isinstance(threaded_comment_content_type, str)
+            else None
+        )
+        expected_person_content_type_attributes = (
+            tuple(
+                sorted(
+                    {
+                        "PartName": f"/{person_member}",
+                        "ContentType": person_content_type,
+                    }.items()
+                )
+            )
+            if isinstance(person_member, str) and isinstance(person_content_type, str)
+            else None
+        )
+        profile_fields = (
+            "worksheet_threaded_comment_sheet_count",
+            "threaded_comment_part_count",
+            "comment_thread_count",
+            "comment_count",
+            "reply_count",
+            "comment_with_text_count",
+            "mention_count",
+            "mentioned_person_count",
+            "person_part_count",
+            "person_count",
+            "orphan_person_count",
+            "binding_relationship_count",
+            "external_relationship_count",
+            "unrecognized_threaded_comment_count",
+        )
+        _assert(
+            threaded_comment_sheet == "Controls"
+            and worksheet_member == "xl/worksheets/sheet1.xml"
+            and worksheet_relationships_member == "xl/worksheets/_rels/sheet1.xml.rels"
+            and workbook_relationships_member == "xl/_rels/workbook.xml.rels"
+            and threaded_comment_member == "xl/threadedComments/threadedComment1.xml"
+            and threaded_comment_content_type == _THREADED_COMMENT_CONTENT_TYPE
+            and threaded_comment_relationship_type == _THREADED_COMMENT_RELATIONSHIP
+            and person_member == "xl/persons/person.xml"
+            and person_content_type == _THREADED_COMMENT_PERSON_CONTENT_TYPE
+            and person_relationship_type == _THREADED_COMMENT_PERSON_RELATIONSHIP
+            and fact.get("worksheet_threaded_comment_sheet_count") == 1
+            and fact.get("threaded_comment_part_count") == 1
+            and fact.get("comment_thread_count") == 1
+            and fact.get("comment_count") == 1
+            and fact.get("reply_count") == 0
+            and fact.get("baseline_resolved_comment_count") == 0
+            and fact.get("candidate_resolved_comment_count") == 1
+            and fact.get("comment_with_text_count") == 1
+            and fact.get("mention_count") == 0
+            and fact.get("mentioned_person_count") == 0
+            and fact.get("person_part_count") == 1
+            and fact.get("person_count") == 1
+            and fact.get("orphan_person_count") == 0
+            and fact.get("binding_relationship_count") == 2
+            and fact.get("external_relationship_count") == 0
+            and fact.get("unrecognized_threaded_comment_count") == 0
+            and stable_sheet == "Controls"
+            and stable_value_cell == "B10"
+            and stable_value == 12
+            and stable_formula_cell == "D10"
+            and stable_formula == "=B10*C10"
+            and before_state is not None
+            and after_state is not None
+            and before_state["worksheet_member"] == worksheet_member
+            and after_state["worksheet_member"] == worksheet_member
+            and before_state["worksheet_relationships_member"] == worksheet_relationships_member
+            and after_state["worksheet_relationships_member"] == worksheet_relationships_member
+            and before_state["workbook_relationships_member"] == workbook_relationships_member
+            and after_state["workbook_relationships_member"] == workbook_relationships_member
+            and before_state["threaded_comment_member"] == threaded_comment_member
+            and after_state["threaded_comment_member"] == threaded_comment_member
+            and before_state["threaded_comment_relationship_attributes"]
+            == expected_threaded_relationship_attributes
+            and after_state["threaded_comment_relationship_attributes"]
+            == expected_threaded_relationship_attributes
+            and before_state["threaded_comment_content_type_attributes"]
+            == expected_threaded_content_type_attributes
+            and after_state["threaded_comment_content_type_attributes"]
+            == expected_threaded_content_type_attributes
+            and before_state["person_member"] == person_member
+            and after_state["person_member"] == person_member
+            and before_state["person_relationship_attributes"]
+            == expected_person_relationship_attributes
+            and after_state["person_relationship_attributes"]
+            == expected_person_relationship_attributes
+            and before_state["person_content_type_attributes"]
+            == expected_person_content_type_attributes
+            and after_state["person_content_type_attributes"]
+            == expected_person_content_type_attributes
+            and all(before_state[field] == fact.get(field) for field in profile_fields)
+            and all(after_state[field] == fact.get(field) for field in profile_fields)
+            and before_state["resolved_comment_count"]
+            == fact.get("baseline_resolved_comment_count")
+            and after_state["resolved_comment_count"]
+            == fact.get("candidate_resolved_comment_count")
+            and before_state["comment_without_done"] == after_state["comment_without_done"]
+            and before_value is not None
+            and after_value is not None
+            and before_value == after_value
+            and before_value[4] == str(stable_value)
+            and before_formula is not None
+            and after_formula is not None
+            and before_formula == after_formula
+            and before_formula[3] == stable_formula
+            and _xlsx_member_differences(baseline_path, candidate_path) == {threaded_comment_member}
+            and _calculation_properties(baseline_path) == _calculation_properties(candidate_path),
+            f"{truth['id']}: expected one threaded-comment resolution-state transition only",
             errors,
         )
         return
