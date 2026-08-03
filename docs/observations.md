@@ -324,7 +324,19 @@ redacted one-filter-column/one-criterion profile and material-definition flag.
 WCAB's raw validator—not the adapter—then establishes the `North`-to-`South`
 criterion, stable `SUBTOTAL` and dashboard formulas, direct dependency edge,
 and report-worksheet-only package change. Neither report applies the filter,
-calculates a subtotal, or infers a visible row set. The adapter leaves `review`
+calculates a subtotal, or infers a visible row set.
+
+For the saved Named Sheet View case, it requires one exact
+`named_sheet_views_changed` record and `FF038`: FormulaFence's redacted
+profile must retain one worksheet, part, view, filter, column, and criterion;
+no sort rule or condition; no unrecognized control; and only
+`named_sheet_view_definition_material_changed`. FormulaFence does not expose
+the view name, IDs, bound range, or selected value. WCAB's raw validator—not
+the adapter—then establishes the `North`-to-`South` criterion, base
+AutoFilter binding, stable formulas, direct dashboard edge, and
+Named-Sheet-View-part-only package change. Neither report activates, renders,
+or applies the view, calculates a subtotal, or infers visible rows. The adapter
+leaves `review`
 as `null`: FormulaFence surfaces evidence but does not impose WCAB's reference
 policy as a universal approval decision. Any intentionally unmapped fact or coverage expectation
 becomes an adapter note and remains missing from its respective recall metric.

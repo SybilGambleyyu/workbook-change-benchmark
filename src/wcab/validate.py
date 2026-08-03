@@ -31,6 +31,11 @@ _PACKAGE_RELATIONSHIPS_NS = "http://schemas.openxmlformats.org/package/2006/rela
 _DOCUMENT_RELATIONSHIPS_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 _CONTENT_TYPES_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
 _OFFICE_2010_SPREADSHEET_NS = "http://schemas.microsoft.com/office/spreadsheetml/2009/9/main"
+_OFFICE_2014_REVISION_NS = "http://schemas.microsoft.com/office/spreadsheetml/2014/revision"
+_NAMED_SHEET_VIEW_NS = "http://schemas.microsoft.com/office/spreadsheetml/2019/namedsheetviews"
+_NAMED_SHEET_VIEW_RELATIONSHIP = (
+    "http://schemas.microsoft.com/office/2019/04/relationships/namedSheetView"
+)
 _SLICER_CACHE_RELATIONSHIP = "http://schemas.microsoft.com/office/2007/relationships/slicerCache"
 _DATA_MASHUP_NS = "http://schemas.microsoft.com/DataMashup"
 _POWER_QUERY_CUSTOM_XML_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/customXml"
@@ -1554,6 +1559,131 @@ def _worksheet_without_auto_filter_criteria(path: Path, sheet_name: str) -> byte
     return ElementTree.tostring(worksheet, encoding="utf-8", xml_declaration=True)
 
 
+def _raw_named_sheet_view_filter_state(path: Path, sheet_name: str) -> dict[str, Any] | None:
+    """Read WCAB's compact relationship-backed Named Sheet View declaration.
+
+    The reader follows only the generated worksheet relationship and its local
+    part. It proves stored filter metadata, not whether Excel activates a view,
+    applies a filter, calculates a subtotal, or renders a report.
+    """
+
+    try:
+        with ZipFile(path) as archive:
+            worksheet_member = _worksheet_member_for_sheet(archive, sheet_name)
+            if worksheet_member is None:
+                return None
+            worksheet = ElementTree.fromstring(archive.read(worksheet_member))
+            auto_filter_tag = f"{{{_SPREADSHEETML_NS}}}autoFilter"
+            auto_filters = worksheet.findall(auto_filter_tag)
+            if len(auto_filters) != 1 or len(auto_filters[0]) != 0:
+                return None
+            auto_filter = auto_filters[0]
+
+            worksheet_directory, worksheet_filename = worksheet_member.rsplit("/", maxsplit=1)
+            relationships_member = f"{worksheet_directory}/_rels/{worksheet_filename}.rels"
+            relationships = ElementTree.fromstring(archive.read(relationships_member))
+            relationship_tag = f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationship"
+            named_view_relationships = [
+                relationship
+                for relationship in relationships.findall(relationship_tag)
+                if relationship.get("Type") == _NAMED_SHEET_VIEW_RELATIONSHIP
+            ]
+            if len(named_view_relationships) != 1:
+                return None
+            relationship = named_view_relationships[0]
+            relationship_id = relationship.get("Id")
+            if not isinstance(relationship_id, str):
+                return None
+            named_view_member = _relationship_part_member(
+                relationships,
+                relationship_id,
+                worksheet_member,
+                relationship_type=_NAMED_SHEET_VIEW_RELATIONSHIP,
+            )
+            if named_view_member is None:
+                return None
+
+            content_types = ElementTree.fromstring(archive.read("[Content_Types].xml"))
+            overrides = [
+                override
+                for override in content_types.findall(f"{{{_CONTENT_TYPES_NS}}}Override")
+                if override.get("PartName") == f"/{named_view_member}"
+            ]
+            if len(overrides) != 1:
+                return None
+
+            named_views = ElementTree.fromstring(archive.read(named_view_member))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError, ValueError):
+        return None
+
+    named_views_tag = f"{{{_NAMED_SHEET_VIEW_NS}}}namedSheetViews"
+    named_view_tag = f"{{{_NAMED_SHEET_VIEW_NS}}}namedSheetView"
+    named_filter_tag = f"{{{_NAMED_SHEET_VIEW_NS}}}nsvFilter"
+    column_filter_tag = f"{{{_NAMED_SHEET_VIEW_NS}}}columnFilter"
+    filter_column_tag = f"{{{_NAMED_SHEET_VIEW_NS}}}filter"
+    filters_tag = f"{{{_SPREADSHEETML_NS}}}filters"
+    filter_tag = f"{{{_SPREADSHEETML_NS}}}filter"
+    if named_views.tag != named_views_tag or named_views.attrib or len(named_views) != 1:
+        return None
+    named_view = named_views[0]
+    if named_view.tag != named_view_tag or len(named_view) != 1:
+        return None
+    named_filter = named_view[0]
+    if named_filter.tag != named_filter_tag or len(named_filter) != 1:
+        return None
+    column_filter = named_filter[0]
+    if column_filter.tag != column_filter_tag or len(column_filter) != 1:
+        return None
+    filter_column = column_filter[0]
+    if filter_column.tag != filter_column_tag or len(filter_column) != 1:
+        return None
+    filters = filter_column[0]
+    if filters.tag != filters_tag or len(filters) != 1:
+        return None
+    criterion = filters[0]
+    if criterion.tag != filter_tag or len(criterion) != 0:
+        return None
+    criterion_value = criterion.get("val")
+    if not isinstance(criterion_value, str):
+        return None
+    return {
+        "worksheet_member": worksheet_member,
+        "base_auto_filter_attributes": tuple(sorted(auto_filter.attrib.items())),
+        "relationships_member": relationships_member,
+        "relationship_attributes": tuple(sorted(relationship.attrib.items())),
+        "view_member": named_view_member,
+        "content_type_attributes": tuple(sorted(overrides[0].attrib.items())),
+        "named_view_attributes": tuple(sorted(named_view.attrib.items())),
+        "named_filter_attributes": tuple(sorted(named_filter.attrib.items())),
+        "column_filter_attributes": tuple(sorted(column_filter.attrib.items())),
+        "filter_column_attributes": tuple(sorted(filter_column.attrib.items())),
+        "filters_attributes": tuple(sorted(filters.attrib.items())),
+        "criterion_attributes": tuple(sorted(criterion.attrib.items())),
+        "criterion_value": criterion_value,
+    }
+
+
+def _named_sheet_view_without_filter_criterion(path: Path, sheet_name: str) -> bytes | None:
+    """Return WCAB's Named Sheet View part with only its list value removed."""
+
+    state = _raw_named_sheet_view_filter_state(path, sheet_name)
+    if state is None:
+        return None
+    try:
+        with ZipFile(path) as archive:
+            named_views = ElementTree.fromstring(archive.read(state["view_member"]))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    try:
+        criterion = named_views[0][0][0][0][0]
+    except IndexError:
+        return None
+    if criterion.tag != f"{{{_SPREADSHEETML_NS}}}filter" or "val" not in criterion.attrib:
+        return None
+    criterion.attrib.pop("val")
+    return ElementTree.tostring(named_views, encoding="utf-8", xml_declaration=True)
+
+
 def _raw_ignored_error_formula_range_state(path: Path, sheet_name: str) -> dict[str, Any] | None:
     """Read WCAB's compact worksheet-local ignored-error declaration.
 
@@ -2154,6 +2284,137 @@ def _validate_fact(
             and _xlsx_member_differences(baseline_path, candidate_path) == {"xl/workbook.xml"}
             and _calculation_properties(baseline_path) == _calculation_properties(candidate_path),
             f"{truth['id']}: expected only workbookProtection lockStructure true -> false with stable hidden-sheet and formula context",
+            errors,
+        )
+        return
+
+    if kind == "named_sheet_view_filter_criterion_changed":
+        sheet_name = fact.get("sheet")
+        subtotal_cell = fact.get("subtotal_cell")
+        dashboard_sheet = fact.get("dashboard_sheet")
+        dashboard_cell = fact.get("dashboard_cell")
+        before_state = (
+            _raw_named_sheet_view_filter_state(baseline_path, sheet_name)
+            if isinstance(sheet_name, str)
+            else None
+        )
+        after_state = (
+            _raw_named_sheet_view_filter_state(candidate_path, sheet_name)
+            if isinstance(sheet_name, str)
+            else None
+        )
+        before_subtotal = (
+            _raw_cell_state(baseline_path, sheet_name, subtotal_cell)
+            if isinstance(sheet_name, str) and isinstance(subtotal_cell, str)
+            else None
+        )
+        after_subtotal = (
+            _raw_cell_state(candidate_path, sheet_name, subtotal_cell)
+            if isinstance(sheet_name, str) and isinstance(subtotal_cell, str)
+            else None
+        )
+        before_dashboard = (
+            _raw_cell_state(baseline_path, dashboard_sheet, dashboard_cell)
+            if isinstance(dashboard_sheet, str) and isinstance(dashboard_cell, str)
+            else None
+        )
+        after_dashboard = (
+            _raw_cell_state(candidate_path, dashboard_sheet, dashboard_cell)
+            if isinstance(dashboard_sheet, str) and isinstance(dashboard_cell, str)
+            else None
+        )
+        expected_base_auto_filter_attributes = (
+            ("ref", "A1:B5"),
+            (
+                "{http://schemas.microsoft.com/office/spreadsheetml/2014/revision}uid",
+                "{00000000-0001-0000-0000-000000000000}",
+            ),
+        )
+        expected_relationship_attributes = (
+            ("Id", "rIdWCABNamedSheetView"),
+            ("Target", "../namedSheetViews/namedSheetView1.xml"),
+            (
+                "Type",
+                "http://schemas.microsoft.com/office/2019/04/relationships/namedSheetView",
+            ),
+        )
+        expected_content_type_attributes = (
+            ("ContentType", "application/vnd.ms-excel.namedsheetviews+xml"),
+            ("PartName", "/xl/namedSheetViews/namedSheetView1.xml"),
+        )
+        expected_named_view_attributes = (
+            ("id", "{11111111-1111-1111-1111-111111111111}"),
+            ("name", "WCAB regional review"),
+        )
+        expected_named_filter_attributes = (
+            ("filterId", "{00000000-0001-0000-0000-000000000000}"),
+            ("ref", "A1:B5"),
+            ("tableId", "0"),
+        )
+        expected_column_filter_attributes = (
+            ("colId", "0"),
+            ("id", "{22222222-2222-2222-2222-222222222222}"),
+        )
+        _assert(
+            sheet_name == "Report"
+            and fact.get("view_member") == "xl/namedSheetViews/namedSheetView1.xml"
+            and fact.get("base_filter_ref") == "A1:B5"
+            and fact.get("filter_column_id") == 0
+            and fact.get("baseline_filter_value") == "North"
+            and fact.get("candidate_filter_value") == "South"
+            and subtotal_cell == "D2"
+            and fact.get("subtotal_formula") == "=SUBTOTAL(109,B2:B5)"
+            and dashboard_sheet == "Dashboard"
+            and dashboard_cell == "B4"
+            and fact.get("dashboard_formula") == "=Report!$D$2"
+            and sheet_name in baseline.sheetnames
+            and sheet_name in candidate.sheetnames
+            and dashboard_sheet in baseline.sheetnames
+            and dashboard_sheet in candidate.sheetnames
+            and before_state is not None
+            and after_state is not None
+            and before_state["worksheet_member"] == "xl/worksheets/sheet1.xml"
+            and after_state["worksheet_member"] == "xl/worksheets/sheet1.xml"
+            and before_state["relationships_member"] == "xl/worksheets/_rels/sheet1.xml.rels"
+            and after_state["relationships_member"] == "xl/worksheets/_rels/sheet1.xml.rels"
+            and before_state["view_member"] == "xl/namedSheetViews/namedSheetView1.xml"
+            and after_state["view_member"] == "xl/namedSheetViews/namedSheetView1.xml"
+            and before_state["base_auto_filter_attributes"] == expected_base_auto_filter_attributes
+            and after_state["base_auto_filter_attributes"] == expected_base_auto_filter_attributes
+            and before_state["relationship_attributes"] == expected_relationship_attributes
+            and after_state["relationship_attributes"] == expected_relationship_attributes
+            and before_state["content_type_attributes"] == expected_content_type_attributes
+            and after_state["content_type_attributes"] == expected_content_type_attributes
+            and before_state["named_view_attributes"] == expected_named_view_attributes
+            and after_state["named_view_attributes"] == expected_named_view_attributes
+            and before_state["named_filter_attributes"] == expected_named_filter_attributes
+            and after_state["named_filter_attributes"] == expected_named_filter_attributes
+            and before_state["column_filter_attributes"] == expected_column_filter_attributes
+            and after_state["column_filter_attributes"] == expected_column_filter_attributes
+            and before_state["filter_column_attributes"] == (("colId", "0"),)
+            and after_state["filter_column_attributes"] == (("colId", "0"),)
+            and before_state["filters_attributes"] == (("blank", "0"),)
+            and after_state["filters_attributes"] == (("blank", "0"),)
+            and before_state["criterion_attributes"] == (("val", "North"),)
+            and after_state["criterion_attributes"] == (("val", "South"),)
+            and before_state["criterion_value"] == "North"
+            and after_state["criterion_value"] == "South"
+            and before_subtotal is not None
+            and after_subtotal is not None
+            and before_subtotal == after_subtotal
+            and before_subtotal[0] == "xl/worksheets/sheet1.xml"
+            and before_subtotal[3] == "=SUBTOTAL(109,B2:B5)"
+            and before_dashboard is not None
+            and after_dashboard is not None
+            and before_dashboard == after_dashboard
+            and before_dashboard[0] == "xl/worksheets/sheet2.xml"
+            and before_dashboard[3] == "=Report!$D$2"
+            and _named_sheet_view_without_filter_criterion(baseline_path, sheet_name)
+            == _named_sheet_view_without_filter_criterion(candidate_path, sheet_name)
+            and _xlsx_member_differences(baseline_path, candidate_path)
+            == {"xl/namedSheetViews/namedSheetView1.xml"}
+            and _calculation_properties(baseline_path) == _calculation_properties(candidate_path),
+            f"{truth['id']}: expected only one relationship-backed Named Sheet View criterion North -> South with stable base filter, formulas, and package boundary",
             errors,
         )
         return

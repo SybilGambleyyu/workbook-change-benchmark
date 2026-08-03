@@ -63,6 +63,29 @@ _AUTO_FILTER_BASELINE_VALUE = "North"
 _AUTO_FILTER_CANDIDATE_VALUE = "South"
 _AUTO_FILTER_SUBTOTAL_FORMULA = "=SUBTOTAL(109,B2:B5)"
 _AUTO_FILTER_DASHBOARD_FORMULA = "=Report!$D$2"
+_OFFICE_2014_REVISION_NS = "http://schemas.microsoft.com/office/spreadsheetml/2014/revision"
+_NAMED_SHEET_VIEW_NS = "http://schemas.microsoft.com/office/spreadsheetml/2019/namedsheetviews"
+_NAMED_SHEET_VIEW_RELATIONSHIP = (
+    "http://schemas.microsoft.com/office/2019/04/relationships/namedSheetView"
+)
+_NAMED_SHEET_VIEW_CONTENT_TYPE = "application/vnd.ms-excel.namedsheetviews+xml"
+_NAMED_SHEET_VIEW_REPORT_SHEET = "Report"
+_NAMED_SHEET_VIEW_DASHBOARD_SHEET = "Dashboard"
+_NAMED_SHEET_VIEW_FILTER_REF = "A1:B5"
+_NAMED_SHEET_VIEW_FILTER_COLUMN_ID = 0
+_NAMED_SHEET_VIEW_BASELINE_VALUE = "North"
+_NAMED_SHEET_VIEW_CANDIDATE_VALUE = "South"
+_NAMED_SHEET_VIEW_SUBTOTAL_CELL = "D2"
+_NAMED_SHEET_VIEW_SUBTOTAL_FORMULA = "=SUBTOTAL(109,B2:B5)"
+_NAMED_SHEET_VIEW_DASHBOARD_CELL = "B4"
+_NAMED_SHEET_VIEW_DASHBOARD_FORMULA = "=Report!$D$2"
+_NAMED_SHEET_VIEW_MEMBER = "xl/namedSheetViews/namedSheetView1.xml"
+_NAMED_SHEET_VIEW_RELATIONSHIP_MEMBER = "xl/worksheets/_rels/sheet1.xml.rels"
+_NAMED_SHEET_VIEW_RELATIONSHIP_ID = "rIdWCABNamedSheetView"
+_NAMED_SHEET_VIEW_FILTER_ID = "{00000000-0001-0000-0000-000000000000}"
+_NAMED_SHEET_VIEW_ID = "{11111111-1111-1111-1111-111111111111}"
+_NAMED_SHEET_VIEW_COLUMN_ID = "{22222222-2222-2222-2222-222222222222}"
+_NAMED_SHEET_VIEW_NAME = "WCAB regional review"
 _PIVOT_CACHE_ID = 1
 _PIVOT_CACHE_SOURCE_SHEET = "Source"
 _PIVOT_CACHE_SOURCE_REF = "A1:B5"
@@ -548,6 +571,130 @@ def _auto_filter_criteria_workbook(filter_value: str) -> Workbook:
     dashboard["A4"] = "Visible regional amount total"
     dashboard["B4"] = _AUTO_FILTER_DASHBOARD_FORMULA
     return workbook
+
+
+def _named_sheet_view_filter_workbook() -> Workbook:
+    """Build a report whose alternate Sheet View later changes in raw OOXML.
+
+    The ordinary worksheet AutoFilter stays present but has no active criterion.
+    A raw, relationship-backed Named Sheet View will retain the alternate
+    criterion instead, so the pair records a saved review surface without
+    changing cells, formulas, or the worksheet's active filter.
+    """
+
+    workbook = Workbook()
+    _configure_workbook(workbook, title="WCAB Named Sheet View fixture")
+    report = workbook.active
+    report.title = _NAMED_SHEET_VIEW_REPORT_SHEET
+    report.append(["Region", "Amount"])
+    for region, amount in (("North", 100), ("North", 200), ("South", 300), ("South", 400)):
+        report.append([region, amount])
+    report["D1"] = "Visible amount total"
+    report[_NAMED_SHEET_VIEW_SUBTOTAL_CELL] = _NAMED_SHEET_VIEW_SUBTOTAL_FORMULA
+    report.auto_filter.ref = _NAMED_SHEET_VIEW_FILTER_REF
+
+    dashboard = workbook.create_sheet(_NAMED_SHEET_VIEW_DASHBOARD_SHEET)
+    dashboard["A4"] = "Visible regional amount total"
+    dashboard[_NAMED_SHEET_VIEW_DASHBOARD_CELL] = _NAMED_SHEET_VIEW_DASHBOARD_FORMULA
+    return workbook
+
+
+def _inject_named_sheet_view_filter(path: Path, *, filter_value: str) -> None:
+    """Attach WCAB's one stored alternate filter to a generated workbook.
+
+    ``openpyxl`` does not author Named Sheet View parts, so this writes the
+    narrow relationship-backed OOXML contract after ordinary cells and formulas
+    are generated. The generated base AutoFilter supplies the documented
+    binding target; no workbook client is opened or used to apply the view.
+    """
+
+    def serialize(element: ElementTree.Element) -> bytes:
+        return ElementTree.tostring(element, encoding="utf-8", xml_declaration=True)
+
+    def mutate(members: dict[str, bytes]) -> None:
+        worksheet_member = "xl/worksheets/sheet1.xml"
+        worksheet = ElementTree.fromstring(members[worksheet_member])
+        auto_filters = worksheet.findall(f"{{{_SPREADSHEETML_NS}}}autoFilter")
+        if len(auto_filters) != 1 or auto_filters[0].get("ref") != _NAMED_SHEET_VIEW_FILTER_REF:
+            raise ValueError("Named Sheet View fixture requires one Report AutoFilter")
+        auto_filter = auto_filters[0]
+        if auto_filter.attrib != {"ref": _NAMED_SHEET_VIEW_FILTER_REF}:
+            raise ValueError("Named Sheet View fixture has unexpected base AutoFilter metadata")
+        auto_filter.set(f"{{{_OFFICE_2014_REVISION_NS}}}uid", _NAMED_SHEET_VIEW_FILTER_ID)
+        members[worksheet_member] = serialize(worksheet)
+
+        if _NAMED_SHEET_VIEW_RELATIONSHIP_MEMBER in members:
+            relationships = ElementTree.fromstring(members[_NAMED_SHEET_VIEW_RELATIONSHIP_MEMBER])
+        else:
+            relationships = ElementTree.Element(f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationships")
+        relationship_tag = f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationship"
+        if any(
+            relationship.get("Type") == _NAMED_SHEET_VIEW_RELATIONSHIP
+            for relationship in relationships.findall(relationship_tag)
+        ):
+            raise ValueError("Named Sheet View fixture already has a Named Sheet View relationship")
+        ElementTree.SubElement(
+            relationships,
+            relationship_tag,
+            {
+                "Id": _NAMED_SHEET_VIEW_RELATIONSHIP_ID,
+                "Type": _NAMED_SHEET_VIEW_RELATIONSHIP,
+                "Target": "../namedSheetViews/namedSheetView1.xml",
+            },
+        )
+        members[_NAMED_SHEET_VIEW_RELATIONSHIP_MEMBER] = serialize(relationships)
+
+        named_views = ElementTree.Element(f"{{{_NAMED_SHEET_VIEW_NS}}}namedSheetViews")
+        named_view = ElementTree.SubElement(
+            named_views,
+            f"{{{_NAMED_SHEET_VIEW_NS}}}namedSheetView",
+            {"name": _NAMED_SHEET_VIEW_NAME, "id": _NAMED_SHEET_VIEW_ID},
+        )
+        named_filter = ElementTree.SubElement(
+            named_view,
+            f"{{{_NAMED_SHEET_VIEW_NS}}}nsvFilter",
+            {
+                "filterId": _NAMED_SHEET_VIEW_FILTER_ID,
+                "ref": _NAMED_SHEET_VIEW_FILTER_REF,
+                "tableId": "0",
+            },
+        )
+        column_filter = ElementTree.SubElement(
+            named_filter,
+            f"{{{_NAMED_SHEET_VIEW_NS}}}columnFilter",
+            {"colId": str(_NAMED_SHEET_VIEW_FILTER_COLUMN_ID), "id": _NAMED_SHEET_VIEW_COLUMN_ID},
+        )
+        filter_column = ElementTree.SubElement(
+            column_filter,
+            f"{{{_NAMED_SHEET_VIEW_NS}}}filter",
+            {"colId": str(_NAMED_SHEET_VIEW_FILTER_COLUMN_ID)},
+        )
+        filters = ElementTree.SubElement(
+            filter_column,
+            f"{{{_SPREADSHEETML_NS}}}filters",
+            {"blank": "0"},
+        )
+        ElementTree.SubElement(filters, f"{{{_SPREADSHEETML_NS}}}filter", {"val": filter_value})
+        members[_NAMED_SHEET_VIEW_MEMBER] = serialize(named_views)
+
+        content_types = ElementTree.fromstring(members["[Content_Types].xml"])
+        override_tag = f"{{{_CONTENT_TYPES_NS}}}Override"
+        if any(
+            override.get("PartName") == f"/{_NAMED_SHEET_VIEW_MEMBER}"
+            for override in content_types.findall(override_tag)
+        ):
+            raise ValueError("Named Sheet View fixture already has a content-type override")
+        ElementTree.SubElement(
+            content_types,
+            override_tag,
+            {
+                "PartName": f"/{_NAMED_SHEET_VIEW_MEMBER}",
+                "ContentType": _NAMED_SHEET_VIEW_CONTENT_TYPE,
+            },
+        )
+        members["[Content_Types].xml"] = serialize(content_types)
+
+    _rewrite_xlsx_parts(path, mutate)
 
 
 def _governance_workbook() -> Workbook:
@@ -2716,6 +2863,63 @@ def _build_operations_auto_filter_criteria(root: Path) -> None:
     )
 
 
+def _build_operations_named_sheet_view_filter_criterion(root: Path) -> None:
+    """Build a saved alternate filter change without an active-filter edit."""
+
+    directory = root / "operations" / "named_sheet_view_filter_criterion_changed"
+    directory.mkdir(parents=True, exist_ok=True)
+    baseline = directory / "baseline.xlsx"
+    candidate = directory / "candidate.xlsx"
+    _save_workbook(_named_sheet_view_filter_workbook(), baseline)
+    _save_workbook(_named_sheet_view_filter_workbook(), candidate)
+    _inject_named_sheet_view_filter(baseline, filter_value=_NAMED_SHEET_VIEW_BASELINE_VALUE)
+    _inject_named_sheet_view_filter(candidate, filter_value=_NAMED_SHEET_VIEW_CANDIDATE_VALUE)
+    _write_json(
+        directory / "truth.json",
+        _truth(
+            case_id="operations.named_sheet_view_filter_criterion_changed",
+            title="A saved Sheet View changes its alternate regional filter",
+            family="operations",
+            review_expectation="review",
+            facts=[
+                {
+                    "kind": "named_sheet_view_filter_criterion_changed",
+                    "sheet": _NAMED_SHEET_VIEW_REPORT_SHEET,
+                    "view_member": _NAMED_SHEET_VIEW_MEMBER,
+                    "base_filter_ref": _NAMED_SHEET_VIEW_FILTER_REF,
+                    "filter_column_id": _NAMED_SHEET_VIEW_FILTER_COLUMN_ID,
+                    "baseline_filter_value": _NAMED_SHEET_VIEW_BASELINE_VALUE,
+                    "candidate_filter_value": _NAMED_SHEET_VIEW_CANDIDATE_VALUE,
+                    "subtotal_cell": _NAMED_SHEET_VIEW_SUBTOTAL_CELL,
+                    "subtotal_formula": _NAMED_SHEET_VIEW_SUBTOTAL_FORMULA,
+                    "dashboard_sheet": _NAMED_SHEET_VIEW_DASHBOARD_SHEET,
+                    "dashboard_cell": _NAMED_SHEET_VIEW_DASHBOARD_CELL,
+                    "dashboard_formula": _NAMED_SHEET_VIEW_DASHBOARD_FORMULA,
+                }
+            ],
+            must_reach=[
+                {
+                    "source": {
+                        "sheet": _NAMED_SHEET_VIEW_REPORT_SHEET,
+                        "cell": _NAMED_SHEET_VIEW_SUBTOTAL_CELL,
+                    },
+                    "targets": [
+                        {
+                            "sheet": _NAMED_SHEET_VIEW_DASHBOARD_SHEET,
+                            "cell": _NAMED_SHEET_VIEW_DASHBOARD_CELL,
+                        }
+                    ],
+                }
+            ],
+            coverage=[
+                "The pair changes only one raw Named Sheet View list criterion. It does not edit an ordinary cell, formula text, style, active AutoFilter criterion, row state, or dependency edge.",
+                "A Named Sheet View is an alternate stored sort/filter declaration. WCAB does not activate or render a view, apply a filter, calculate a subtotal, infer a visible row set, or claim what an Excel client will display or print.",
+                "The validator follows the Report worksheet relationship to the generated Named Sheet View part, reconciles its filter ID to the stable worksheet AutoFilter, and treats the criterion transition as stored-control review evidence rather than proof of a calculated outcome.",
+            ],
+        ),
+    )
+
+
 def _build_governance_visibility(root: Path) -> None:
     def mutate(workbook: Workbook) -> None:
         workbook["ReviewControls"].sheet_state = "visible"
@@ -3827,6 +4031,7 @@ _BUILDERS: tuple[Callable[[Path], None], ...] = (
     _build_operations_number_format_visibility,
     _build_operations_ignored_error_suppression,
     _build_operations_auto_filter_criteria,
+    _build_operations_named_sheet_view_filter_criterion,
     _build_governance_visibility,
     _build_governance_protection,
     _build_governance_workbook_structure_protection,
@@ -3869,6 +4074,7 @@ CASE_IDS = (
     "operations.number_format_value_hidden",
     "operations.ignored_error_formula_range_suppressed",
     "operations.auto_filter_criteria_changed",
+    "operations.named_sheet_view_filter_criterion_changed",
     "governance.hidden_sheet_revealed",
     "governance.formula_cell_unlocked",
     "governance.workbook_structure_lock_removed",

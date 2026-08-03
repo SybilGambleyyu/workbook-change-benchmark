@@ -40,7 +40,9 @@ formula context, calculation properties, and every package member except
 unchanged ordinary cells, formula context, calculation properties, and every
 package member except its worksheet XML. WCAB 0.25 adds a raw workbook
 structure-lock transition with unchanged hidden-sheet/formula context and every
-package member except `xl/workbook.xml`.
+package member except `xl/workbook.xml`. WCAB 0.26 adds a relationship-backed
+Named Sheet View list-criterion transition with an unchanged base AutoFilter,
+formulas, and every package member except its Named Sheet View part.
 Version 2 remains
 available in the immutable v0.2.0 and v0.3.0 releases.
 
@@ -82,6 +84,7 @@ Facts are observed directly from the fixture files by `wcab validate`.
 | `cell_number_format_changed` | `sheet`, `cell`, `value`, `custom_number_format_id`, `baseline_format`, `candidate_format`, `formula_cell`, `formula` | One direct-cell custom number-format declaration moves between declared codes while the target style index, raw numeric text, neighboring formula, calculation properties, and every package member except `xl/styles.xml` remain unchanged. The validator does not render a format, resolve locale or column-width behavior, calculate a workbook, or claim client behavior. |
 | `ignored_error_rule_added` | `sheet`, `target_range`, `warning_flag`, `formula`, `adjacent_populated_cell`, `adjacent_populated_value`, `downstream_formula_cell`, `downstream_formula` | One standard worksheet `ignoredErrors/ignoredError` declaration is added with the declared target and enabled warning flag while ordinary cells, formulas, calculation properties, and every package member except its worksheet remain unchanged. The validator does not determine whether a client would show a warning, evaluate a formula, judge a warning's justification, render an indicator, or claim client behavior. |
 | `auto_filter_criteria_changed` | `sheet`, `filter_ref`, `filter_column_id`, `baseline_filter_value`, `candidate_filter_value`, `subtotal_cell`, `subtotal_formula`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | One raw worksheet AutoFilter list criterion changes while its filter shell, formulas, direct dependency edge, and every package member except the report worksheet remain unchanged. The validator does not apply the filter or calculate a result. |
+| `named_sheet_view_filter_criterion_changed` | `sheet`, `view_member`, `base_filter_ref`, `filter_column_id`, `baseline_filter_value`, `candidate_filter_value`, `subtotal_cell`, `subtotal_formula`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | One relationship-backed Named Sheet View list criterion changes while its worksheet AutoFilter binding, formulas, direct dependency edge, and every package member except its Named Sheet View part remain unchanged. The validator does not activate, render, or apply the view, calculate a subtotal, or infer visible rows. |
 | `sheet_visibility_changed` | `sheet`, `baseline_state`, `candidate_state` | The stored sheet state changes. |
 | `formula_cell_unlocked` | `sheet`, `cell` | A formula cell is explicitly unlocked while its sheet remains protected. |
 | `workbook_structure_lock_removed` | `baseline_lock_structure`, `candidate_lock_structure`, `hidden_sheet`, `hidden_sheet_state`, `formula_sheet`, `formula_cell`, `formula` | Raw `workbookProtection/@lockStructure` changes exactly from `true` to `false` while the declared hidden-sheet state, formula, calculation properties, and every package member except `xl/workbook.xml` remain unchanged. The validator does not test a password, encryption, authorization, or client behavior. |
@@ -394,6 +397,26 @@ direct dependency edge, and requires the report worksheet to be the only
 changed package member. It does not execute Excel's filter logic, calculate
 the subtotal, infer a visible row set, or claim a display, copy, chart, or
 print result.
+
+## Named Sheet Views
+
+Microsoft's [Sheet View guidance](https://support.microsoft.com/en-us/excel/create-and-manage-sheet-views-in-excel)
+documents saved, customized filters and sorts for collaboration. The
+[MS-XLSX Named Sheet Views specification](https://learn.microsoft.com/en-us/openspecs/office_standards/ms-xlsx/78cf20a1-2551-45c6-86bf-f1e92bd5fc39)
+defines the stored collection as sort/filter settings associated with
+AutoFilters on a worksheet. A saved view is therefore a distinct review
+surface from the worksheet active filter.
+
+The WCAB Named Sheet View pair keeps a no-criterion worksheet
+`Report!A1:B5` AutoFilter, rows, `Report!D2=SUBTOTAL(109,B2:B5)`, and
+`Dashboard!B4=Report!$D$2` fixed. A worksheet relationship binds the base
+AutoFilter `xr:uid` to one `xl/namedSheetViews/namedSheetView1.xml` part;
+only its stored column-0 list value moves from `North` to `South`. The raw
+validator follows that relationship, reconciles the stable filter ID and
+range, compares the view part after erasing only the terminal list value,
+and requires that part to be the sole package difference. It does not
+activate, render, or apply a view, calculate a subtotal, infer visible rows,
+or claim a client display or print outcome.
 
 ## DrawingML chart-series source references
 

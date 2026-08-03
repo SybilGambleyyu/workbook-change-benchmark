@@ -1,6 +1,6 @@
 # Validation record
 
-This record describes the WCAB 0.25.0 / schema-version-3 validation run on
+This record describes the WCAB 0.26.0 / schema-version-3 validation run on
 2026-08-03. It is reproducible from this repository; no network service or
 private workbook is required.
 
@@ -32,16 +32,16 @@ wcab validate --fixtures fixtures
 
 Results:
 
-- 40 cases: 39 paired-workbook cases and one directory portfolio case.
-- 42 observable truth facts across 32 `block` and eight `review` cases.
+- 41 cases: 40 paired-workbook cases and one directory portfolio case.
+- 43 observable truth facts across 32 `block` and nine `review` cases.
 - Three scoreable coverage expectations: one newly introduced `INDIRECT`
   boundary and two unchanged-formula selector changes (`INDIRECT` address text
   and `OFFSET` column displacement).
-- 123 generated fixture files: 82 workbooks, 40 truth manifests, and one JSONL
+- 126 generated fixture files: 84 workbooks, 41 truth manifests, and one JSONL
   case catalogue, all generated from source.
-- One hundred fifty-seven unit tests passed locally under Python 3.13, including
+- One hundred sixty-four unit tests passed locally under Python 3.13, including
   independent regeneration and byte-for-byte fixture-tree equality.
-- The fixture validator accepted all 40 cases.
+- The fixture validator accepted all 41 cases.
 - The external-data pair has identical package members except for
   `xl/connections.xml`; both archives pass ZIP integrity checks and remain
   readable by openpyxl. Its relationship-backed source is a non-routable
@@ -176,6 +176,16 @@ Results:
   dashboard formulas remain unchanged. The validation run did not apply a
   filter, calculate a subtotal, infer a visible row set, or open or save either
   workbook.
+- The saved Named Sheet View pair has identical package members except for
+  `xl/namedSheetViews/namedSheetView1.xml`; both archives pass ZIP integrity
+  checks and remain readable by openpyxl. Its `Report!A1:B5` worksheet
+  AutoFilter retains no active criterion and its `xr:uid` binding, rows,
+  `Report!D2=SUBTOTAL(109,B2:B5)`, and `Dashboard!B4=Report!$D$2` remain
+  unchanged while the relationship-backed saved view moves its sole column-0
+  list value from `North` to `South`. The validator follows the worksheet
+  relationship, confirms the content type and base-filter binding, and does
+  not activate, render, or apply the view, calculate a subtotal, infer visible
+  rows, or claim a client display or print outcome.
 - The saved-formula-result pair has identical package members except for
   `xl/worksheets/sheet2.xml`; both archives pass ZIP integrity checks and
   remain readable by openpyxl. Its direct input, formula expression,
@@ -191,7 +201,7 @@ Results:
 
 ## Distribution supplement
 
-The 0.25.0 release retains the one-row-per-case `manifest.jsonl` catalogue and
+The 0.26.0 release retains the one-row-per-case `manifest.jsonl` catalogue and
 the tool-neutral observation protocol at version 2. Each catalogue row retains
 the schema-version-3 truth contract and includes byte counts and SHA-256
 digests for the workbooks it names.
@@ -199,11 +209,12 @@ digests for the workbooks it names.
 Commands:
 
 ```bash
-python -m build --outdir /tmp/wcab-v025-dist
-twine check /tmp/wcab-v025-dist/*
+python -m build --outdir /tmp/wcab-v026-dist
+twine check /tmp/wcab-v026-dist/*
 python -m venv /tmp/wcab-wheel-test
 /tmp/wcab-wheel-test/bin/python -m pip install \
-  /tmp/wcab-v025-dist/workbook_change_benchmark-0.25.0-py3-none-any.whl
+  /tmp/wcab-v026-dist/workbook_change_benchmark-0.26.0-py3-none-any.whl
+/tmp/wcab-wheel-test/bin/python -c 'import wcab; print(wcab.__version__)'
 /tmp/wcab-wheel-test/bin/wcab validate --fixtures fixtures
 /tmp/wcab-wheel-test/bin/wcab manifest --fixtures fixtures --output /tmp/manifest.jsonl
 cmp fixtures/manifest.jsonl /tmp/manifest.jsonl
@@ -211,6 +222,11 @@ cmp fixtures/manifest.jsonl /tmp/manifest.jsonl
   --output /tmp/observations.json
 /tmp/wcab-wheel-test/bin/wcab score --fixtures fixtures \
   --observations /tmp/observations.json
+python -m venv /tmp/wcab-sdist-test
+/tmp/wcab-sdist-test/bin/python -m pip install \
+  /tmp/wcab-v026-dist/workbook_change_benchmark-0.26.0.tar.gz
+/tmp/wcab-sdist-test/bin/python -c 'import wcab; print(wcab.__version__)'
+/tmp/wcab-sdist-test/bin/wcab validate --fixtures fixtures
 ```
 
 Results:
@@ -220,14 +236,14 @@ Results:
   their uploaded assets in the GitHub release, avoiding a self-referential
   source-distribution checksum in this record.
 - Fresh Python 3.13 wheel and source-distribution installations both reported
-  version 0.25.0 and validated all 40 fixtures; the wheel emitted
-  byte-identical JSONL output.
-- The full 157-test suite, lint, and format checks passed locally under Python
+  version 0.26.0 and validated all 41 fixtures; both emitted byte-identical
+  JSONL output.
+- The full 164-test suite, lint, and format checks passed locally under Python
   3.13.
 - The generated unsupported template scored as zero analyzed coverage, zero
   expected-fact recall, and zero coverage-disclosure recall, confirming that
   unsupported cases cannot become a pass.
-- The FormulaFence normalizer emitted 41 matched facts, one intentionally
+- The FormulaFence normalizer emitted 42 matched facts, one intentionally
   unmapped fact, three matched coverage declarations, and no invented review
   disposition.
 
@@ -242,9 +258,9 @@ wcab formulafence --fixtures fixtures --strict
 
 Results:
 
-- All 41 currently mappable diff/portfolio facts were observed.
+- All 42 currently mappable diff/portfolio facts were observed.
 - All three mappable coverage expectations were matched; no mapped fact,
-  coverage expectation, or targeted lint rule was missed across all 40 cases.
+  coverage expectation, or targeted lint rule was missed across all 41 cases.
 - The schema-version-2 structured Table scope case was observed as a
   `table_definition_changed` diff, even though its summary formula text stays
   unchanged.
@@ -400,6 +416,16 @@ Results:
   flag changed. WCAB's independent raw validation established the
   `North`-to-`South` criterion and stable formulas; neither report applies the
   filter, calculates a subtotal, or claims a visible result.
+- The WCAB 0.26 saved Named Sheet View case was observed as one exact
+  `named_sheet_views_changed` record and `FF038`: FormulaFence's redacted
+  profile retained one worksheet, part, named view, filter, column, and
+  criterion; zero sort rules or conditions; and zero unrecognized declarations
+  while only its Named Sheet View material-definition flag changed. It did not
+  expose the view name, IDs, bound range, or list value. WCAB independently
+  established the relationship, base-AutoFilter binding, `North`-to-`South`
+  criterion, stable formulas, and Named-Sheet-View-part-only boundary; neither
+  report activated, rendered, or applied a view, calculated a subtotal, or
+  inferred visible rows.
 - The WCAB 0.11 saved-formula-result case was observed as one exact
   `formula_cached_result_changed` record and `FF042`: FormulaFence reports
   two formula cells, one numeric saved result, one missing saved result, and

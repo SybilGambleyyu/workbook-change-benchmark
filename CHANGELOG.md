@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.26.0 — 2026-08-03
+
+- Add a deterministic, relationship-backed Excel Named Sheet View case. Its
+  saved list criterion moves from `North` to `South` while the base worksheet
+  AutoFilter, rows, `Report!D2=SUBTOTAL(109,B2:B5)`, and
+  `Dashboard!B4=Report!$D$2` remain unchanged.
+- Add the exact `named_sheet_view_filter_criterion_changed` fact, a narrow
+  raw-OOXML validator, Named Sheet View-part-only package isolation check,
+  and corruption regressions. WCAB records a stored alternate review lens;
+  it does not activate or render a view, apply a filter, calculate a
+  subtotal, infer visible rows, or claim client display or print behavior.
+- Extend the optional FormulaFence adapter to require the exact redacted
+  `named_sheet_views_changed` profile and high-severity `FF038`, while WCAB
+  independently proves the bound base AutoFilter, criterion values, stable
+  formulas, and package boundary.
+
 ## 0.25.0 — 2026-08-03
 
 - Add a deterministic workbook-structure-protection case. It retains a hidden

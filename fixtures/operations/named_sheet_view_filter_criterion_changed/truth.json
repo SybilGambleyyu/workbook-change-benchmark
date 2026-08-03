@@ -1,0 +1,44 @@
+{
+  "coverage": [
+    "The pair changes only one raw Named Sheet View list criterion. It does not edit an ordinary cell, formula text, style, active AutoFilter criterion, row state, or dependency edge.",
+    "A Named Sheet View is an alternate stored sort/filter declaration. WCAB does not activate or render a view, apply a filter, calculate a subtotal, infer a visible row set, or claim what an Excel client will display or print.",
+    "The validator follows the Report worksheet relationship to the generated Named Sheet View part, reconciles its filter ID to the stable worksheet AutoFilter, and treats the criterion transition as stored-control review evidence rather than proof of a calculated outcome."
+  ],
+  "coverage_expectations": [],
+  "facts": [
+    {
+      "base_filter_ref": "A1:B5",
+      "baseline_filter_value": "North",
+      "candidate_filter_value": "South",
+      "dashboard_cell": "B4",
+      "dashboard_formula": "=Report!$D$2",
+      "dashboard_sheet": "Dashboard",
+      "filter_column_id": 0,
+      "kind": "named_sheet_view_filter_criterion_changed",
+      "sheet": "Report",
+      "subtotal_cell": "D2",
+      "subtotal_formula": "=SUBTOTAL(109,B2:B5)",
+      "view_member": "xl/namedSheetViews/namedSheetView1.xml"
+    }
+  ],
+  "family": "operations",
+  "id": "operations.named_sheet_view_filter_criterion_changed",
+  "must_reach": [
+    {
+      "source": {
+        "cell": "D2",
+        "sheet": "Report"
+      },
+      "targets": [
+        {
+          "cell": "B4",
+          "sheet": "Dashboard"
+        }
+      ]
+    }
+  ],
+  "review_expectation": "review",
+  "schema_version": 3,
+  "title": "A saved Sheet View changes its alternate regional filter",
+  "topology": "pair"
+}

@@ -55,6 +55,26 @@ def _auto_filter_criteria_details() -> dict[str, object]:
     }
 
 
+def _named_sheet_view_filter_criterion_details() -> dict[str, object]:
+    profile = {
+        "present": True,
+        "worksheet_count": 1,
+        "part_count": 1,
+        "named_sheet_view_count": 1,
+        "named_filter_count": 1,
+        "column_filter_count": 1,
+        "filter_criterion_count": 1,
+        "sort_rule_count": 0,
+        "sort_condition_count": 0,
+        "unrecognized_named_sheet_view_count": 0,
+    }
+    return {
+        "before": dict(profile),
+        "after": dict(profile),
+        "named_sheet_view_definition_material_changed": True,
+    }
+
+
 def _pivot_cache_refresh_details() -> dict[str, object]:
     before = {
         "background_query": False,
@@ -493,6 +513,25 @@ def test_committed_manifest_matches_fixture_tree() -> None:
             "kind": "auto_filter_criteria_changed",
             "sheet": "Report",
             "filter_ref": "A1:B5",
+            "filter_column_id": 0,
+            "baseline_filter_value": "North",
+            "candidate_filter_value": "South",
+            "subtotal_cell": "D2",
+            "subtotal_formula": "=SUBTOTAL(109,B2:B5)",
+            "dashboard_sheet": "Dashboard",
+            "dashboard_cell": "B4",
+            "dashboard_formula": "=Report!$D$2",
+        }
+    ]
+    named_sheet_view_row = next(
+        row for row in rows if row["id"] == "operations.named_sheet_view_filter_criterion_changed"
+    )
+    assert named_sheet_view_row["facts"] == [
+        {
+            "kind": "named_sheet_view_filter_criterion_changed",
+            "sheet": "Report",
+            "view_member": "xl/namedSheetViews/namedSheetView1.xml",
+            "base_filter_ref": "A1:B5",
             "filter_column_id": 0,
             "baseline_filter_value": "North",
             "candidate_filter_value": "South",
@@ -2257,6 +2296,83 @@ def test_auto_filter_criteria_pair_changes_only_its_report_worksheet(tmp_path: P
     ] == ["xl/worksheets/sheet1.xml"]
 
 
+def test_validator_rejects_a_false_named_sheet_view_filter_criterion_fact(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "operations" / "named_sheet_view_filter_criterion_changed"
+    truth_path = case / "truth.json"
+    truth = json.loads(truth_path.read_text(encoding="utf-8"))
+    truth["facts"][0]["candidate_filter_value"] = "West"
+    truth_path.write_text(json.dumps(truth), encoding="utf-8")
+    assert validate_case(case)
+
+
+def test_validator_rejects_a_corrupted_named_sheet_view_filter_criterion(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = (
+        fixture_root / "operations" / "named_sheet_view_filter_criterion_changed" / "candidate.xlsx"
+    )
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    namespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    view_member = "xl/namedSheetViews/namedSheetView1.xml"
+    named_views = ElementTree.fromstring(members[view_member])
+    criterion = next(named_views.iter(f"{{{namespace}}}filter"))
+    criterion.set("val", "North")
+    members[view_member] = ElementTree.tostring(named_views, encoding="utf-8", xml_declaration=True)
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_validator_rejects_an_unrelated_named_sheet_view_change(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = (
+        fixture_root / "operations" / "named_sheet_view_filter_criterion_changed" / "candidate.xlsx"
+    )
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    namespace = "http://schemas.microsoft.com/office/spreadsheetml/2019/namedsheetviews"
+    view_member = "xl/namedSheetViews/namedSheetView1.xml"
+    named_views = ElementTree.fromstring(members[view_member])
+    named_view = named_views.find(f"{{{namespace}}}namedSheetView")
+    assert named_view is not None
+    named_view.set("name", "Unexpected view")
+    members[view_member] = ElementTree.tostring(named_views, encoding="utf-8", xml_declaration=True)
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_named_sheet_view_filter_criterion_pair_changes_only_its_view_part(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "operations" / "named_sheet_view_filter_criterion_changed"
+    with ZipFile(case / "baseline.xlsx") as baseline, ZipFile(case / "candidate.xlsx") as candidate:
+        assert baseline.testzip() is None
+        assert candidate.testzip() is None
+        baseline_members = {
+            entry.filename: baseline.read(entry.filename) for entry in baseline.infolist()
+        }
+        candidate_members = {
+            entry.filename: candidate.read(entry.filename) for entry in candidate.infolist()
+        }
+    assert set(baseline_members) == set(candidate_members)
+    assert [
+        member
+        for member in sorted(baseline_members)
+        if baseline_members[member] != candidate_members[member]
+    ] == ["xl/namedSheetViews/namedSheetView1.xml"]
+
+
 def test_validator_rejects_a_false_workbook_date_system_fact(tmp_path: Path) -> None:
     fixture_root = tmp_path / "fixtures"
     build_all(fixture_root)
@@ -2997,6 +3113,92 @@ def test_formulafence_adapter_requires_the_auto_filter_finding(monkeypatch, tmp_
     assert result["status"] == "missed"
     assert result["matched"] == []
     assert result["missed"] == ["auto_filter_criteria_changed"]
+
+
+def test_formulafence_adapter_maps_the_exact_named_sheet_view_filter_criterion_change(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _named_sheet_view_filter_criterion_details()
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "named_sheet_views_changed",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF038", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "operations" / "named_sheet_view_filter_criterion_changed"
+    )
+    assert result["status"] == "matched"
+    assert result["matched"] == ["named_sheet_view_filter_criterion_changed"]
+
+
+def test_formulafence_adapter_rejects_an_inexact_named_sheet_view_filter_criterion_change(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _named_sheet_view_filter_criterion_details()
+        details["after"]["sort_rule_count"] = 1
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "named_sheet_views_changed",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF038", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "operations" / "named_sheet_view_filter_criterion_changed"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["named_sheet_view_filter_criterion_changed"]
+
+
+def test_formulafence_adapter_requires_the_named_sheet_view_finding(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "named_sheet_views_changed",
+                    "location": None,
+                    "details": _named_sheet_view_filter_criterion_details(),
+                }
+            ],
+            "findings": [],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "operations" / "named_sheet_view_filter_criterion_changed"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["named_sheet_view_filter_criterion_changed"]
 
 
 def test_formulafence_adapter_maps_the_exact_data_validation_list_source_change(

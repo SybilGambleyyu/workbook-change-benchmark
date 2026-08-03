@@ -34,7 +34,7 @@ gates, static analyzers, and agent workflows that propose workbook edits.
 
 ## Scope and non-goals
 
-Version `0.25` covers formula-to-value replacements, formula reference drift,
+Version `0.26` covers formula-to-value replacements, formula reference drift,
 value changes with downstream effects, external formula references, named
 ranges, data validation, conditional formatting, sheet visibility, direct cell
 and workbook-structure protection, calculation settings, static cycles,
@@ -65,6 +65,12 @@ It also covers an active worksheet AutoFilter criterion moving from `North` to
 remain unchanged. It records the stored control only: it does not apply a
 filter, calculate a subtotal, infer visible rows, or claim a display or print
 outcome.
+It also covers a relationship-backed saved Named Sheet View whose alternate
+list criterion moves from `North` to `South` while its worksheet base
+AutoFilter remains untouched and `Report!D2=SUBTOTAL(109,B2:B5)` plus its
+`Dashboard!B4` consumer remain unchanged. It records the stored alternate
+review lens only: it does not activate or render a view, apply a filter,
+calculate a subtotal, infer visible rows, or claim a display or print outcome.
 It also covers a local worksheet-backed PivotTable cache whose raw
 `refreshOnLoad` control changes from false to true while its source cells,
 stored `Report!A1:B2` display cells, and `Dashboard!B4=Report!$B$2` consumer
@@ -365,6 +371,15 @@ control profile rather than the selected values; WCAB's raw validator
 independently establishes the `North`-to-`South` criterion transition, stable
 `SUBTOTAL` and dashboard formulas, direct dependency edge, and worksheet-only
 package change. Neither layer applies the filter or claims a subtotal result.
+For the saved Named Sheet View case, it requires FormulaFence
+`named_sheet_views_changed` evidence and `FF038` with one worksheet, part,
+view, filter, column, and criterion; no sort rule or condition; no
+unrecognized declaration; and only its material-definition flag. FormulaFence
+redacts the view name, IDs, bound range, and selected value. The WCAB raw
+validator independently proves the `North`-to-`South` criterion, the stable
+base-AutoFilter binding and formulas, and the Named-Sheet-View-part-only
+package change. Neither layer activates, renders, or applies the view,
+calculates a subtotal, or infers visible rows.
 The adapter keeps unmapped facts explicit; it does not treat the benign
 structural-rewrite annotation as a generic semantic-equivalence claim.
 

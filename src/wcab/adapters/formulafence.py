@@ -36,6 +36,7 @@ _FACT_TO_CHANGE: dict[str, tuple[str, str | None]] = {
     "cell_number_format_changed": ("number_format_controls_changed", None),
     "ignored_error_rule_added": ("ignored_error_controls_changed", None),
     "auto_filter_criteria_changed": ("filter_visibility_controls_changed", None),
+    "named_sheet_view_filter_criterion_changed": ("named_sheet_views_changed", None),
     "sheet_visibility_changed": ("sheet_visibility_changed", None),
     "formula_cell_unlocked": ("cell_protection_assignments_changed", None),
     "workbook_structure_lock_removed": ("workbook_protection_changed", None),
@@ -411,6 +412,70 @@ def _auto_filter_criteria_finding_observed(finding: dict[str, Any], fact: dict[s
     """Require FormulaFence's matching high-severity FF036 finding."""
 
     return finding.get("rule_id") == "FF036" and _auto_filter_criteria_details_observed(
+        finding.get("details"), fact
+    )
+
+
+def _named_sheet_view_filter_criterion_details_observed(details: Any, fact: dict[str, Any]) -> bool:
+    """Require FormulaFence's exact redacted Named Sheet View evidence.
+
+    FormulaFence deliberately omits view names, IDs, target ranges, and filter
+    values. WCAB's raw validator independently establishes those generated
+    details and requires this one-view, one-criterion FF038 profile.
+    """
+
+    if (
+        fact.get("sheet") != "Report"
+        or fact.get("view_member") != "xl/namedSheetViews/namedSheetView1.xml"
+        or fact.get("base_filter_ref") != "A1:B5"
+        or fact.get("filter_column_id") != 0
+        or fact.get("baseline_filter_value") != "North"
+        or fact.get("candidate_filter_value") != "South"
+        or fact.get("subtotal_cell") != "D2"
+        or fact.get("subtotal_formula") != "=SUBTOTAL(109,B2:B5)"
+        or fact.get("dashboard_sheet") != "Dashboard"
+        or fact.get("dashboard_cell") != "B4"
+        or fact.get("dashboard_formula") != "=Report!$D$2"
+        or not isinstance(details, dict)
+    ):
+        return False
+    expected_profile = {
+        "present": True,
+        "worksheet_count": 1,
+        "part_count": 1,
+        "named_sheet_view_count": 1,
+        "named_filter_count": 1,
+        "column_filter_count": 1,
+        "filter_criterion_count": 1,
+        "sort_rule_count": 0,
+        "sort_condition_count": 0,
+        "unrecognized_named_sheet_view_count": 0,
+    }
+    return details == {
+        "before": expected_profile,
+        "after": expected_profile,
+        "named_sheet_view_definition_material_changed": True,
+    }
+
+
+def _named_sheet_view_filter_criterion_observed(
+    change: dict[str, Any], fact: dict[str, Any]
+) -> bool:
+    """Match FormulaFence's stored Named Sheet View change record."""
+
+    return change.get("kind") == "named_sheet_views_changed" and (
+        _named_sheet_view_filter_criterion_details_observed(change.get("details"), fact)
+    )
+
+
+def _named_sheet_view_filter_criterion_finding_observed(
+    finding: dict[str, Any], fact: dict[str, Any]
+) -> bool:
+    """Require FormulaFence's matching high-severity Named Sheet View finding."""
+
+    return finding.get(
+        "rule_id"
+    ) == "FF038" and _named_sheet_view_filter_criterion_details_observed(
         finding.get("details"), fact
     )
 
@@ -1519,6 +1584,16 @@ def evaluate_diff_case(case_dir: str | Path, *, executable: str = "formulafence"
                 if isinstance(change, dict)
             ) and any(
                 _auto_filter_criteria_finding_observed(finding, fact)
+                for finding in findings
+                if isinstance(finding, dict)
+            )
+        if kind == "named_sheet_view_filter_criterion_changed":
+            observed = any(
+                _named_sheet_view_filter_criterion_observed(change, fact)
+                for change in changes
+                if isinstance(change, dict)
+            ) and any(
+                _named_sheet_view_filter_criterion_finding_observed(finding, fact)
                 for finding in findings
                 if isinstance(finding, dict)
             )

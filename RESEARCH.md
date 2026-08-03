@@ -165,6 +165,27 @@ package-member boundary. It does not apply a filter, calculate the subtotal,
 infer which rows a client shows, or claim a displayed, copied, charted, or
 printed result.
 
+## Named Sheet Views can alter a saved review lens without a cell edit
+
+Microsoft's [Sheet View guidance](https://support.microsoft.com/en-us/excel/create-and-manage-sheet-views-in-excel)
+describes saved, customized filter and sort views for collaborative work,
+including switching among saved views. The [MS-XLSX Named Sheet Views
+specification](https://learn.microsoft.com/en-us/openspecs/office_standards/ms-xlsx/78cf20a1-2551-45c6-86bf-f1e92bd5fc39)
+defines the stored collection as sort/filter settings for an AutoFilter on a
+specific worksheet. This is a separate review surface from the active
+worksheet AutoFilter: a reviewer can select a saved view without a formula or
+cell value having changed.
+
+WCAB 0.26 keeps a no-criterion `Report!A1:B5` base AutoFilter, the report
+rows, `Report!D2=SUBTOTAL(109,B2:B5)`, and `Dashboard!B4=Report!$D$2` fixed.
+A worksheet relationship binds that filter to one saved Named Sheet View;
+only its column-0 list criterion moves from `North` to `South`. The validator
+follows the local relationship, reconciles its stable filter ID and range to
+the base AutoFilter, compares the named-view part after removing only the
+terminal list value, and requires that part to be the sole package change.
+It does not activate, render, or apply the view; calculate a subtotal; infer
+visible rows; or claim a display or print outcome.
+
 ## PivotTable cache refresh requests without a cell edit
 
 Microsoft documents an option to [refresh PivotTable data when a workbook
