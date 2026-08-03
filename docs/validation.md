@@ -1,6 +1,6 @@
 # Validation record
 
-This record describes the WCAB 0.38.0 / schema-version-3 validation run. It is
+This record describes the WCAB 0.39.0 / schema-version-3 validation run. It is
 reproducible from this repository; no network service or private workbook is
 required.
 
@@ -32,16 +32,16 @@ wcab validate --fixtures fixtures
 
 Results:
 
-- 55 cases: 54 paired-workbook cases and one directory portfolio case.
-- 57 observable truth facts across 45 `block` and 10 `review` cases.
+- 56 cases: 55 paired-workbook cases and one directory portfolio case.
+- 58 observable truth facts across 46 `block` and 10 `review` cases.
 - Three scoreable coverage expectations: one newly introduced `INDIRECT`
   boundary and two unchanged-formula selector changes (`INDIRECT` address text
   and `OFFSET` column displacement).
-- 168 generated fixture files: 112 workbooks, 55 truth manifests, and one JSONL
+- 171 generated fixture files: 114 workbooks, 56 truth manifests, and one JSONL
   case catalogue, all generated from source.
-- Two hundred fifty-eight unit tests passed locally under Python 3.13, including
+- Two hundred sixty-two unit tests passed locally under Python 3.13, including
   independent regeneration and byte-for-byte fixture-tree equality.
-- The fixture validator accepted all 55 cases.
+- The fixture validator accepted all 56 cases.
 - The external-data refresh pair has identical package members except for
   `xl/connections.xml`; both archives pass ZIP integrity checks and remain
   readable by openpyxl. Its relationship-backed source is a non-routable
@@ -66,6 +66,18 @@ Results:
   `Object/Manifest/Reference/@URI` moves from the workbook part to the first
   worksheet part. The generated digest and signature values are synthetic: the
   validation run does not verify a digest, signature, transform, certificate,
+  identity, trust chain, or consumer decision.
+- The OPC package-signature relationship-selector pair likewise has identical
+  package members except `_xmlsignatures/sig1.xml`; both archives pass ZIP
+  integrity checks and remain readable by openpyxl. Its root-to-origin and
+  origin-to-signature relationships, content types, `SignedInfo` local-object
+  reference, Manifest URI, one Relationships Transform immediately followed by
+  XML C14N, stable `Controls!B10=12` value and `Controls!D10=B10*C10` formula,
+  and calculation properties remain fixed while the sole
+  `RelationshipReference/@SourceId` selects the root office-document
+  relationship before and the root signature-origin relationship after. The
+  selected relationship is not proof its target part was signed; the validation
+  run does not execute a transform or verify a digest, signature, certificate,
   identity, trust chain, or consumer decision.
 - The QueryTable pair has identical package members except for
   `xl/queryTables/queryTable1.xml`; both archives pass ZIP integrity checks and
@@ -349,7 +361,7 @@ Results:
 
 ## Distribution supplement
 
-The 0.38.0 release retains the one-row-per-case `manifest.jsonl` catalogue and
+The 0.39.0 release retains the one-row-per-case `manifest.jsonl` catalogue and
 the tool-neutral observation protocol at version 2. Each catalogue row retains
 the schema-version-3 truth contract and includes byte counts and SHA-256
 digests for the workbooks it names.
@@ -357,26 +369,26 @@ digests for the workbooks it names.
 Commands:
 
 ```bash
-python -m build --outdir /tmp/wcab-v038-dist
-twine check /tmp/wcab-v038-dist/*
-python -m venv /tmp/wcab-v038-wheel-test
-/tmp/wcab-v038-wheel-test/bin/python -m pip install \
-  /tmp/wcab-v038-dist/workbook_change_benchmark-0.38.0-py3-none-any.whl
-/tmp/wcab-v038-wheel-test/bin/python -c 'import wcab; print(wcab.__version__)'
-/tmp/wcab-v038-wheel-test/bin/wcab validate --fixtures fixtures
-/tmp/wcab-v038-wheel-test/bin/wcab manifest --fixtures fixtures --output /tmp/wcab-v038-wheel-manifest.jsonl
-cmp fixtures/manifest.jsonl /tmp/wcab-v038-wheel-manifest.jsonl
-/tmp/wcab-v038-wheel-test/bin/wcab observation-template --fixtures fixtures \
-  --output /tmp/wcab-v038-wheel-observations.json
-/tmp/wcab-v038-wheel-test/bin/wcab score --fixtures fixtures \
-  --observations /tmp/wcab-v038-wheel-observations.json
-python -m venv /tmp/wcab-v038-sdist-test
-/tmp/wcab-v038-sdist-test/bin/python -m pip install \
-  /tmp/wcab-v038-dist/workbook_change_benchmark-0.38.0.tar.gz
-/tmp/wcab-v038-sdist-test/bin/python -c 'import wcab; print(wcab.__version__)'
-/tmp/wcab-v038-sdist-test/bin/wcab validate --fixtures fixtures
-/tmp/wcab-v038-sdist-test/bin/wcab manifest --fixtures fixtures --output /tmp/wcab-v038-sdist-manifest.jsonl
-cmp fixtures/manifest.jsonl /tmp/wcab-v038-sdist-manifest.jsonl
+python -m build --outdir /tmp/wcab-v039-dist
+twine check /tmp/wcab-v039-dist/*
+python -m venv /tmp/wcab-v039-wheel-test
+/tmp/wcab-v039-wheel-test/bin/python -m pip install \
+  /tmp/wcab-v039-dist/workbook_change_benchmark-0.39.0-py3-none-any.whl
+/tmp/wcab-v039-wheel-test/bin/python -c 'import wcab; print(wcab.__version__)'
+/tmp/wcab-v039-wheel-test/bin/wcab validate --fixtures fixtures
+/tmp/wcab-v039-wheel-test/bin/wcab manifest --fixtures fixtures --output /tmp/wcab-v039-wheel-manifest.jsonl
+cmp fixtures/manifest.jsonl /tmp/wcab-v039-wheel-manifest.jsonl
+/tmp/wcab-v039-wheel-test/bin/wcab observation-template --fixtures fixtures \
+  --output /tmp/wcab-v039-wheel-observations.json
+/tmp/wcab-v039-wheel-test/bin/wcab score --fixtures fixtures \
+  --observations /tmp/wcab-v039-wheel-observations.json
+python -m venv /tmp/wcab-v039-sdist-test
+/tmp/wcab-v039-sdist-test/bin/python -m pip install \
+  /tmp/wcab-v039-dist/workbook_change_benchmark-0.39.0.tar.gz
+/tmp/wcab-v039-sdist-test/bin/python -c 'import wcab; print(wcab.__version__)'
+/tmp/wcab-v039-sdist-test/bin/wcab validate --fixtures fixtures
+/tmp/wcab-v039-sdist-test/bin/wcab manifest --fixtures fixtures --output /tmp/wcab-v039-sdist-manifest.jsonl
+cmp fixtures/manifest.jsonl /tmp/wcab-v039-sdist-manifest.jsonl
 ```
 
 Results:
@@ -386,20 +398,20 @@ Results:
   their uploaded assets in the GitHub release, avoiding a self-referential
   source-distribution checksum in this record.
 - Fresh Python 3.13 wheel and source-distribution installations both reported
-  version 0.38.0 and validated all 55 fixtures; both emitted byte-identical
+  version 0.39.0 and validated all 56 fixtures; both emitted byte-identical
   JSONL output.
-- The full 258-test suite, lint, and format checks passed locally under Python
+- The full 262-test suite, lint, and format checks passed locally under Python
   3.13.
 - The generated unsupported template scored as zero analyzed coverage, zero
   expected-fact recall, and zero coverage-disclosure recall, confirming that
   unsupported cases cannot become a pass.
-- The FormulaFence normalizer emitted 56 matched facts, one intentionally
+- The FormulaFence normalizer emitted 57 matched facts, one intentionally
   unmapped fact, three matched coverage declarations, and no invented review
   disposition.
 
 ## FormulaFence reference adapter
 
-FormulaFence 0.222.0 was installed from the local checked-out release source
+FormulaFence 0.223.0 was installed from the local checked-out release source
 and invoked only against WCAB's generated files:
 
 ```bash
@@ -408,9 +420,9 @@ wcab formulafence --fixtures fixtures --strict
 
 Results:
 
-- All 56 currently mappable diff/portfolio facts were observed.
+- All 57 currently mappable diff/portfolio facts were observed.
 - All three mappable coverage expectations were matched; no mapped fact,
-  coverage expectation, or targeted lint rule was missed across all 55 cases.
+  coverage expectation, or targeted lint rule was missed across all 56 cases.
 - The schema-version-2 structured Table scope case was observed as a
   `table_definition_changed` diff, even though its summary formula text stays
   unchanged.
@@ -488,6 +500,20 @@ Results:
   types/local-object reference/cells/formula, and
   `_xmlsignatures/sig1.xml`-only boundary; neither report verified a digest,
   signature, transform, certificate, trust chain, or consumer decision.
+- The WCAB 0.39 package-signature relationship-selector case was observed as
+  one exact high-severity `digital_signature_controls_changed` record and
+  `FF050`. FormulaFence's redacted before/after profiles were exactly equal:
+  one signature origin, one XML signature, one Manifest relationship reference,
+  zero direct-part references, no certificates, no VBA-project signatures, and
+  no unrecognized signature evidence. Its distinct
+  `package_signature_manifest_coverage_changed=true` signal still exposed the
+  material retarget. It exposed no URI, selector, digest, signature value,
+  certificate, identity, or trust assertion. WCAB independently established
+  the synthetic root-relationship source-ID transition, required
+  Relationships-Transform-plus-C14N sequence, fixed graph/cells/formula, and
+  `_xmlsignatures/sig1.xml`-only boundary; neither report executed a transform
+  or verified a digest, signature, certificate, trust chain, or consumer
+  decision.
 - The WCAB 0.30 QueryTable case was observed as one exact
   `query_table_refresh_controls_changed` record and `FF023`: FormulaFence's
   redacted profile retained one `ImportedData` table, connection ID 1, fixed

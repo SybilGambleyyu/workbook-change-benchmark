@@ -202,7 +202,19 @@ certificate, identity, or trust assertion. WCAB's raw validator—not the
 adapter—then establishes the synthetic URI transition, fixed bounded package
 shape, stable cells/formula, and `_xmlsignatures/sig1.xml`-only boundary.
 Neither report validates a digest, signature, transform, certificate, trust
-chain, or consumer decision. For the QueryTable case,
+chain, or consumer decision. For the package-signature relationship-selector
+case, the adapter likewise requires one high-severity
+`digital_signature_controls_changed` record and `FF050`, but its before/after
+profiles must be exactly equal: one Manifest reference, one relationship
+reference, zero direct-part references, one origin, one XML signature, and no
+certificate/VBA/unrecognized evidence. It accepts the case only when the
+separate package-signature material and Manifest-coverage flags are both true.
+FormulaFence exposes no URI, selector, digest, signature value, certificate,
+identity, or trust assertion; WCAB's raw validator independently establishes
+the root-relationship source-ID retarget, exact transform sequence, and
+`_xmlsignatures/sig1.xml`-only boundary. Neither report executes a transform
+or validates a digest, signature, certificate, trust chain, or consumer
+decision. For the QueryTable case,
 it requires one exact `query_table_refresh_controls_changed` record and
 matching `FF023`: its redacted profile must retain one
 `ImportedData` table, connection ID 1, fixed refresh/edit/fill/growth controls,

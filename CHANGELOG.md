@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.39.0 — 2026-08-03
+
+- Add a deterministic OPC package-signature relationship-selector retarget.
+  Its one `Object/Manifest` root-relationships reference retains the URI and
+  an exact Relationships Transform followed immediately by XML C14N while its
+  sole `RelationshipReference/@SourceId` moves from the root office-document
+  relationship to the root signature-origin relationship. The signature graph,
+  ordinary cells/formula context, calculation properties, and every package
+  member except `_xmlsignatures/sig1.xml` remain fixed.
+- Add the exact
+  `package_signature_manifest_relationship_selector_retargeted` fact,
+  raw-OOXML structural validator, selector-only signature-envelope comparison,
+  package-isolation check, and corruption regressions. A selected relationship
+  entry is not proof its target part was signed; WCAB does not execute a
+  transform or verify a digest, signature, certificate, identity, trust chain,
+  or consumer decision.
+- Extend the optional FormulaFence adapter to require exact high-severity
+  `digital_signature_controls_changed` / `FF050` evidence despite equal
+  redacted aggregate selector counts before and after. The adapter requires
+  the separate Manifest-coverage-change signal and never relies on a URI,
+  source ID, digest, certificate, or trust assertion.
+
 ## 0.38.0 — 2026-08-02
 
 - Add a deterministic OPC package-signature Manifest-scope transition. Its

@@ -136,10 +136,20 @@ content types, one `SignedInfo` local-object reference, ordinary
 and all package members except `_xmlsignatures/sig1.xml` remain fixed. Only one
 `Object/Manifest/Reference/@URI` moves from the direct workbook part to the
 direct worksheet part. The raw validator checks that bounded local declaration
-and compares the signature XML after erasing only that URI. The digest and
-signature values are deliberately synthetic: this is not a cryptographic
-verification, transform evaluation, certificate/identity check, trust-chain
-assessment, or package-consumer decision.
+and compares the signature XML after erasing only that URI.
+
+WCAB 0.39 adds the complementary relationship-selector boundary: the Manifest
+URI names the root relationships part and its XMLDSIG transform sequence is one
+OPC Relationships Transform immediately followed by XML C14N. Only its
+`RelationshipReference/@SourceId` changes, selecting the root office-document
+relationship before and the root signature-origin relationship after. A
+selector identifies a relationship entry rather than proving its target part
+was signed, and the redacted aggregate selector counts intentionally remain
+equal. The raw validator checks only that bounded local structure and compares
+the envelope after erasing the source ID. The digest and signature values in
+both fixtures are deliberately synthetic: neither package-signature case is a
+cryptographic verification, transform evaluation, certificate/identity check,
+trust-chain assessment, or package-consumer decision.
 
 ## External sources can hide in defined names without an externalLink part
 

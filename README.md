@@ -34,7 +34,7 @@ gates, static analyzers, and agent workflows that propose workbook edits.
 
 ## Scope and non-goals
 
-Version `0.38` covers formula-to-value replacements, formula reference drift,
+Version `0.39` covers formula-to-value replacements, formula reference drift,
 value changes with downstream effects, external formula references, named
 ranges, data validation, conditional formatting, sheet visibility, direct cell
 and workbook-structure protection, calculation settings, static cycles,
@@ -76,7 +76,14 @@ reference, ordinary cells/formula context, calculation properties, and every
 other package member remain fixed. Its digest and signature values are
 deliberately synthetic: WCAB records declared package scope only, never a
 cryptographic verification, transform result, certificate, identity, trust
-chain, or consumer trust decision. It also covers an
+chain, or consumer trust decision. A separate structurally shaped package
+signature retains one root-relationships Manifest URI, a Relationships
+Transform immediately followed by XML C14N, and every published aggregate
+selector count while its one `RelationshipReference/@SourceId` moves from the
+root office-document relationship to the root signature-origin relationship.
+It records a selected relationship entry only, not proof that its target part
+was signed, and likewise does not execute a transform or make a cryptographic
+or trust claim. It also covers an
 external-workbook link policy that switches from never to always updating when
 the workbook opens. It also covers
 an unchanged external-workbook formula whose local `externalLink` package

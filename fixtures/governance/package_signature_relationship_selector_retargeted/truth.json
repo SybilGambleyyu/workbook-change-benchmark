@@ -1,0 +1,47 @@
+{
+  "coverage": [
+    "The pair changes only _xmlsignatures/sig1.xml: one Object/Manifest Relationships Transform selector moves from the root officeDocument relationship to the root digital-signature-origin relationship. The manifest URI, required following C14N transform, root/origin graph, XML signature shape, ordinary cells, formulas, and every other package member stay fixed.",
+    "A relationship selector identifies a Relationship entry, not proof that its target part was signed. The XMLDSIG digest and signature values are deliberately synthetic; the validator does not execute a transform, verify cryptography, assess digest values, certificates, identity/trust, or a package consumer decision.",
+    "The raw selector IDs are public WCAB truth used only by its local validator. An adapter must instead require FormulaFence's redacted equal-count aggregate plus a Manifest-coverage-change signal and FF050 evidence; it must never require a URI, selector, digest, certificate, or trust assertion."
+  ],
+  "coverage_expectations": [],
+  "facts": [
+    {
+      "baseline_selected_relationship_target": "xl/workbook.xml",
+      "baseline_selected_relationship_type": "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument",
+      "baseline_selector_source_id": "rIdWCABOfficeDocument",
+      "candidate_selected_relationship_target": "_xmlsignatures/origin.sigs",
+      "candidate_selected_relationship_type": "http://schemas.openxmlformats.org/package/2006/relationships/digital-signature/origin",
+      "candidate_selector_source_id": "rIdWCABPackageSignatureOrigin",
+      "canonicalization_algorithm": "http://www.w3.org/TR/2001/REC-xml-c14n-20010315",
+      "kind": "package_signature_manifest_relationship_selector_retargeted",
+      "manifest_uri": "/_rels/.rels?ContentType=application/vnd.openxmlformats-package.relationships+xml",
+      "office_document_relationship_id": "rIdWCABOfficeDocument",
+      "office_document_relationship_target": "xl/workbook.xml",
+      "office_document_relationship_type": "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument",
+      "origin_member": "_xmlsignatures/origin.sigs",
+      "origin_relationship_id": "rIdWCABPackageSignatureOrigin",
+      "origin_relationship_type": "http://schemas.openxmlformats.org/package/2006/relationships/digital-signature/origin",
+      "origin_relationships_member": "_xmlsignatures/_rels/origin.sigs.rels",
+      "relationship_transform_algorithm": "http://schemas.openxmlformats.org/package/2006/digital-signature/RelationshipTransform",
+      "root_relationships_member": "_rels/.rels",
+      "signature_content_type": "application/vnd.openxmlformats-package.digital-signature-xmlsignature+xml",
+      "signature_member": "_xmlsignatures/sig1.xml",
+      "signature_relationship_id": "rIdWCABPackageXmlSignature",
+      "signature_relationship_type": "http://schemas.openxmlformats.org/package/2006/relationships/digital-signature/signature",
+      "signed_info_reference_uri": "#idWCABPackageObject",
+      "stable_formula": "=B10*C10",
+      "stable_formula_cell": "D10",
+      "stable_sheet": "Controls",
+      "stable_value": 12,
+      "stable_value_cell": "B10"
+    }
+  ],
+  "family": "governance",
+  "id": "governance.package_signature_relationship_selector_retargeted",
+  "must_reach": [],
+  "review_expectation": "block",
+  "schema_version": 3,
+  "title": "An OPC package signature selects a different root relationship",
+  "topology": "pair"
+}

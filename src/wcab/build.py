@@ -232,17 +232,26 @@ _PACKAGE_SIGNATURE_ORIGIN_RELATIONSHIP = f"{_PACKAGE_RELATIONSHIPS_NS}/digital-s
 _PACKAGE_SIGNATURE_SIGNATURE_RELATIONSHIP = (
     f"{_PACKAGE_RELATIONSHIPS_NS}/digital-signature/signature"
 )
+_PACKAGE_SIGNATURE_OFFICE_DOCUMENT_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/officeDocument"
+_PACKAGE_SIGNATURE_RELATIONSHIP_TRANSFORM = (
+    "http://schemas.openxmlformats.org/package/2006/digital-signature/RelationshipTransform"
+)
+_PACKAGE_SIGNATURE_C14N_ALGORITHM = "http://www.w3.org/TR/2001/REC-xml-c14n-20010315"
 _PACKAGE_SIGNATURE_ORIGIN_CONTENT_TYPE = (
     "application/vnd.openxmlformats-package.digital-signature-origin"
 )
 _PACKAGE_SIGNATURE_XML_CONTENT_TYPE = (
     "application/vnd.openxmlformats-package.digital-signature-xmlsignature+xml"
 )
+_PACKAGE_SIGNATURE_RELATIONSHIPS_CONTENT_TYPE = (
+    "application/vnd.openxmlformats-package.relationships+xml"
+)
 _PACKAGE_SIGNATURE_ORIGIN_MEMBER = "_xmlsignatures/origin.sigs"
 _PACKAGE_SIGNATURE_ORIGIN_RELATIONSHIPS_MEMBER = "_xmlsignatures/_rels/origin.sigs.rels"
 _PACKAGE_SIGNATURE_MEMBER = "_xmlsignatures/sig1.xml"
 _PACKAGE_SIGNATURE_ORIGIN_RELATIONSHIP_ID = "rIdWCABPackageSignatureOrigin"
 _PACKAGE_SIGNATURE_XML_RELATIONSHIP_ID = "rIdWCABPackageXmlSignature"
+_PACKAGE_SIGNATURE_OFFICE_DOCUMENT_RELATIONSHIP_ID = "rIdWCABOfficeDocument"
 _PACKAGE_SIGNATURE_OBJECT_ID = "idWCABPackageObject"
 _PACKAGE_SIGNATURE_WORKBOOK_CONTENT_TYPE = (
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"
@@ -256,6 +265,11 @@ _PACKAGE_SIGNATURE_BASELINE_MANIFEST_URI = (
 _PACKAGE_SIGNATURE_CANDIDATE_MANIFEST_URI = (
     "/xl/worksheets/sheet1.xml?ContentType=" + _PACKAGE_SIGNATURE_WORKSHEET_CONTENT_TYPE
 )
+_PACKAGE_SIGNATURE_ROOT_RELATIONSHIPS_MANIFEST_URI = (
+    "/_rels/.rels?ContentType=" + _PACKAGE_SIGNATURE_RELATIONSHIPS_CONTENT_TYPE
+)
+_PACKAGE_SIGNATURE_BASELINE_SELECTOR_SOURCE_ID = _PACKAGE_SIGNATURE_OFFICE_DOCUMENT_RELATIONSHIP_ID
+_PACKAGE_SIGNATURE_CANDIDATE_SELECTOR_SOURCE_ID = _PACKAGE_SIGNATURE_ORIGIN_RELATIONSHIP_ID
 _QUERY_TABLE_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/queryTable"
 _QUERY_TABLE_CONNECTIONS_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/connections"
 _QUERY_TABLE_CONTENT_TYPE = (
@@ -2474,7 +2488,12 @@ def _add_external_data_connection(path: Path, *, refresh_on_load: bool, url: str
     _rewrite_xlsx_parts(path, mutate)
 
 
-def _add_package_signature_manifest(path: Path, *, manifest_uri: str) -> None:
+def _add_package_signature_manifest(
+    path: Path,
+    *,
+    manifest_uri: str,
+    relationship_selector_source_id: str | None = None,
+) -> None:
     """Add a structurally shaped OPC signature whose Manifest names one part.
 
     The fixture deliberately uses non-cryptographic sentinel digest/signature
@@ -2506,6 +2525,13 @@ def _add_package_signature_manifest(path: Path, *, manifest_uri: str) -> None:
         if len(existing) != 1 or existing[0].get("ContentType") != content_type:
             raise ValueError(f"package-signature fixture has unexpected content type for {member}")
 
+    if relationship_selector_source_id is not None and manifest_uri != (
+        _PACKAGE_SIGNATURE_ROOT_RELATIONSHIPS_MANIFEST_URI
+    ):
+        raise ValueError(
+            "relationship-selector signature fixture must reference root relationships"
+        )
+
     def mutate(members: dict[str, bytes]) -> None:
         content_types = ElementTree.fromstring(members["[Content_Types].xml"])
         default_tag = f"{{{_CONTENT_TYPES_NS}}}Default"
@@ -2535,6 +2561,27 @@ def _add_package_signature_manifest(path: Path, *, manifest_uri: str) -> None:
 
         relationship_tag = f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationship"
         root_relationships = ElementTree.fromstring(members["_rels/.rels"])
+        if relationship_selector_source_id is not None:
+            office_document_relationships = [
+                relationship
+                for relationship in root_relationships.findall(relationship_tag)
+                if relationship.get("Type") == _PACKAGE_SIGNATURE_OFFICE_DOCUMENT_RELATIONSHIP
+            ]
+            existing_ids = {
+                relationship.get("Id")
+                for relationship in root_relationships.findall(relationship_tag)
+            }
+            if len(office_document_relationships) != 1 or (
+                _PACKAGE_SIGNATURE_OFFICE_DOCUMENT_RELATIONSHIP_ID in existing_ids
+                and office_document_relationships[0].get("Id")
+                != _PACKAGE_SIGNATURE_OFFICE_DOCUMENT_RELATIONSHIP_ID
+            ):
+                raise ValueError(
+                    "package-signature selector fixture has an unexpected office document relationship"
+                )
+            office_document_relationships[0].set(
+                "Id", _PACKAGE_SIGNATURE_OFFICE_DOCUMENT_RELATIONSHIP_ID
+            )
         if any(
             relationship.get("Id") == _PACKAGE_SIGNATURE_ORIGIN_RELATIONSHIP_ID
             for relationship in root_relationships.findall(relationship_tag)
@@ -2608,6 +2655,32 @@ def _add_package_signature_manifest(path: Path, *, manifest_uri: str) -> None:
             f"{{{signature}}}Reference",
             {"URI": manifest_uri},
         )
+        if relationship_selector_source_id is not None:
+            if relationship_selector_source_id not in {
+                _PACKAGE_SIGNATURE_BASELINE_SELECTOR_SOURCE_ID,
+                _PACKAGE_SIGNATURE_CANDIDATE_SELECTOR_SOURCE_ID,
+            }:
+                raise ValueError("package-signature selector fixture has an unexpected source ID")
+            transforms = ElementTree.SubElement(
+                manifest_reference,
+                f"{{{signature}}}Transforms",
+            )
+            relationship_transform = ElementTree.SubElement(
+                transforms,
+                f"{{{signature}}}Transform",
+                {"Algorithm": _PACKAGE_SIGNATURE_RELATIONSHIP_TRANSFORM},
+            )
+            ElementTree.SubElement(
+                relationship_transform,
+                "{http://schemas.openxmlformats.org/package/2006/digital-signature}"
+                "RelationshipReference",
+                {"SourceId": relationship_selector_source_id},
+            )
+            ElementTree.SubElement(
+                transforms,
+                f"{{{signature}}}Transform",
+                {"Algorithm": _PACKAGE_SIGNATURE_C14N_ALGORITHM},
+            )
         ElementTree.SubElement(
             manifest_reference,
             f"{{{signature}}}DigestMethod",
@@ -5447,6 +5520,75 @@ def _build_governance_package_signature_manifest_retarget(root: Path) -> None:
     )
 
 
+def _build_governance_package_signature_relationship_selector_retarget(
+    root: Path,
+) -> None:
+    """Build a same-count OPC relationship-selector scope retarget."""
+
+    directory = root / "governance" / "package_signature_relationship_selector_retargeted"
+    directory.mkdir(parents=True, exist_ok=True)
+    baseline = directory / "baseline.xlsx"
+    candidate = directory / "candidate.xlsx"
+    _save_workbook(_governance_workbook(), baseline)
+    _save_workbook(_governance_workbook(), candidate)
+    _add_package_signature_manifest(
+        baseline,
+        manifest_uri=_PACKAGE_SIGNATURE_ROOT_RELATIONSHIPS_MANIFEST_URI,
+        relationship_selector_source_id=_PACKAGE_SIGNATURE_BASELINE_SELECTOR_SOURCE_ID,
+    )
+    _add_package_signature_manifest(
+        candidate,
+        manifest_uri=_PACKAGE_SIGNATURE_ROOT_RELATIONSHIPS_MANIFEST_URI,
+        relationship_selector_source_id=_PACKAGE_SIGNATURE_CANDIDATE_SELECTOR_SOURCE_ID,
+    )
+    _write_json(
+        directory / "truth.json",
+        _truth(
+            case_id="governance.package_signature_relationship_selector_retargeted",
+            title="An OPC package signature selects a different root relationship",
+            family="governance",
+            review_expectation="block",
+            facts=[
+                {
+                    "kind": "package_signature_manifest_relationship_selector_retargeted",
+                    "root_relationships_member": "_rels/.rels",
+                    "origin_member": _PACKAGE_SIGNATURE_ORIGIN_MEMBER,
+                    "origin_relationships_member": _PACKAGE_SIGNATURE_ORIGIN_RELATIONSHIPS_MEMBER,
+                    "origin_relationship_id": _PACKAGE_SIGNATURE_ORIGIN_RELATIONSHIP_ID,
+                    "origin_relationship_type": _PACKAGE_SIGNATURE_ORIGIN_RELATIONSHIP,
+                    "signature_member": _PACKAGE_SIGNATURE_MEMBER,
+                    "signature_relationship_id": _PACKAGE_SIGNATURE_XML_RELATIONSHIP_ID,
+                    "signature_relationship_type": _PACKAGE_SIGNATURE_SIGNATURE_RELATIONSHIP,
+                    "signature_content_type": _PACKAGE_SIGNATURE_XML_CONTENT_TYPE,
+                    "signed_info_reference_uri": f"#{_PACKAGE_SIGNATURE_OBJECT_ID}",
+                    "manifest_uri": _PACKAGE_SIGNATURE_ROOT_RELATIONSHIPS_MANIFEST_URI,
+                    "relationship_transform_algorithm": _PACKAGE_SIGNATURE_RELATIONSHIP_TRANSFORM,
+                    "canonicalization_algorithm": _PACKAGE_SIGNATURE_C14N_ALGORITHM,
+                    "office_document_relationship_id": _PACKAGE_SIGNATURE_OFFICE_DOCUMENT_RELATIONSHIP_ID,
+                    "office_document_relationship_type": _PACKAGE_SIGNATURE_OFFICE_DOCUMENT_RELATIONSHIP,
+                    "office_document_relationship_target": "xl/workbook.xml",
+                    "baseline_selector_source_id": _PACKAGE_SIGNATURE_BASELINE_SELECTOR_SOURCE_ID,
+                    "candidate_selector_source_id": _PACKAGE_SIGNATURE_CANDIDATE_SELECTOR_SOURCE_ID,
+                    "baseline_selected_relationship_type": _PACKAGE_SIGNATURE_OFFICE_DOCUMENT_RELATIONSHIP,
+                    "baseline_selected_relationship_target": "xl/workbook.xml",
+                    "candidate_selected_relationship_type": _PACKAGE_SIGNATURE_ORIGIN_RELATIONSHIP,
+                    "candidate_selected_relationship_target": _PACKAGE_SIGNATURE_ORIGIN_MEMBER,
+                    "stable_sheet": "Controls",
+                    "stable_value_cell": "B10",
+                    "stable_value": 12,
+                    "stable_formula_cell": "D10",
+                    "stable_formula": "=B10*C10",
+                }
+            ],
+            coverage=[
+                "The pair changes only _xmlsignatures/sig1.xml: one Object/Manifest Relationships Transform selector moves from the root officeDocument relationship to the root digital-signature-origin relationship. The manifest URI, required following C14N transform, root/origin graph, XML signature shape, ordinary cells, formulas, and every other package member stay fixed.",
+                "A relationship selector identifies a Relationship entry, not proof that its target part was signed. The XMLDSIG digest and signature values are deliberately synthetic; the validator does not execute a transform, verify cryptography, assess digest values, certificates, identity/trust, or a package consumer decision.",
+                "The raw selector IDs are public WCAB truth used only by its local validator. An adapter must instead require FormulaFence's redacted equal-count aggregate plus a Manifest-coverage-change signal and FF050 evidence; it must never require a URI, selector, digest, certificate, or trust assertion.",
+            ],
+        ),
+    )
+
+
 def _build_governance_query_table_refresh(root: Path) -> None:
     """Build a pair whose QueryTable, not connection, requests refresh on open."""
 
@@ -6800,6 +6942,7 @@ _BUILDERS: tuple[Callable[[Path], None], ...] = (
     _build_governance_external_data_refresh,
     _build_governance_external_data_connection_source,
     _build_governance_package_signature_manifest_retarget,
+    _build_governance_package_signature_relationship_selector_retarget,
     _build_governance_query_table_refresh,
     _build_governance_cell_hyperlink_target,
     _build_governance_pivot_cache_refresh,
@@ -6857,6 +7000,7 @@ CASE_IDS = (
     "governance.external_data_refresh_on_open",
     "governance.external_data_connection_source_changed",
     "governance.package_signature_manifest_retargeted",
+    "governance.package_signature_relationship_selector_retargeted",
     "governance.query_table_refresh_on_open",
     "governance.cell_hyperlink_target_changed",
     "governance.pivot_cache_refresh_on_open",

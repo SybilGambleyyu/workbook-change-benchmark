@@ -70,12 +70,20 @@ _PACKAGE_SIGNATURE_ORIGIN_RELATIONSHIP = f"{_PACKAGE_RELATIONSHIPS_NS}/digital-s
 _PACKAGE_SIGNATURE_SIGNATURE_RELATIONSHIP = (
     f"{_PACKAGE_RELATIONSHIPS_NS}/digital-signature/signature"
 )
+_PACKAGE_SIGNATURE_OFFICE_DOCUMENT_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/officeDocument"
 _PACKAGE_SIGNATURE_ORIGIN_CONTENT_TYPE = (
     "application/vnd.openxmlformats-package.digital-signature-origin"
 )
 _PACKAGE_SIGNATURE_XML_CONTENT_TYPE = (
     "application/vnd.openxmlformats-package.digital-signature-xmlsignature+xml"
 )
+_PACKAGE_SIGNATURE_RELATIONSHIPS_CONTENT_TYPE = (
+    "application/vnd.openxmlformats-package.relationships+xml"
+)
+_PACKAGE_SIGNATURE_RELATIONSHIP_TRANSFORM = (
+    "http://schemas.openxmlformats.org/package/2006/digital-signature/RelationshipTransform"
+)
+_PACKAGE_SIGNATURE_C14N_ALGORITHM = "http://www.w3.org/TR/2001/REC-xml-c14n-20010315"
 _POWER_PIVOT_DATA_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/powerPivotData"
 _POWER_PIVOT_DATA_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.model+data"
 _POWER_PIVOT_DATA_PAYLOAD = (
@@ -408,6 +416,90 @@ def _raw_package_signature_manifest_state(path: Path) -> dict[str, Any] | None:
         "manifest_reference_attributes": manifest_reference_attributes,
         "manifest_uri": manifest_uri,
         "envelope_without_manifest_uri": envelope_without_manifest_uri,
+    }
+
+
+def _raw_package_signature_relationship_selector_state(
+    path: Path,
+) -> dict[str, Any] | None:
+    """Read WCAB's exact C14N-followed relationship-selector declaration.
+
+    This extends the common synthetic package-signature graph assertion with one
+    Relationship Transform and one selected root-relationship entry. It checks
+    package shape only: it neither executes a transform nor evaluates a digest,
+    signature, certificate, trust chain, or package-consumer decision.
+    """
+
+    state = _raw_package_signature_manifest_state(path)
+    if state is None:
+        return None
+    try:
+        with ZipFile(path) as archive:
+            root_relationships = ElementTree.fromstring(archive.read("_rels/.rels"))
+            envelope = ElementTree.fromstring(archive.read("_xmlsignatures/sig1.xml"))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+
+    signature = _XML_DIGITAL_SIGNATURE_NS
+    relationship_tag = f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationship"
+    transforms_tag = f"{{{signature}}}Transforms"
+    transform_tag = f"{{{signature}}}Transform"
+    selector_tag = (
+        "{http://schemas.openxmlformats.org/package/2006/digital-signature}RelationshipReference"
+    )
+    manifest_reference = envelope.find(
+        f"{{{signature}}}Object/{{{signature}}}Manifest/{{{signature}}}Reference"
+    )
+    if manifest_reference is None:
+        return None
+    transforms_containers = manifest_reference.findall(transforms_tag)
+    if len(transforms_containers) != 1 or transforms_containers[0].attrib:
+        return None
+    transforms = transforms_containers[0].findall(transform_tag)
+    if len(transforms) != 2:
+        return None
+    relationship_transform, canonicalization_transform = transforms
+    if (
+        set(relationship_transform.attrib) != {"Algorithm"}
+        or relationship_transform.get("Algorithm") != _PACKAGE_SIGNATURE_RELATIONSHIP_TRANSFORM
+        or set(canonicalization_transform.attrib) != {"Algorithm"}
+        or canonicalization_transform.get("Algorithm") != _PACKAGE_SIGNATURE_C14N_ALGORITHM
+        or len(canonicalization_transform)
+    ):
+        return None
+    selectors = relationship_transform.findall(selector_tag)
+    if (
+        len(relationship_transform) != 1
+        or len(selectors) != 1
+        or set(selectors[0].attrib) != {"SourceId"}
+        or len(selectors[0])
+    ):
+        return None
+    selector_source_id = selectors[0].get("SourceId")
+    if not isinstance(selector_source_id, str):
+        return None
+    selected_relationships = [
+        relationship
+        for relationship in root_relationships.findall(relationship_tag)
+        if relationship.get("Id") == selector_source_id
+    ]
+    if len(selected_relationships) != 1:
+        return None
+    selectors[0].set("SourceId", "")
+    envelope_without_selector_source_id = ElementTree.tostring(
+        envelope,
+        encoding="utf-8",
+        xml_declaration=True,
+    )
+    return {
+        **state,
+        "relationship_transform_attributes": tuple(sorted(relationship_transform.attrib.items())),
+        "canonicalization_transform_attributes": tuple(
+            sorted(canonicalization_transform.attrib.items())
+        ),
+        "selector_source_id": selector_source_id,
+        "selected_relationship_attributes": tuple(sorted(selected_relationships[0].attrib.items())),
+        "envelope_without_selector_source_id": envelope_without_selector_source_id,
     }
 
 
@@ -7281,6 +7373,262 @@ def _validate_fact(
             and _xlsx_member_differences(baseline_path, candidate_path) == {signature_member}
             and _calculation_properties(baseline_path) == _calculation_properties(candidate_path),
             f"{truth['id']}: expected one OPC package-signature Manifest direct-part retarget only",
+            errors,
+        )
+        return
+
+    if kind == "package_signature_manifest_relationship_selector_retargeted":
+        root_relationships_member = fact.get("root_relationships_member")
+        origin_member = fact.get("origin_member")
+        origin_relationships_member = fact.get("origin_relationships_member")
+        origin_relationship_id = fact.get("origin_relationship_id")
+        origin_relationship_type = fact.get("origin_relationship_type")
+        signature_member = fact.get("signature_member")
+        signature_relationship_id = fact.get("signature_relationship_id")
+        signature_relationship_type = fact.get("signature_relationship_type")
+        signature_content_type = fact.get("signature_content_type")
+        signed_info_reference_uri = fact.get("signed_info_reference_uri")
+        manifest_uri = fact.get("manifest_uri")
+        relationship_transform_algorithm = fact.get("relationship_transform_algorithm")
+        canonicalization_algorithm = fact.get("canonicalization_algorithm")
+        office_document_relationship_id = fact.get("office_document_relationship_id")
+        office_document_relationship_type = fact.get("office_document_relationship_type")
+        office_document_relationship_target = fact.get("office_document_relationship_target")
+        baseline_selector_source_id = fact.get("baseline_selector_source_id")
+        candidate_selector_source_id = fact.get("candidate_selector_source_id")
+        baseline_selected_relationship_type = fact.get("baseline_selected_relationship_type")
+        baseline_selected_relationship_target = fact.get("baseline_selected_relationship_target")
+        candidate_selected_relationship_type = fact.get("candidate_selected_relationship_type")
+        candidate_selected_relationship_target = fact.get("candidate_selected_relationship_target")
+        stable_sheet = fact.get("stable_sheet")
+        stable_value_cell = fact.get("stable_value_cell")
+        stable_value = fact.get("stable_value")
+        stable_formula_cell = fact.get("stable_formula_cell")
+        stable_formula = fact.get("stable_formula")
+        before_state = _raw_package_signature_relationship_selector_state(baseline_path)
+        after_state = _raw_package_signature_relationship_selector_state(candidate_path)
+        before_value = (
+            _raw_cell_state(baseline_path, stable_sheet, stable_value_cell)
+            if isinstance(stable_sheet, str) and isinstance(stable_value_cell, str)
+            else None
+        )
+        after_value = (
+            _raw_cell_state(candidate_path, stable_sheet, stable_value_cell)
+            if isinstance(stable_sheet, str) and isinstance(stable_value_cell, str)
+            else None
+        )
+        before_formula = (
+            _raw_cell_state(baseline_path, stable_sheet, stable_formula_cell)
+            if isinstance(stable_sheet, str) and isinstance(stable_formula_cell, str)
+            else None
+        )
+        after_formula = (
+            _raw_cell_state(candidate_path, stable_sheet, stable_formula_cell)
+            if isinstance(stable_sheet, str) and isinstance(stable_formula_cell, str)
+            else None
+        )
+        expected_origin_relationship_attributes = (
+            tuple(
+                sorted(
+                    {
+                        "Id": origin_relationship_id,
+                        "Type": origin_relationship_type,
+                        "Target": origin_member,
+                    }.items()
+                )
+            )
+            if all(
+                isinstance(value, str)
+                for value in (
+                    origin_relationship_id,
+                    origin_relationship_type,
+                    origin_member,
+                )
+            )
+            else None
+        )
+        expected_signature_relationship_attributes = (
+            tuple(
+                sorted(
+                    {
+                        "Id": signature_relationship_id,
+                        "Type": signature_relationship_type,
+                        "Target": "sig1.xml",
+                    }.items()
+                )
+            )
+            if all(
+                isinstance(value, str)
+                for value in (signature_relationship_id, signature_relationship_type)
+            )
+            else None
+        )
+        expected_signature_content_type_attributes = (
+            tuple(
+                sorted(
+                    {
+                        "PartName": f"/{signature_member}",
+                        "ContentType": signature_content_type,
+                    }.items()
+                )
+            )
+            if isinstance(signature_member, str) and isinstance(signature_content_type, str)
+            else None
+        )
+        expected_office_document_relationship_attributes = (
+            tuple(
+                sorted(
+                    {
+                        "Id": office_document_relationship_id,
+                        "Type": office_document_relationship_type,
+                        "Target": office_document_relationship_target,
+                    }.items()
+                )
+            )
+            if all(
+                isinstance(value, str)
+                for value in (
+                    office_document_relationship_id,
+                    office_document_relationship_type,
+                    office_document_relationship_target,
+                )
+            )
+            else None
+        )
+        expected_baseline_selected_relationship_attributes = (
+            tuple(
+                sorted(
+                    {
+                        "Id": baseline_selector_source_id,
+                        "Type": baseline_selected_relationship_type,
+                        "Target": baseline_selected_relationship_target,
+                    }.items()
+                )
+            )
+            if all(
+                isinstance(value, str)
+                for value in (
+                    baseline_selector_source_id,
+                    baseline_selected_relationship_type,
+                    baseline_selected_relationship_target,
+                )
+            )
+            else None
+        )
+        expected_candidate_selected_relationship_attributes = (
+            tuple(
+                sorted(
+                    {
+                        "Id": candidate_selector_source_id,
+                        "Type": candidate_selected_relationship_type,
+                        "Target": candidate_selected_relationship_target,
+                    }.items()
+                )
+            )
+            if all(
+                isinstance(value, str)
+                for value in (
+                    candidate_selector_source_id,
+                    candidate_selected_relationship_type,
+                    candidate_selected_relationship_target,
+                )
+            )
+            else None
+        )
+        _assert(
+            root_relationships_member == "_rels/.rels"
+            and origin_member == "_xmlsignatures/origin.sigs"
+            and origin_relationships_member == "_xmlsignatures/_rels/origin.sigs.rels"
+            and origin_relationship_id == "rIdWCABPackageSignatureOrigin"
+            and origin_relationship_type == _PACKAGE_SIGNATURE_ORIGIN_RELATIONSHIP
+            and signature_member == "_xmlsignatures/sig1.xml"
+            and signature_relationship_id == "rIdWCABPackageXmlSignature"
+            and signature_relationship_type == _PACKAGE_SIGNATURE_SIGNATURE_RELATIONSHIP
+            and signature_content_type == _PACKAGE_SIGNATURE_XML_CONTENT_TYPE
+            and signed_info_reference_uri == "#idWCABPackageObject"
+            and manifest_uri
+            == "/_rels/.rels?ContentType=application/vnd.openxmlformats-package.relationships+xml"
+            and relationship_transform_algorithm == _PACKAGE_SIGNATURE_RELATIONSHIP_TRANSFORM
+            and canonicalization_algorithm == _PACKAGE_SIGNATURE_C14N_ALGORITHM
+            and office_document_relationship_id == "rIdWCABOfficeDocument"
+            and office_document_relationship_type == _PACKAGE_SIGNATURE_OFFICE_DOCUMENT_RELATIONSHIP
+            and office_document_relationship_target == "xl/workbook.xml"
+            and baseline_selector_source_id == office_document_relationship_id
+            and candidate_selector_source_id == origin_relationship_id
+            and baseline_selected_relationship_type == office_document_relationship_type
+            and baseline_selected_relationship_target == office_document_relationship_target
+            and candidate_selected_relationship_type == origin_relationship_type
+            and candidate_selected_relationship_target == origin_member
+            and stable_sheet == "Controls"
+            and stable_value_cell == "B10"
+            and stable_value == 12
+            and stable_formula_cell == "D10"
+            and stable_formula == "=B10*C10"
+            and before_state is not None
+            and after_state is not None
+            and before_state["root_relationships_member"] == root_relationships_member
+            and after_state["root_relationships_member"] == root_relationships_member
+            and before_state["origin_member"] == origin_member
+            and after_state["origin_member"] == origin_member
+            and before_state["origin_payload"] == b""
+            and after_state["origin_payload"] == b""
+            and before_state["origin_relationships_member"] == origin_relationships_member
+            and after_state["origin_relationships_member"] == origin_relationships_member
+            and before_state["origin_relationship_attributes"]
+            == expected_origin_relationship_attributes
+            and after_state["origin_relationship_attributes"]
+            == expected_origin_relationship_attributes
+            and before_state["signature_member"] == signature_member
+            and after_state["signature_member"] == signature_member
+            and before_state["signature_relationship_attributes"]
+            == expected_signature_relationship_attributes
+            and after_state["signature_relationship_attributes"]
+            == expected_signature_relationship_attributes
+            and before_state["origin_content_type_attributes"]
+            == (("ContentType", _PACKAGE_SIGNATURE_ORIGIN_CONTENT_TYPE), ("Extension", "sigs"))
+            and after_state["origin_content_type_attributes"]
+            == (("ContentType", _PACKAGE_SIGNATURE_ORIGIN_CONTENT_TYPE), ("Extension", "sigs"))
+            and before_state["signature_content_type_attributes"]
+            == expected_signature_content_type_attributes
+            and after_state["signature_content_type_attributes"]
+            == expected_signature_content_type_attributes
+            and before_state["signed_info_reference_uri"] == signed_info_reference_uri
+            and after_state["signed_info_reference_uri"] == signed_info_reference_uri
+            and before_state["manifest_reference_attributes"] == (("URI", manifest_uri),)
+            and after_state["manifest_reference_attributes"] == (("URI", manifest_uri),)
+            and before_state["manifest_uri"] == manifest_uri
+            and after_state["manifest_uri"] == manifest_uri
+            and before_state["relationship_transform_attributes"]
+            == (("Algorithm", relationship_transform_algorithm),)
+            and after_state["relationship_transform_attributes"]
+            == (("Algorithm", relationship_transform_algorithm),)
+            and before_state["canonicalization_transform_attributes"]
+            == (("Algorithm", canonicalization_algorithm),)
+            and after_state["canonicalization_transform_attributes"]
+            == (("Algorithm", canonicalization_algorithm),)
+            and before_state["selector_source_id"] == baseline_selector_source_id
+            and after_state["selector_source_id"] == candidate_selector_source_id
+            and before_state["selected_relationship_attributes"]
+            == expected_baseline_selected_relationship_attributes
+            and after_state["selected_relationship_attributes"]
+            == expected_candidate_selected_relationship_attributes
+            and before_state["selected_relationship_attributes"]
+            == expected_office_document_relationship_attributes
+            and after_state["selected_relationship_attributes"]
+            == expected_origin_relationship_attributes
+            and before_state["envelope_without_selector_source_id"]
+            == after_state["envelope_without_selector_source_id"]
+            and before_value is not None
+            and after_value is not None
+            and before_value == after_value
+            and before_value[4] == str(stable_value)
+            and before_formula is not None
+            and after_formula is not None
+            and before_formula == after_formula
+            and before_formula[3] == stable_formula
+            and _xlsx_member_differences(baseline_path, candidate_path) == {signature_member}
+            and _calculation_properties(baseline_path) == _calculation_properties(candidate_path),
+            f"{truth['id']}: expected one OPC package-signature relationship-selector retarget only",
             errors,
         )
         return

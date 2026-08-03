@@ -68,6 +68,10 @@ _FACT_TO_CHANGE: dict[str, tuple[str, str | None]] = {
         "digital_signature_controls_changed",
         None,
     ),
+    "package_signature_manifest_relationship_selector_retargeted": (
+        "digital_signature_controls_changed",
+        None,
+    ),
     "query_table_refresh_on_load_changed": ("query_table_refresh_controls_changed", None),
     "cell_hyperlink_target_changed": ("cell_hyperlink_controls_changed", None),
     "pivot_cache_refresh_on_load_changed": ("pivot_cache_refresh_controls_changed", None),
@@ -456,6 +460,114 @@ def _package_signature_manifest_direct_part_retargeted_finding_observed(
         finding.get("rule_id") == "FF050"
         and finding.get("severity") == "high"
         and _package_signature_manifest_direct_part_retargeted_details_observed(
+            finding.get("details"), fact
+        )
+    )
+
+
+def _package_signature_manifest_relationship_selector_retargeted_details_observed(
+    details: Any,
+    fact: dict[str, Any],
+) -> bool:
+    """Require redacted FF050 evidence for an equal-count selector retarget.
+
+    WCAB's raw validator owns the selector IDs and relationship graph. The
+    FormulaFence contract is deliberately narrower: it must surface a material
+    Manifest-coverage transition although every safe count remains equal.
+    """
+
+    if (
+        fact.get("root_relationships_member") != "_rels/.rels"
+        or fact.get("origin_member") != "_xmlsignatures/origin.sigs"
+        or fact.get("origin_relationships_member") != "_xmlsignatures/_rels/origin.sigs.rels"
+        or fact.get("origin_relationship_id") != "rIdWCABPackageSignatureOrigin"
+        or fact.get("origin_relationship_type")
+        != "http://schemas.openxmlformats.org/package/2006/relationships/digital-signature/origin"
+        or fact.get("signature_member") != "_xmlsignatures/sig1.xml"
+        or fact.get("signature_relationship_id") != "rIdWCABPackageXmlSignature"
+        or fact.get("signature_relationship_type")
+        != "http://schemas.openxmlformats.org/package/2006/relationships/digital-signature/signature"
+        or fact.get("signature_content_type")
+        != "application/vnd.openxmlformats-package.digital-signature-xmlsignature+xml"
+        or fact.get("signed_info_reference_uri") != "#idWCABPackageObject"
+        or fact.get("manifest_uri")
+        != "/_rels/.rels?ContentType=application/vnd.openxmlformats-package.relationships+xml"
+        or fact.get("relationship_transform_algorithm")
+        != "http://schemas.openxmlformats.org/package/2006/digital-signature/RelationshipTransform"
+        or fact.get("canonicalization_algorithm")
+        != "http://www.w3.org/TR/2001/REC-xml-c14n-20010315"
+        or fact.get("office_document_relationship_id") != "rIdWCABOfficeDocument"
+        or fact.get("office_document_relationship_type")
+        != "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument"
+        or fact.get("office_document_relationship_target") != "xl/workbook.xml"
+        or fact.get("baseline_selector_source_id") != "rIdWCABOfficeDocument"
+        or fact.get("candidate_selector_source_id") != "rIdWCABPackageSignatureOrigin"
+        or fact.get("baseline_selected_relationship_type")
+        != "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument"
+        or fact.get("baseline_selected_relationship_target") != "xl/workbook.xml"
+        or fact.get("candidate_selected_relationship_type")
+        != "http://schemas.openxmlformats.org/package/2006/relationships/digital-signature/origin"
+        or fact.get("candidate_selected_relationship_target") != "_xmlsignatures/origin.sigs"
+        or not isinstance(details, dict)
+    ):
+        return False
+
+    common = {
+        "present": True,
+        "package_signature_origin_count": 1,
+        "package_xml_signature_count": 1,
+        "package_signature_reference_count": 1,
+        "package_signature_certificate_count": 0,
+        "package_signature_certificate_part_count": 0,
+        "package_signature_certificate_relationship_count": 0,
+        "vba_project_signature_count": 0,
+        "vba_project_signature_relationship_count": 0,
+        "unrecognized_digital_signature_count": 0,
+        "package_signature_coverage": {
+            "manifest_reference_count": 1,
+            "direct_part_reference_count": 0,
+            "relationship_reference_count": 1,
+            "relationship_group_reference_count": 0,
+            "workbook_part_reference_count": 0,
+            "worksheet_part_reference_count": 0,
+            "vba_project_part_reference_count": 0,
+            "external_data_connection_part_reference_count": 0,
+            "unrecognized_reference_count": 0,
+        },
+    }
+    return details == {
+        "before": common,
+        "after": common,
+        "package_signature_material_changed": True,
+        "package_signature_manifest_coverage_changed": True,
+    }
+
+
+def _package_signature_manifest_relationship_selector_retargeted_observed(
+    change: dict[str, Any],
+    fact: dict[str, Any],
+) -> bool:
+    """Match FormulaFence's high-severity equal-count selector signal."""
+
+    return (
+        change.get("kind") == "digital_signature_controls_changed"
+        and change.get("severity") == "high"
+        and _package_signature_manifest_relationship_selector_retargeted_details_observed(
+            change.get("details"), fact
+        )
+    )
+
+
+def _package_signature_manifest_relationship_selector_retargeted_finding_observed(
+    finding: dict[str, Any],
+    fact: dict[str, Any],
+) -> bool:
+    """Require matching high-severity FF050 selector-scope evidence."""
+
+    return (
+        finding.get("rule_id") == "FF050"
+        and finding.get("severity") == "high"
+        and _package_signature_manifest_relationship_selector_retargeted_details_observed(
             finding.get("details"), fact
         )
     )
@@ -2694,6 +2806,18 @@ def evaluate_diff_case(case_dir: str | Path, *, executable: str = "formulafence"
                 if isinstance(change, dict)
             ) and any(
                 _package_signature_manifest_direct_part_retargeted_finding_observed(finding, fact)
+                for finding in findings
+                if isinstance(finding, dict)
+            )
+        if kind == "package_signature_manifest_relationship_selector_retargeted":
+            observed = any(
+                _package_signature_manifest_relationship_selector_retargeted_observed(change, fact)
+                for change in changes
+                if isinstance(change, dict)
+            ) and any(
+                _package_signature_manifest_relationship_selector_retargeted_finding_observed(
+                    finding, fact
+                )
                 for finding in findings
                 if isinstance(finding, dict)
             )
