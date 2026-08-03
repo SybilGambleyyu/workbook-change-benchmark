@@ -284,6 +284,38 @@ def _external_defined_name_source_definition_finding_details() -> dict[str, obje
     }
 
 
+def _named_lambda_definition_change_details() -> dict[str, object]:
+    return {
+        "name": "ScenarioValue",
+        "before": "=LAMBDA(rate,amount,rate*amount)",
+        "after": "=LAMBDA(rate,amount,rate*(amount+10))",
+    }
+
+
+def _named_lambda_definition_finding_details() -> dict[str, object]:
+    return {
+        "before": "=LAMBDA(rate,amount,rate*amount)",
+        "after": "=LAMBDA(rate,amount,rate*(amount+10))",
+    }
+
+
+def _table_calculated_column_formula_details() -> dict[str, object]:
+    snapshot = {
+        "name": "ScenarioLedger",
+        "sheet": "Ledger",
+        "ref": "A1:C4",
+        "columns": ["Units", "Rate", "Calculated amount"],
+        "header_row_count": 1,
+        "totals_row_count": 0,
+    }
+    return {
+        "before": dict(snapshot),
+        "after": dict(snapshot),
+        "calculated_column_formula_material_changed": True,
+        "name": "ScenarioLedger",
+    }
+
+
 def _sheet_protection_sort_permission_details() -> dict[str, object]:
     credential = {
         "configured": False,
@@ -1264,6 +1296,50 @@ def test_committed_manifest_matches_fixture_tree() -> None:
             "dashboard_sheet": "Dashboard",
             "dashboard_cell": "B4",
             "dashboard_formula": "=Model!$B$2",
+        }
+    ]
+    named_lambda_row = next(
+        row for row in rows if row["id"] == "structural.named_lambda_definition_changed"
+    )
+    assert named_lambda_row["facts"] == [
+        {
+            "kind": "named_lambda_definition_changed",
+            "name": "ScenarioValue",
+            "workbook_member": "xl/workbook.xml",
+            "parameters": ["rate", "amount"],
+            "baseline_refers_to": "=LAMBDA(rate,amount,rate*amount)",
+            "candidate_refers_to": "=LAMBDA(rate,amount,rate*(amount+10))",
+            "input_sheet": "Inputs",
+            "rate_cell": "B2",
+            "rate_value": 0.08,
+            "amount_cell": "B3",
+            "amount_value": 100,
+            "formula_sheet": "Model",
+            "formula_cell": "B2",
+            "formula": "=ScenarioValue(Inputs!B2,Inputs!B3)",
+            "dashboard_sheet": "Dashboard",
+            "dashboard_cell": "B4",
+            "dashboard_formula": "=Model!$B$2",
+        }
+    ]
+    table_calculated_column_row = next(
+        row for row in rows if row["id"] == "structural.table_calculated_column_formula_changed"
+    )
+    assert table_calculated_column_row["facts"] == [
+        {
+            "kind": "table_calculated_column_formula_changed",
+            "table_sheet": "Ledger",
+            "table_member": "xl/tables/table1.xml",
+            "table": "ScenarioLedger",
+            "table_ref": "A1:C4",
+            "calculated_column_id": 3,
+            "calculated_column_name": "Calculated amount",
+            "baseline_formula": "A2*B2",
+            "candidate_formula": "A2*(B2+1)",
+            "stable_formula_cells": ["C2", "C3", "C4"],
+            "dashboard_sheet": "Dashboard",
+            "dashboard_cell": "B4",
+            "dashboard_formula": "=SUM(ScenarioLedger[Calculated amount])",
         }
     ]
     iterative_calculation_row = next(
@@ -2813,6 +2889,145 @@ def test_external_defined_name_source_pair_changes_only_workbook_xml(tmp_path: P
     ] == ["xl/workbook.xml"]
 
 
+def test_validator_rejects_a_false_named_lambda_definition_fact(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "structural" / "named_lambda_definition_changed"
+    truth_path = case / "truth.json"
+    truth = json.loads(truth_path.read_text(encoding="utf-8"))
+    truth["facts"][0]["candidate_refers_to"] = "=LAMBDA(rate,amount,rate*amount)"
+    truth_path.write_text(json.dumps(truth), encoding="utf-8")
+    assert validate_case(case)
+
+
+def test_validator_rejects_a_corrupted_named_lambda_definition(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = fixture_root / "structural" / "named_lambda_definition_changed" / "candidate.xlsx"
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    members["xl/workbook.xml"] = members["xl/workbook.xml"].replace(
+        b"rate*(amount+10)", b"rate*amount", 1
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_validator_rejects_an_external_reference_declaration_in_named_lambda_pair(
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = fixture_root / "structural" / "named_lambda_definition_changed" / "candidate.xlsx"
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    members["xl/workbook.xml"] = members["xl/workbook.xml"].replace(
+        b"</workbook>", b"<externalReferences/></workbook>", 1
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_named_lambda_definition_pair_changes_only_workbook_xml(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "structural" / "named_lambda_definition_changed"
+    with ZipFile(case / "baseline.xlsx") as baseline, ZipFile(case / "candidate.xlsx") as candidate:
+        baseline_members = {
+            entry.filename: baseline.read(entry.filename) for entry in baseline.infolist()
+        }
+        candidate_members = {
+            entry.filename: candidate.read(entry.filename) for entry in candidate.infolist()
+        }
+    assert set(baseline_members) == set(candidate_members)
+    assert [
+        member
+        for member in sorted(baseline_members)
+        if baseline_members[member] != candidate_members[member]
+    ] == ["xl/workbook.xml"]
+
+
+def test_validator_rejects_a_false_table_calculated_column_formula_fact(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "structural" / "table_calculated_column_formula_changed"
+    truth_path = case / "truth.json"
+    truth = json.loads(truth_path.read_text(encoding="utf-8"))
+    truth["facts"][0]["candidate_formula"] = "A2*B2"
+    truth_path.write_text(json.dumps(truth), encoding="utf-8")
+    assert validate_case(case)
+
+
+def test_validator_rejects_a_corrupted_table_calculated_column_formula(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = (
+        fixture_root / "structural" / "table_calculated_column_formula_changed" / "candidate.xlsx"
+    )
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    members["xl/tables/table1.xml"] = members["xl/tables/table1.xml"].replace(
+        b"A2*(B2+1)", b"A2*B2", 1
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_validator_rejects_an_unrelated_table_calculated_column_change(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = (
+        fixture_root / "structural" / "table_calculated_column_formula_changed" / "candidate.xlsx"
+    )
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    table = ElementTree.fromstring(members["xl/tables/table1.xml"])
+    namespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    auto_filter = table.find(f"{{{namespace}}}autoFilter")
+    assert auto_filter is not None
+    auto_filter.set("ref", "A1:C3")
+    members["xl/tables/table1.xml"] = ElementTree.tostring(
+        table, encoding="utf-8", xml_declaration=True
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_table_calculated_column_formula_pair_changes_only_its_table_part(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "structural" / "table_calculated_column_formula_changed"
+    with ZipFile(case / "baseline.xlsx") as baseline, ZipFile(case / "candidate.xlsx") as candidate:
+        baseline_members = {
+            entry.filename: baseline.read(entry.filename) for entry in baseline.infolist()
+        }
+        candidate_members = {
+            entry.filename: candidate.read(entry.filename) for entry in candidate.infolist()
+        }
+    assert set(baseline_members) == set(candidate_members)
+    assert [
+        member
+        for member in sorted(baseline_members)
+        if baseline_members[member] != candidate_members[member]
+    ] == ["xl/tables/table1.xml"]
+
+
 def test_validator_rejects_a_false_sheet_protection_sort_permission_fact(tmp_path: Path) -> None:
     fixture_root = tmp_path / "fixtures"
     build_all(fixture_root)
@@ -4210,6 +4425,150 @@ def test_formulafence_adapter_requires_the_external_defined_name_definition_evid
     assert result["status"] == "missed"
     assert result["matched"] == []
     assert result["missed"] == ["external_defined_name_source_changed"]
+
+
+def test_formulafence_adapter_maps_the_exact_named_lambda_definition(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "defined_name_changed",
+                    "location": None,
+                    "details": _named_lambda_definition_change_details(),
+                }
+            ],
+            "findings": [
+                {
+                    "rule_id": "FF008",
+                    "details": _named_lambda_definition_finding_details(),
+                }
+            ],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "structural" / "named_lambda_definition_changed"
+    )
+    assert result["status"] == "matched"
+    assert result["matched"] == ["named_lambda_definition_changed"]
+
+
+def test_formulafence_adapter_requires_named_lambda_finding(monkeypatch, tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "defined_name_changed",
+                    "location": None,
+                    "details": _named_lambda_definition_change_details(),
+                }
+            ],
+            "findings": [],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "structural" / "named_lambda_definition_changed"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["named_lambda_definition_changed"]
+
+
+def test_formulafence_adapter_maps_the_exact_table_calculated_column_formula(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _table_calculated_column_formula_details()
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "table_definition_changed",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF013", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "structural" / "table_calculated_column_formula_changed"
+    )
+    assert result["status"] == "matched"
+    assert result["matched"] == ["table_calculated_column_formula_changed"]
+
+
+def test_formulafence_adapter_rejects_an_inexact_table_calculated_column_formula(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _table_calculated_column_formula_details()
+        details["calculated_column_formula_material_changed"] = False
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "table_definition_changed",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF013", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "structural" / "table_calculated_column_formula_changed"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["table_calculated_column_formula_changed"]
+
+
+def test_formulafence_adapter_requires_table_calculated_column_finding(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "table_definition_changed",
+                    "location": None,
+                    "details": _table_calculated_column_formula_details(),
+                }
+            ],
+            "findings": [],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "structural" / "table_calculated_column_formula_changed"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["table_calculated_column_formula_changed"]
 
 
 def test_formulafence_adapter_maps_the_exact_sheet_protection_sort_permission(

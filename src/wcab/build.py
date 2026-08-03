@@ -73,6 +73,20 @@ _EXTERNAL_DEFINED_NAME_SOURCE_MODEL_FORMULA = "=ScenarioRate*2"
 _EXTERNAL_DEFINED_NAME_SOURCE_DASHBOARD_SHEET = "Dashboard"
 _EXTERNAL_DEFINED_NAME_SOURCE_DASHBOARD_CELL = "B4"
 _EXTERNAL_DEFINED_NAME_SOURCE_DASHBOARD_FORMULA = "=Model!$B$2"
+_NAMED_LAMBDA_NAME = "ScenarioValue"
+_NAMED_LAMBDA_BASELINE_REFERS_TO = "=LAMBDA(rate,amount,rate*amount)"
+_NAMED_LAMBDA_CANDIDATE_REFERS_TO = "=LAMBDA(rate,amount,rate*(amount+10))"
+_NAMED_LAMBDA_INPUT_SHEET = "Inputs"
+_NAMED_LAMBDA_RATE_CELL = "B2"
+_NAMED_LAMBDA_RATE_VALUE = 0.08
+_NAMED_LAMBDA_AMOUNT_CELL = "B3"
+_NAMED_LAMBDA_AMOUNT_VALUE = 100
+_NAMED_LAMBDA_MODEL_SHEET = "Model"
+_NAMED_LAMBDA_MODEL_CELL = "B2"
+_NAMED_LAMBDA_MODEL_FORMULA = "=ScenarioValue(Inputs!B2,Inputs!B3)"
+_NAMED_LAMBDA_DASHBOARD_SHEET = "Dashboard"
+_NAMED_LAMBDA_DASHBOARD_CELL = "B4"
+_NAMED_LAMBDA_DASHBOARD_FORMULA = "=Model!$B$2"
 _ITERATIVE_CALCULATION_FORMULA = "=(B2+Inputs!$B$2)/2"
 _ITERATION_COUNT = 100
 _ITERATION_DELTA = 0.001
@@ -369,6 +383,18 @@ _SHEET_PROTECTION_SORT_FORMULA = "=B2*C2"
 _SHEET_PROTECTION_SORT_DASHBOARD_SHEET = "Dashboard"
 _SHEET_PROTECTION_SORT_DASHBOARD_CELL = "B4"
 _SHEET_PROTECTION_SORT_DASHBOARD_FORMULA = "=Controls!$D$2"
+_TABLE_CALCULATED_COLUMN_SHEET = "Ledger"
+_TABLE_CALCULATED_COLUMN_NAME = "ScenarioLedger"
+_TABLE_CALCULATED_COLUMN_REF = "A1:C4"
+_TABLE_CALCULATED_COLUMN_MEMBER = "xl/tables/table1.xml"
+_TABLE_CALCULATED_COLUMN_ID = 3
+_TABLE_CALCULATED_COLUMN_HEADER = "Calculated amount"
+_TABLE_CALCULATED_COLUMN_BASELINE_FORMULA = "A2*B2"
+_TABLE_CALCULATED_COLUMN_CANDIDATE_FORMULA = "A2*(B2+1)"
+_TABLE_CALCULATED_COLUMN_STABLE_FORMULA_CELLS = ("C2", "C3", "C4")
+_TABLE_CALCULATED_COLUMN_DASHBOARD_SHEET = "Dashboard"
+_TABLE_CALCULATED_COLUMN_DASHBOARD_CELL = "B4"
+_TABLE_CALCULATED_COLUMN_DASHBOARD_FORMULA = "=SUM(ScenarioLedger[Calculated amount])"
 _CHART_SERIES_SOURCE_SHEET = "Source"
 _CHART_SERIES_DASHBOARD_SHEET = "Dashboard"
 _CHART_SERIES_ANCHOR = "D2"
@@ -1551,6 +1577,33 @@ def _structured_table_workbook() -> Workbook:
     return workbook
 
 
+def _table_calculated_column_formula_workbook() -> Workbook:
+    """Build a Table with stable row formulas and one raw formula master.
+
+    The stored ``calculatedColumnFormula`` is attached after openpyxl writes
+    the ordinary table.  Its formula is a Table-level declaration, distinct
+    from the already saved row formulas and the downstream structured-reference
+    formula.  The fixture deliberately records that raw definition only; it
+    does not ask a spreadsheet client to fill or calculate a column.
+    """
+
+    workbook = Workbook()
+    _configure_workbook(workbook, title="WCAB Table calculated-column formula fixture")
+    ledger = workbook.active
+    ledger.title = _TABLE_CALCULATED_COLUMN_SHEET
+    ledger.append(["Units", "Rate", _TABLE_CALCULATED_COLUMN_HEADER])
+    for row_number, (units, rate) in enumerate(((12, 5), (10, 7), (8, 9)), start=2):
+        ledger.append([units, rate, f"=A{row_number}*B{row_number}"])
+    ledger.add_table(
+        Table(displayName=_TABLE_CALCULATED_COLUMN_NAME, ref=_TABLE_CALCULATED_COLUMN_REF)
+    )
+
+    dashboard = workbook.create_sheet(_TABLE_CALCULATED_COLUMN_DASHBOARD_SHEET)
+    dashboard["A1"] = "Table calculated-column total"
+    dashboard[_TABLE_CALCULATED_COLUMN_DASHBOARD_CELL] = _TABLE_CALCULATED_COLUMN_DASHBOARD_FORMULA
+    return workbook
+
+
 def _power_query_local_table_workbook() -> Workbook:
     """Build a local Excel Table consumed by a connection-only M query.
 
@@ -1897,6 +1950,38 @@ def _external_defined_name_source_workbook() -> Workbook:
             _EXTERNAL_DEFINED_NAME_SOURCE_NAME,
             attr_text=_EXTERNAL_DEFINED_NAME_SOURCE_BASELINE_REFERS_TO,
         )
+    )
+    return workbook
+
+
+def _named_lambda_definition_workbook() -> Workbook:
+    """Build a workbook whose reusable calculation lives in one named LAMBDA.
+
+    Excel stores workbook-scoped named LAMBDAs as defined-name text.  The
+    generated candidate will change that single definition after ordinary
+    cells have been saved, so this fixture records a reusable formula-program
+    boundary rather than a calculated result.
+    """
+
+    workbook = Workbook()
+    _configure_workbook(workbook, title="WCAB named LAMBDA definition fixture")
+    inputs = workbook.active
+    inputs.title = _NAMED_LAMBDA_INPUT_SHEET
+    inputs["A1"] = "Scenario inputs"
+    inputs["A2"] = "Rate"
+    inputs[_NAMED_LAMBDA_RATE_CELL] = _NAMED_LAMBDA_RATE_VALUE
+    inputs["A3"] = "Amount"
+    inputs[_NAMED_LAMBDA_AMOUNT_CELL] = _NAMED_LAMBDA_AMOUNT_VALUE
+
+    model = workbook.create_sheet(_NAMED_LAMBDA_MODEL_SHEET)
+    model["A1"] = "Reusable scenario value"
+    model[_NAMED_LAMBDA_MODEL_CELL] = _NAMED_LAMBDA_MODEL_FORMULA
+
+    dashboard = workbook.create_sheet(_NAMED_LAMBDA_DASHBOARD_SHEET)
+    dashboard["A1"] = "Board output"
+    dashboard[_NAMED_LAMBDA_DASHBOARD_CELL] = _NAMED_LAMBDA_DASHBOARD_FORMULA
+    workbook.defined_names.add(
+        DefinedName(_NAMED_LAMBDA_NAME, attr_text=_NAMED_LAMBDA_BASELINE_REFERS_TO)
     )
     return workbook
 
@@ -3365,6 +3450,75 @@ def _set_chart_series_value_reference(path: Path, *, value_reference: str) -> No
             raise ValueError("chart-series fixture must contain exactly one numeric value formula")
         formulas[0].text = value_reference
         members[chart_member] = ElementTree.tostring(chart, encoding="utf-8", xml_declaration=True)
+
+    _rewrite_xlsx_parts(path, mutate)
+
+
+def _set_table_calculated_column_formula(path: Path, *, formula: str) -> None:
+    """Store WCAB's sole Table calculated-column formula declaration.
+
+    ``calculatedColumnFormula`` belongs to the table definition rather than a
+    worksheet cell.  This narrowly writes one formula-master text node after
+    the workbook is saved and rejects any unexpected Table shape, keeping the
+    resulting pair about this one raw structural boundary.
+    """
+
+    if formula not in {
+        _TABLE_CALCULATED_COLUMN_BASELINE_FORMULA,
+        _TABLE_CALCULATED_COLUMN_CANDIDATE_FORMULA,
+    }:
+        raise ValueError(f"unsupported Table calculated-column formula {formula!r}")
+
+    def mutate(members: dict[str, bytes]) -> None:
+        if _TABLE_CALCULATED_COLUMN_MEMBER not in members:
+            raise ValueError("calculated-column fixture has no Table definition")
+        table = ElementTree.fromstring(members[_TABLE_CALCULATED_COLUMN_MEMBER])
+        table_tag = f"{{{_SPREADSHEETML_NS}}}table"
+        auto_filter_tag = f"{{{_SPREADSHEETML_NS}}}autoFilter"
+        columns_tag = f"{{{_SPREADSHEETML_NS}}}tableColumns"
+        column_tag = f"{{{_SPREADSHEETML_NS}}}tableColumn"
+        formula_tag = f"{{{_SPREADSHEETML_NS}}}calculatedColumnFormula"
+        expected_table_attributes = {
+            "id": "1",
+            "name": _TABLE_CALCULATED_COLUMN_NAME,
+            "displayName": _TABLE_CALCULATED_COLUMN_NAME,
+            "ref": _TABLE_CALCULATED_COLUMN_REF,
+            "headerRowCount": "1",
+        }
+        expected_columns = (
+            {"id": "1", "name": "Units"},
+            {"id": "2", "name": "Rate"},
+            {
+                "id": str(_TABLE_CALCULATED_COLUMN_ID),
+                "name": _TABLE_CALCULATED_COLUMN_HEADER,
+            },
+        )
+        auto_filters = table.findall(auto_filter_tag)
+        containers = table.findall(columns_tag)
+        if (
+            table.tag != table_tag
+            or table.attrib != expected_table_attributes
+            or len(table) != 2
+            or len(auto_filters) != 1
+            or auto_filters[0].attrib != {"ref": _TABLE_CALCULATED_COLUMN_REF}
+            or len(auto_filters[0])
+            or len(containers) != 1
+            or containers[0].attrib != {"count": "3"}
+        ):
+            raise ValueError("calculated-column fixture has an unexpected Table shape")
+        columns = list(containers[0])
+        if (
+            len(columns) != 3
+            or any(column.tag != column_tag for column in columns)
+            or tuple(column.attrib for column in columns) != expected_columns
+            or any(len(column) for column in columns)
+        ):
+            raise ValueError("calculated-column fixture has unexpected Table columns")
+        calculated_formula = ElementTree.SubElement(columns[-1], formula_tag)
+        calculated_formula.text = formula
+        members[_TABLE_CALCULATED_COLUMN_MEMBER] = ElementTree.tostring(
+            table, encoding="utf-8", xml_declaration=True
+        )
 
     _rewrite_xlsx_parts(path, mutate)
 
@@ -5331,6 +5485,101 @@ def _build_governance_external_defined_name_source(root: Path) -> None:
     )
 
 
+def _build_structural_named_lambda_definition(root: Path) -> None:
+    """Build a pair whose reusable named-function body changes in isolation."""
+
+    def mutate(workbook: Workbook) -> None:
+        workbook.defined_names[_NAMED_LAMBDA_NAME] = DefinedName(
+            _NAMED_LAMBDA_NAME,
+            attr_text=_NAMED_LAMBDA_CANDIDATE_REFERS_TO,
+        )
+
+    truth = _truth(
+        case_id="structural.named_lambda_definition_changed",
+        title="A reusable named LAMBDA changes its calculation body",
+        family="structural",
+        review_expectation="block",
+        facts=[
+            {
+                "kind": "named_lambda_definition_changed",
+                "name": _NAMED_LAMBDA_NAME,
+                "workbook_member": "xl/workbook.xml",
+                "parameters": ["rate", "amount"],
+                "baseline_refers_to": _NAMED_LAMBDA_BASELINE_REFERS_TO,
+                "candidate_refers_to": _NAMED_LAMBDA_CANDIDATE_REFERS_TO,
+                "input_sheet": _NAMED_LAMBDA_INPUT_SHEET,
+                "rate_cell": _NAMED_LAMBDA_RATE_CELL,
+                "rate_value": _NAMED_LAMBDA_RATE_VALUE,
+                "amount_cell": _NAMED_LAMBDA_AMOUNT_CELL,
+                "amount_value": _NAMED_LAMBDA_AMOUNT_VALUE,
+                "formula_sheet": _NAMED_LAMBDA_MODEL_SHEET,
+                "formula_cell": _NAMED_LAMBDA_MODEL_CELL,
+                "formula": _NAMED_LAMBDA_MODEL_FORMULA,
+                "dashboard_sheet": _NAMED_LAMBDA_DASHBOARD_SHEET,
+                "dashboard_cell": _NAMED_LAMBDA_DASHBOARD_CELL,
+                "dashboard_formula": _NAMED_LAMBDA_DASHBOARD_FORMULA,
+            }
+        ],
+        must_reach=[
+            {
+                "source": {
+                    "sheet": _NAMED_LAMBDA_INPUT_SHEET,
+                    "cell": _NAMED_LAMBDA_RATE_CELL,
+                },
+                "targets": [
+                    {
+                        "sheet": _NAMED_LAMBDA_MODEL_SHEET,
+                        "cell": _NAMED_LAMBDA_MODEL_CELL,
+                    },
+                    {
+                        "sheet": _NAMED_LAMBDA_DASHBOARD_SHEET,
+                        "cell": _NAMED_LAMBDA_DASHBOARD_CELL,
+                    },
+                ],
+            },
+            {
+                "source": {
+                    "sheet": _NAMED_LAMBDA_INPUT_SHEET,
+                    "cell": _NAMED_LAMBDA_AMOUNT_CELL,
+                },
+                "targets": [
+                    {
+                        "sheet": _NAMED_LAMBDA_MODEL_SHEET,
+                        "cell": _NAMED_LAMBDA_MODEL_CELL,
+                    },
+                    {
+                        "sheet": _NAMED_LAMBDA_DASHBOARD_SHEET,
+                        "cell": _NAMED_LAMBDA_DASHBOARD_CELL,
+                    },
+                ],
+            },
+            {
+                "source": {
+                    "sheet": _NAMED_LAMBDA_MODEL_SHEET,
+                    "cell": _NAMED_LAMBDA_MODEL_CELL,
+                },
+                "targets": [
+                    {
+                        "sheet": _NAMED_LAMBDA_DASHBOARD_SHEET,
+                        "cell": _NAMED_LAMBDA_DASHBOARD_CELL,
+                    }
+                ],
+            },
+        ],
+        coverage=[
+            "The pair changes only one xl/workbook.xml definedName text from =LAMBDA(rate,amount,rate*amount) to =LAMBDA(rate,amount,rate*(amount+10)). Inputs, ordinary formulas, calculation properties, workbook relationships, sheet declarations, and every other package member remain unchanged.",
+            "The fixture has one workbook-scoped defined name and no externalLink package or workbook externalReferences declaration. Model!B2 calls that name, but WCAB records the stored formula definition rather than evaluating the LAMBDA body or resolving all named-formula dependencies.",
+            "WCAB does not calculate a result, execute code, infer Excel-version support, inspect Name Manager behavior, or claim that a client recalculates, spills, or persists a value. The stable Model!B2-to-Dashboard!B4 path is local review context only.",
+        ],
+    )
+    _write_pair(
+        root / "structural" / "named_lambda_definition_changed",
+        _named_lambda_definition_workbook,
+        mutate,
+        truth,
+    )
+
+
 def _build_structural_chart_series_reference(root: Path) -> None:
     """Build a dashboard chart whose local value-series binding changes."""
 
@@ -5503,6 +5752,56 @@ def _build_structural_table_scope(root: Path) -> None:
         _structured_table_workbook,
         mutate,
         truth,
+    )
+
+
+def _build_structural_table_calculated_column_formula(root: Path) -> None:
+    """Build a pair whose Table-level calculated-column master changes."""
+
+    directory = root / "structural" / "table_calculated_column_formula_changed"
+    directory.mkdir(parents=True, exist_ok=True)
+    baseline = directory / "baseline.xlsx"
+    candidate = directory / "candidate.xlsx"
+    _save_workbook(_table_calculated_column_formula_workbook(), baseline)
+    _save_workbook(_table_calculated_column_formula_workbook(), candidate)
+    _set_table_calculated_column_formula(
+        baseline,
+        formula=_TABLE_CALCULATED_COLUMN_BASELINE_FORMULA,
+    )
+    _set_table_calculated_column_formula(
+        candidate,
+        formula=_TABLE_CALCULATED_COLUMN_CANDIDATE_FORMULA,
+    )
+    _write_json(
+        directory / "truth.json",
+        _truth(
+            case_id="structural.table_calculated_column_formula_changed",
+            title="An Excel Table calculated-column master changes without a cell edit",
+            family="structural",
+            review_expectation="block",
+            facts=[
+                {
+                    "kind": "table_calculated_column_formula_changed",
+                    "table_sheet": _TABLE_CALCULATED_COLUMN_SHEET,
+                    "table_member": _TABLE_CALCULATED_COLUMN_MEMBER,
+                    "table": _TABLE_CALCULATED_COLUMN_NAME,
+                    "table_ref": _TABLE_CALCULATED_COLUMN_REF,
+                    "calculated_column_id": _TABLE_CALCULATED_COLUMN_ID,
+                    "calculated_column_name": _TABLE_CALCULATED_COLUMN_HEADER,
+                    "baseline_formula": _TABLE_CALCULATED_COLUMN_BASELINE_FORMULA,
+                    "candidate_formula": _TABLE_CALCULATED_COLUMN_CANDIDATE_FORMULA,
+                    "stable_formula_cells": list(_TABLE_CALCULATED_COLUMN_STABLE_FORMULA_CELLS),
+                    "dashboard_sheet": _TABLE_CALCULATED_COLUMN_DASHBOARD_SHEET,
+                    "dashboard_cell": _TABLE_CALCULATED_COLUMN_DASHBOARD_CELL,
+                    "dashboard_formula": _TABLE_CALCULATED_COLUMN_DASHBOARD_FORMULA,
+                }
+            ],
+            coverage=[
+                "The pair changes only xl/tables/table1.xml tableColumn/calculatedColumnFormula text from A2*B2 to A2*(B2+1). The Table name, range, headers, direct worksheet-to-Table relationship, ordinary Ledger!C2:C4 formulas, dashboard formula, calculation properties, and every other package member remain unchanged.",
+                "The raw calculatedColumnFormula is a Table-level formula master. WCAB records that stored declaration and its local Table binding only; it does not fill formulas down a column, reconcile the stored cell formulas to the master, evaluate a structured reference, or infer a total.",
+                "WCAB does not open Excel, calculate a workbook, apply a calculated-column update, add a row, render a Table, or claim client behavior. The stable Dashboard!B4 structured-reference formula is review context only.",
+            ],
+        ),
     )
 
 
@@ -5699,6 +5998,7 @@ _BUILDERS: tuple[Callable[[Path], None], ...] = (
     _build_governance_external_workbook_link_update_policy,
     _build_governance_external_workbook_link_source,
     _build_governance_external_defined_name_source,
+    _build_structural_named_lambda_definition,
     _build_structural_pivot_data_field_aggregation,
     _build_structural_pivot_slicer_selection,
     _build_structural_power_query_m_filter,
@@ -5709,6 +6009,7 @@ _BUILDERS: tuple[Callable[[Path], None], ...] = (
     _build_structural_three_d_scope,
     _build_structural_formula_rewrite,
     _build_structural_table_scope,
+    _build_structural_table_calculated_column_formula,
     _build_structural_dynamic_reference,
     _build_structural_dynamic_reference_drivers,
     _build_portfolio_external_driver,
@@ -5750,6 +6051,7 @@ CASE_IDS = (
     "governance.external_workbook_link_update_on_open",
     "governance.external_workbook_link_source_changed",
     "governance.external_defined_name_source_changed",
+    "structural.named_lambda_definition_changed",
     "structural.pivot_data_field_aggregation_changed",
     "structural.pivot_slicer_selection_changed",
     "structural.power_query_m_filter_changed",
@@ -5760,6 +6062,7 @@ CASE_IDS = (
     "structural.three_d_scope_expansion",
     "structural.formula_rewrite_after_column_insert",
     "structural.structured_table_scope_expansion",
+    "structural.table_calculated_column_formula_changed",
     "structural.dynamic_reference_introduced",
     "structural.indirect_reference_driver_changed",
     "structural.offset_reference_driver_changed",

@@ -34,12 +34,25 @@ gates, static analyzers, and agent workflows that propose workbook edits.
 
 ## Scope and non-goals
 
-Version `0.33` covers formula-to-value replacements, formula reference drift,
+Version `0.34` covers formula-to-value replacements, formula reference drift,
 value changes with downstream effects, external formula references, named
 ranges, data validation, conditional formatting, sheet visibility, direct cell
 and workbook-structure protection, calculation settings, static cycles,
 portfolio dependencies, formula refactors, 3-D-reference scope changes, and Excel Table scope changes
 that leave a structured-reference formula textually unchanged. It also covers
+one Table-level calculated-column master whose raw
+`tableColumn/calculatedColumnFormula` changes while the Table binding, ordinary
+row formulas, structured-reference dashboard formula, calculation properties,
+and every package member except `xl/tables/table1.xml` remain fixed. It records
+the stored master only: it does not fill a column, reconcile a master with row
+formulas, evaluate a structured reference, infer a total, or claim client
+behavior. It also covers one workbook-scoped reusable `ScenarioValue` named
+`LAMBDA` whose stored calculation body changes while input cells, its calling
+`Model!B2` formula, dashboard consumer, calculation properties, workbook
+relationships, and every package member except `xl/workbook.xml` remain fixed.
+It records the formula definition only: it does not calculate a result, infer
+Excel-version support, or claim that a client recalculates, spills, or persists
+a value. It also covers
 new `INDIRECT` references whose dependency target comes from workbook text,
 unchanged `INDIRECT` and `OFFSET` formulas whose address or displacement driver
 changes, an external-data connection whose refresh-on-open behavior changes
@@ -347,6 +360,17 @@ validator independently establishes the exact stored text, absence of an
 `externalLink` package, stable formulas, and workbook-XML-only boundary. Neither
 layer resolves, opens, fetches, authenticates to, trusts, refreshes, calculates,
 or otherwise interacts with either source, or claims a client result. For the
+named-LAMBDA case, it requires FormulaFence's exact `ScenarioValue`
+`defined_name_changed` record and matching `FF008`; WCAB independently proves
+the LAMBDA body text, one-name workbook boundary, stable inputs/formulas, and
+workbook-XML-only change. Neither layer evaluates the function or claims a
+client result. For the Table calculated-column case, it requires FormulaFence's
+exact redacted `table_definition_changed` profile, its
+`calculated_column_formula_material_changed` flag, and `FF013`. FormulaFence
+does not expose the formula-master text; WCAB independently proves the exact
+`A2*B2` to `A2*(B2+1)` Table declaration, stable row/dashboard formulas, local
+relationship binding, and Table-part-only boundary. Neither layer fills a
+column, evaluates a structured reference, or claims a client result. For the
 sheet-protection sort case, it requires FormulaFence's exact
 `sheet_protection_changed` profile and high-severity `FF022`: one protected
 `Controls` worksheet retains every locked action except `sort`. WCAB's raw

@@ -225,6 +225,21 @@ of an `externalLink` package and `externalReferences` declaration, stable
 formula context, and workbook-XML-only package difference. Neither layer
 resolves, opens, fetches, authenticates to, trusts, refreshes, calculates, or
 otherwise interacts with a source, or claims a client result.
+For the named-LAMBDA case, the adapter requires one exact
+`defined_name_changed` record and `FF008` whose before/after strings match the
+generated `ScenarioValue` LAMBDA body. FormulaFence does not establish the raw
+package boundary. WCAB's validator independently proves the one-name workbook
+shape, exact body transition, stable inputs/calling formula/dashboard path, and
+workbook-XML-only difference. Neither layer evaluates the function, calculates
+a result, infers Excel-version support, or claims client behavior.
+For the Table calculated-column case, the adapter requires one exact
+`table_definition_changed` record and `FF013` with the stable one-Table
+profile and `calculated_column_formula_material_changed=true`. FormulaFence
+intentionally does not expose the master text. WCAB's validator independently
+proves the exact generated master transition, worksheet-to-Table relationship,
+stable row/dashboard formulas, and Table-part-only difference. Neither layer
+fills a column, reconciles a master with row formulas, calculates a structured
+reference, infers a total, or claims client behavior.
 For the sheet-protection sort-permission case, it requires one exact
 `sheet_protection_changed` record with high-severity `FF022`: the protected
 `Controls` profile must retain every action lock except `sort`, which moves from

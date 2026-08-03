@@ -1,0 +1,84 @@
+{
+  "coverage": [
+    "The pair changes only one xl/workbook.xml definedName text from =LAMBDA(rate,amount,rate*amount) to =LAMBDA(rate,amount,rate*(amount+10)). Inputs, ordinary formulas, calculation properties, workbook relationships, sheet declarations, and every other package member remain unchanged.",
+    "The fixture has one workbook-scoped defined name and no externalLink package or workbook externalReferences declaration. Model!B2 calls that name, but WCAB records the stored formula definition rather than evaluating the LAMBDA body or resolving all named-formula dependencies.",
+    "WCAB does not calculate a result, execute code, infer Excel-version support, inspect Name Manager behavior, or claim that a client recalculates, spills, or persists a value. The stable Model!B2-to-Dashboard!B4 path is local review context only."
+  ],
+  "coverage_expectations": [],
+  "facts": [
+    {
+      "amount_cell": "B3",
+      "amount_value": 100,
+      "baseline_refers_to": "=LAMBDA(rate,amount,rate*amount)",
+      "candidate_refers_to": "=LAMBDA(rate,amount,rate*(amount+10))",
+      "dashboard_cell": "B4",
+      "dashboard_formula": "=Model!$B$2",
+      "dashboard_sheet": "Dashboard",
+      "formula": "=ScenarioValue(Inputs!B2,Inputs!B3)",
+      "formula_cell": "B2",
+      "formula_sheet": "Model",
+      "input_sheet": "Inputs",
+      "kind": "named_lambda_definition_changed",
+      "name": "ScenarioValue",
+      "parameters": [
+        "rate",
+        "amount"
+      ],
+      "rate_cell": "B2",
+      "rate_value": 0.08,
+      "workbook_member": "xl/workbook.xml"
+    }
+  ],
+  "family": "structural",
+  "id": "structural.named_lambda_definition_changed",
+  "must_reach": [
+    {
+      "source": {
+        "cell": "B2",
+        "sheet": "Inputs"
+      },
+      "targets": [
+        {
+          "cell": "B2",
+          "sheet": "Model"
+        },
+        {
+          "cell": "B4",
+          "sheet": "Dashboard"
+        }
+      ]
+    },
+    {
+      "source": {
+        "cell": "B3",
+        "sheet": "Inputs"
+      },
+      "targets": [
+        {
+          "cell": "B2",
+          "sheet": "Model"
+        },
+        {
+          "cell": "B4",
+          "sheet": "Dashboard"
+        }
+      ]
+    },
+    {
+      "source": {
+        "cell": "B2",
+        "sheet": "Model"
+      },
+      "targets": [
+        {
+          "cell": "B4",
+          "sheet": "Dashboard"
+        }
+      ]
+    }
+  ],
+  "review_expectation": "block",
+  "schema_version": 3,
+  "title": "A reusable named LAMBDA changes its calculation body",
+  "topology": "pair"
+}

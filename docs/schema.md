@@ -66,6 +66,10 @@ WCAB 0.33 adds a local defined-name external-source transition with unchanged
 formula cells and every package member except `xl/workbook.xml`, plus a
 protected-sheet sort permission transition with unchanged cells, formulas,
 styles, calculation properties, and every package member except its worksheet.
+WCAB 0.34 adds a workbook-scoped named-LAMBDA body transition with unchanged
+inputs and ordinary formulas, plus a Table calculated-column master transition
+with unchanged row and dashboard formulas. Each isolates one raw formula
+definition in its owning package part.
 Version 2 remains
 available in the immutable v0.2.0 and v0.3.0 releases.
 
@@ -133,6 +137,7 @@ Facts are observed directly from the fixture files by `wcab validate`.
 | `external_workbook_link_update_policy_changed` | `sheet`, `cell`, `formula`, `baseline_update_links`, `candidate_update_links` | The declared external-workbook formula remains unchanged while raw `workbookPr/@updateLinks` changes exactly from `never` to `always`; all other stored `workbookPr` attributes are unchanged. The validator does not resolve the source workbook. |
 | `external_workbook_link_source_changed` | `sheet`, `cell`, `formula`, `workbook_member`, `workbook_relationships_member`, `workbook_relationship_id`, `workbook_relationship_type`, `external_link_member`, `external_link_relationships_member`, `external_link_content_type`, `external_link_relationship_id`, `external_link_relationship_type`, `external_sheet`, `target_mode`, `baseline_target`, `candidate_target`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | One external-workbook formula, workbook external-reference relationship, `externalLink`/`externalBook` declaration, content type, source-sheet name, local downstream formula, and calculation properties remain unchanged while one external `externalLinkPath` relationship `Target` moves between declared reserved URLs. The validator reads local OOXML only; it does not resolve, open, fetch, authenticate to, trust, refresh, calculate, or claim that a client updates a link or returns a value. |
 | `external_defined_name_source_changed` | `name`, `workbook_member`, `baseline_refers_to`, `candidate_refers_to`, `formula_sheet`, `formula_cell`, `formula`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | One local `definedName` text moves between declared qualified external-workbook expressions while the name, local formula context, calculation properties, sheet declarations, workbook relationships, and every package member except `xl/workbook.xml` remain unchanged. The compact package deliberately has no `externalLink` part or `externalReferences` declaration. The validator does not resolve, open, fetch, authenticate to, trust, refresh, calculate, or claim a client result. |
+| `named_lambda_definition_changed` | `name`, `workbook_member`, `parameters`, `baseline_refers_to`, `candidate_refers_to`, `input_sheet`, `rate_cell`, `rate_value`, `amount_cell`, `amount_value`, `formula_sheet`, `formula_cell`, `formula`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | One workbook-scoped named `LAMBDA` body changes while its declared inputs, calling formula, dashboard consumer, calculation properties, sheet declarations, workbook relationships, and every package member except `xl/workbook.xml` remain unchanged. The compact package has no `externalLink` part or `externalReferences` declaration. The validator does not evaluate a LAMBDA, calculate a result, infer client/version support, or claim a client result. |
 | `array_formula_mode_changed` | `sheet`, `cell`, `formula`, `baseline_mode`, `candidate_mode`, `baseline_output_range`, `candidate_output_range` | The declared unchanged array anchor moves from `legacy_cse` to `dynamic`, with its stored formula text and output range exactly as declared. The validator reads the raw OOXML cell-metadata binding. |
 | `static_cycle_introduced` | `cells` | Every declared direct A1 cell reaches itself in the local static dependency graph. |
 | `three_d_scope_changed` | `formula_sheet`, `formula_cell`, `inserted_sheet`, `after_sheet`, `before_sheet` | Formula text remains unchanged while a sheet is inserted inside the declared tab span. |
@@ -140,6 +145,7 @@ Facts are observed directly from the fixture files by `wcab validate`.
 | `portfolio_value_changed` | `workbook`, `sheet`, `cell` | A literal value differs between paired portfolio members. |
 | `portfolio_external_reference` | `workbook`, `sheet`, `cell`, `target_workbook` | The local portfolio model contains the declared external workbook reference. |
 | `structured_table_scope_changed` | `table_sheet`, `table`, `baseline_ref`, `candidate_ref`, `formula_sheet`, `formula_cell` | A stored Excel Table range changes while the declared formula remains textually unchanged and retains a reference to that table. |
+| `table_calculated_column_formula_changed` | `table_sheet`, `table_member`, `table`, `table_ref`, `calculated_column_id`, `calculated_column_name`, `baseline_formula`, `candidate_formula`, `stable_formula_cells`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | One local Table calculated-column formula master changes while the Table binding/range/headers, ordinary row formulas, structured-reference dashboard formula, calculation properties, and every package member except its Table definition remain unchanged. The validator does not fill a column, reconcile master and row formulas, calculate a structured reference, infer a total, or claim client behavior. |
 | `dynamic_formula_reference_added` | `sheet`, `cell`, `functions` | A previously direct formula changes to one containing the declared introduced dynamic-reference functions. |
 
 ## List data-validation source
@@ -495,6 +501,46 @@ properties and sheet declarations, and `xl/workbook.xml` as the only package
 difference. It does not resolve, open, fetch, authenticate to, trust, refresh,
 calculate, or otherwise interact with either synthetic source, or claim that a
 client resolves the name or returns a value.
+
+## Named LAMBDA definition
+
+Microsoft's [LAMBDA guidance](https://support.microsoft.com/en-us/excel/functions/lambda-function)
+describes assigning a named LAMBDA in Name Manager so it is callable as a
+reusable custom function throughout the workbook. Its [defined-names
+guidance](https://support.microsoft.com/en-US/Excel/get-started/define-and-use-names-in-formulas)
+also identifies names as reusable formula definitions. The name's stored body
+is therefore a review surface even when each caller's ordinary cell formula is
+unchanged.
+
+WCAB 0.34 keeps `Inputs!B2=0.08`, `Inputs!B3=100`,
+`Model!B2=ScenarioValue(Inputs!B2,Inputs!B3)`, and
+`Dashboard!B4=Model!$B$2` fixed while the sole workbook-level `ScenarioValue`
+definition moves exactly from `=LAMBDA(rate,amount,rate*amount)` to
+`=LAMBDA(rate,amount,rate*(amount+10))`. The validator requires one bare
+workbook-scoped name, no external-reference declarations, identical raw input
+and ordinary formula context, equal calculation properties, and
+`xl/workbook.xml` as the sole changed member. It reads the stored body only; it
+does not evaluate a LAMBDA, resolve all named-formula dependencies, calculate a
+result, infer Excel-version support, or claim client behavior.
+
+## Table calculated-column formula master
+
+Microsoft's [calculated-column guidance](https://support.microsoft.com/en-US/Excel/use-calculated-columns-in-an-excel-table)
+documents that one formula in an Excel Table can be filled throughout a column.
+The Open XML [`calculatedColumnFormula` reference](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.spreadsheet.calculatedcolumnformula?view=openxml-3.0.1)
+defines the `tableColumn` child that stores that formula. This is a Table-level
+formula definition, separate from a worksheet formula-cell element.
+
+WCAB 0.34 keeps the local `ScenarioLedger` binding at `Ledger!A1:C4`, its
+headers, `Ledger!C2:C4` ordinary formulas, and
+`Dashboard!B4=SUM(ScenarioLedger[Calculated amount])` fixed. The third Table
+column's sole raw `calculatedColumnFormula` text moves from `A2*B2` to
+`A2*(B2+1)`, with `xl/tables/table1.xml` as the sole package difference. The
+validator follows the worksheet's one local Table relationship, checks the
+compact Table shape and formula-master text, and compares the Table part after
+erasing only that text. It does not fill a column, reconcile row formulas to a
+master, calculate a structured reference, infer a total, add rows, open Excel,
+or claim client behavior.
 
 ## Workbook serial-date system
 

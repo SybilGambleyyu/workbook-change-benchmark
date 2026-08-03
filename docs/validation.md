@@ -1,6 +1,6 @@
 # Validation record
 
-This record describes the WCAB 0.33.0 / schema-version-3 validation run. It is
+This record describes the WCAB 0.34.0 / schema-version-3 validation run. It is
 reproducible from this repository; no network service or private workbook is
 required.
 
@@ -32,16 +32,16 @@ wcab validate --fixtures fixtures
 
 Results:
 
-- 49 cases: 48 paired-workbook cases and one directory portfolio case.
-- 51 observable truth facts across 39 `block` and 10 `review` cases.
+- 51 cases: 50 paired-workbook cases and one directory portfolio case.
+- 53 observable truth facts across 41 `block` and 10 `review` cases.
 - Three scoreable coverage expectations: one newly introduced `INDIRECT`
   boundary and two unchanged-formula selector changes (`INDIRECT` address text
   and `OFFSET` column displacement).
-- 150 generated fixture files: 100 workbooks, 49 truth manifests, and one JSONL
+- 156 generated fixture files: 104 workbooks, 51 truth manifests, and one JSONL
   case catalogue, all generated from source.
-- Two hundred eighteen unit tests passed locally under Python 3.13, including
+- Two hundred thirty-one unit tests passed locally under Python 3.13, including
   independent regeneration and byte-for-byte fixture-tree equality.
-- The fixture validator accepted all 49 cases.
+- The fixture validator accepted all 51 cases.
 - The external-data pair has identical package members except for
   `xl/connections.xml`; both archives pass ZIP integrity checks and remain
   readable by openpyxl. Its relationship-backed source is a non-routable
@@ -89,6 +89,27 @@ Results:
   validation run read local OOXML only: it did not resolve, open, fetch,
   authenticate to, trust, refresh, calculate, or otherwise interact with a
   source, or claim a client resolves the name or returns a value.
+- The named-LAMBDA definition pair has identical package members except for
+  `xl/workbook.xml`; both archives pass ZIP integrity checks and remain
+  readable by openpyxl. Its one workbook-scoped `ScenarioValue` definition
+  moves exactly from `=LAMBDA(rate,amount,rate*amount)` to
+  `=LAMBDA(rate,amount,rate*(amount+10))`, while `Inputs!B2=0.08`,
+  `Inputs!B3=100`, `Model!B2=ScenarioValue(Inputs!B2,Inputs!B3)`, its direct
+  `Dashboard!B4` consumer, calculation properties, sheet declarations, and
+  workbook relationships remain unchanged. Neither package has an
+  `externalReferences` declaration or an `xl/externalLinks/` member. The
+  validation run read local OOXML only: it did not evaluate the LAMBDA body,
+  calculate a workbook, infer Excel-version support, or claim a recalculated,
+  spilled, or persisted result.
+- The Table calculated-column formula pair has identical package members except
+  for `xl/tables/table1.xml`; both archives pass ZIP integrity checks and
+  remain readable by openpyxl. Its one `Ledger!A1:C4` `ScenarioLedger` Table,
+  worksheet-to-Table relationship, headers, `tableColumn` IDs, `autoFilter`,
+  raw `C2:C4` formulas, calculation properties, and
+  `Dashboard!B4=SUM(ScenarioLedger[Calculated amount])` remain unchanged while
+  the raw ID-3 `calculatedColumnFormula` moves exactly from `A2*B2` to
+  `A2*(B2+1)`. The validation run did not fill a calculated column, calculate
+  a workbook, infer stored results, or claim client behavior.
 - The sheet-protection sort-permission pair has identical package members
   except for `xl/worksheets/sheet1.xml`; both archives pass ZIP integrity
   checks and remain readable by openpyxl. Its `Controls` worksheet remains
@@ -283,7 +304,7 @@ Results:
 
 ## Distribution supplement
 
-The 0.33.0 release retains the one-row-per-case `manifest.jsonl` catalogue and
+The 0.34.0 release retains the one-row-per-case `manifest.jsonl` catalogue and
 the tool-neutral observation protocol at version 2. Each catalogue row retains
 the schema-version-3 truth contract and includes byte counts and SHA-256
 digests for the workbooks it names.
@@ -291,24 +312,24 @@ digests for the workbooks it names.
 Commands:
 
 ```bash
-python -m build --outdir /tmp/wcab-v033-dist
-twine check /tmp/wcab-v033-dist/*
-python -m venv /tmp/wcab-v033-wheel-test
-/tmp/wcab-v033-wheel-test/bin/python -m pip install \
-  /tmp/wcab-v033-dist/workbook_change_benchmark-0.33.0-py3-none-any.whl
-/tmp/wcab-v033-wheel-test/bin/python -c 'import wcab; print(wcab.__version__)'
-/tmp/wcab-v033-wheel-test/bin/wcab validate --fixtures fixtures
-/tmp/wcab-v033-wheel-test/bin/wcab manifest --fixtures fixtures --output /tmp/wcab-v033-wheel-manifest.jsonl
-cmp fixtures/manifest.jsonl /tmp/wcab-v033-wheel-manifest.jsonl
-/tmp/wcab-v033-wheel-test/bin/wcab observation-template --fixtures fixtures \
-  --output /tmp/wcab-v033-wheel-observations.json
-/tmp/wcab-v033-wheel-test/bin/wcab score --fixtures fixtures \
-  --observations /tmp/wcab-v033-wheel-observations.json
-python -m venv /tmp/wcab-v033-sdist-test
-/tmp/wcab-v033-sdist-test/bin/python -m pip install \
-  /tmp/wcab-v033-dist/workbook_change_benchmark-0.33.0.tar.gz
-/tmp/wcab-v033-sdist-test/bin/python -c 'import wcab; print(wcab.__version__)'
-/tmp/wcab-v033-sdist-test/bin/wcab validate --fixtures fixtures
+python -m build --outdir /tmp/wcab-v034-dist
+twine check /tmp/wcab-v034-dist/*
+python -m venv /tmp/wcab-v034-wheel-test
+/tmp/wcab-v034-wheel-test/bin/python -m pip install \
+  /tmp/wcab-v034-dist/workbook_change_benchmark-0.34.0-py3-none-any.whl
+/tmp/wcab-v034-wheel-test/bin/python -c 'import wcab; print(wcab.__version__)'
+/tmp/wcab-v034-wheel-test/bin/wcab validate --fixtures fixtures
+/tmp/wcab-v034-wheel-test/bin/wcab manifest --fixtures fixtures --output /tmp/wcab-v034-wheel-manifest.jsonl
+cmp fixtures/manifest.jsonl /tmp/wcab-v034-wheel-manifest.jsonl
+/tmp/wcab-v034-wheel-test/bin/wcab observation-template --fixtures fixtures \
+  --output /tmp/wcab-v034-wheel-observations.json
+/tmp/wcab-v034-wheel-test/bin/wcab score --fixtures fixtures \
+  --observations /tmp/wcab-v034-wheel-observations.json
+python -m venv /tmp/wcab-v034-sdist-test
+/tmp/wcab-v034-sdist-test/bin/python -m pip install \
+  /tmp/wcab-v034-dist/workbook_change_benchmark-0.34.0.tar.gz
+/tmp/wcab-v034-sdist-test/bin/python -c 'import wcab; print(wcab.__version__)'
+/tmp/wcab-v034-sdist-test/bin/wcab validate --fixtures fixtures
 ```
 
 Results:
@@ -318,14 +339,14 @@ Results:
   their uploaded assets in the GitHub release, avoiding a self-referential
   source-distribution checksum in this record.
 - Fresh Python 3.13 wheel and source-distribution installations both reported
-  version 0.33.0 and validated all 49 fixtures; both emitted byte-identical
+  version 0.34.0 and validated all 51 fixtures; both emitted byte-identical
   JSONL output.
-- The full 218-test suite, lint, and format checks passed locally under Python
+- The full 231-test suite, lint, and format checks passed locally under Python
   3.13.
 - The generated unsupported template scored as zero analyzed coverage, zero
   expected-fact recall, and zero coverage-disclosure recall, confirming that
   unsupported cases cannot become a pass.
-- The FormulaFence normalizer emitted 50 matched facts, one intentionally
+- The FormulaFence normalizer emitted 52 matched facts, one intentionally
   unmapped fact, three matched coverage declarations, and no invented review
   disposition.
 
@@ -340,12 +361,28 @@ wcab formulafence --fixtures fixtures --strict
 
 Results:
 
-- All 50 currently mappable diff/portfolio facts were observed.
+- All 52 currently mappable diff/portfolio facts were observed.
 - All three mappable coverage expectations were matched; no mapped fact,
-  coverage expectation, or targeted lint rule was missed across all 49 cases.
+  coverage expectation, or targeted lint rule was missed across all 51 cases.
 - The schema-version-2 structured Table scope case was observed as a
   `table_definition_changed` diff, even though its summary formula text stays
   unchanged.
+- The WCAB 0.34 named-LAMBDA case was observed as one exact
+  `ScenarioValue` `defined_name_changed` record and `FF008`, including the
+  generated before/after LAMBDA texts. FormulaFence did not expose the
+  package-member boundary or evaluate the name; WCAB independently established
+  the workbook-XML-only difference, stable inputs/formulas, and absence of
+  external-link declarations. Neither report calculated a workbook or claimed
+  a result.
+- The WCAB 0.34 Table calculated-column formula case was observed as one exact
+  `table_definition_changed` record and high-severity `FF013`. FormulaFence's
+  redacted profile retained the `ScenarioLedger` identity, `Ledger!A1:C4`
+  scope, headers, and row-count controls while reporting that its calculated
+  column formula materially changed; it did not expose the master text or a
+  package-member boundary. WCAB independently established the exact raw
+  ID-3 formula transition, stable row formulas/dashboard formula, and
+  Table-part-only difference. Neither report filled a column, calculated a
+  workbook, inferred results, or claimed client behavior.
 - The schema-version-3 introduced-dynamic case was observed as both a
   `dynamic_formula_reference_added` diff and `FF012` coverage warning.
 - The two WCAB 0.5 dynamic-driver cases were observed as an `Inputs!E12`

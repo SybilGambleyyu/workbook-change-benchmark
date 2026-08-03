@@ -72,9 +72,11 @@ _FACT_TO_CHANGE: dict[str, tuple[str, str | None]] = {
         "external_workbook_link_surfaces_changed",
         None,
     ),
+    "named_lambda_definition_changed": ("defined_name_changed", None),
     "static_cycle_introduced": ("formula_changed", None),
     "three_d_scope_changed": ("three_d_reference_scope_changed", "formula_location"),
     "structured_table_scope_changed": ("table_definition_changed", None),
+    "table_calculated_column_formula_changed": ("table_definition_changed", None),
     "dynamic_formula_reference_added": ("dynamic_formula_reference_added", "location"),
 }
 
@@ -536,6 +538,124 @@ def _external_defined_name_source_finding_observed(
     return finding.get(
         "rule_id"
     ) == "FF081" and _external_defined_name_source_surface_details_observed(
+        finding.get("details"), fact
+    )
+
+
+def _named_lambda_definition_fact_is_expected(fact: dict[str, Any]) -> bool:
+    """Check WCAB's compact reusable named-LAMBDA contract first."""
+
+    return (
+        fact.get("name") == "ScenarioValue"
+        and fact.get("workbook_member") == "xl/workbook.xml"
+        and fact.get("parameters") == ["rate", "amount"]
+        and fact.get("baseline_refers_to") == "=LAMBDA(rate,amount,rate*amount)"
+        and fact.get("candidate_refers_to") == "=LAMBDA(rate,amount,rate*(amount+10))"
+        and fact.get("input_sheet") == "Inputs"
+        and fact.get("rate_cell") == "B2"
+        and fact.get("rate_value") == 0.08
+        and fact.get("amount_cell") == "B3"
+        and fact.get("amount_value") == 100
+        and fact.get("formula_sheet") == "Model"
+        and fact.get("formula_cell") == "B2"
+        and fact.get("formula") == "=ScenarioValue(Inputs!B2,Inputs!B3)"
+        and fact.get("dashboard_sheet") == "Dashboard"
+        and fact.get("dashboard_cell") == "B4"
+        and fact.get("dashboard_formula") == "=Model!$B$2"
+    )
+
+
+def _named_lambda_definition_observed(change: dict[str, Any], fact: dict[str, Any]) -> bool:
+    """Require FormulaFence's exact named-formula before/after record."""
+
+    return (
+        change.get("kind") == "defined_name_changed"
+        and _named_lambda_definition_fact_is_expected(fact)
+        and change.get("details")
+        == {
+            "name": "ScenarioValue",
+            "before": "=LAMBDA(rate,amount,rate*amount)",
+            "after": "=LAMBDA(rate,amount,rate*(amount+10))",
+        }
+    )
+
+
+def _named_lambda_definition_finding_observed(
+    finding: dict[str, Any], fact: dict[str, Any]
+) -> bool:
+    """Require FormulaFence's corresponding defined-name finding."""
+
+    return (
+        finding.get("rule_id") == "FF008"
+        and _named_lambda_definition_fact_is_expected(fact)
+        and finding.get("details")
+        == {
+            "before": "=LAMBDA(rate,amount,rate*amount)",
+            "after": "=LAMBDA(rate,amount,rate*(amount+10))",
+        }
+    )
+
+
+def _table_calculated_column_formula_fact_is_expected(fact: dict[str, Any]) -> bool:
+    """Check WCAB's stored Table formula-master contract first."""
+
+    return (
+        fact.get("table_sheet") == "Ledger"
+        and fact.get("table_member") == "xl/tables/table1.xml"
+        and fact.get("table") == "ScenarioLedger"
+        and fact.get("table_ref") == "A1:C4"
+        and fact.get("calculated_column_id") == 3
+        and fact.get("calculated_column_name") == "Calculated amount"
+        and fact.get("baseline_formula") == "A2*B2"
+        and fact.get("candidate_formula") == "A2*(B2+1)"
+        and fact.get("stable_formula_cells") == ["C2", "C3", "C4"]
+        and fact.get("dashboard_sheet") == "Dashboard"
+        and fact.get("dashboard_cell") == "B4"
+        and fact.get("dashboard_formula") == "=SUM(ScenarioLedger[Calculated amount])"
+    )
+
+
+def _table_calculated_column_formula_details_observed(details: Any, fact: dict[str, Any]) -> bool:
+    """Require FormulaFence's exact redacted calculated-column evidence.
+
+    FormulaFence intentionally exposes that a Table formula master materially
+    changed, without publishing the master text itself. WCAB's raw validator
+    establishes that text and its package boundary independently; this adapter
+    requires the stable Table identity plus FormulaFence's FF013 signal.
+    """
+
+    if not _table_calculated_column_formula_fact_is_expected(fact):
+        return False
+    snapshot = {
+        "name": "ScenarioLedger",
+        "sheet": "Ledger",
+        "ref": "A1:C4",
+        "columns": ["Units", "Rate", "Calculated amount"],
+        "header_row_count": 1,
+        "totals_row_count": 0,
+    }
+    return details == {
+        "before": snapshot,
+        "after": snapshot,
+        "calculated_column_formula_material_changed": True,
+        "name": "ScenarioLedger",
+    }
+
+
+def _table_calculated_column_formula_observed(change: dict[str, Any], fact: dict[str, Any]) -> bool:
+    """Match FormulaFence's Table-definition change record."""
+
+    return change.get("kind") == "table_definition_changed" and (
+        _table_calculated_column_formula_details_observed(change.get("details"), fact)
+    )
+
+
+def _table_calculated_column_formula_finding_observed(
+    finding: dict[str, Any], fact: dict[str, Any]
+) -> bool:
+    """Require FormulaFence's matching high-severity FF013 finding."""
+
+    return finding.get("rule_id") == "FF013" and _table_calculated_column_formula_details_observed(
         finding.get("details"), fact
     )
 
@@ -2228,6 +2348,16 @@ def evaluate_diff_case(case_dir: str | Path, *, executable: str = "formulafence"
                     if isinstance(finding, dict)
                 )
             )
+        if kind == "named_lambda_definition_changed":
+            observed = any(
+                _named_lambda_definition_observed(change, fact)
+                for change in changes
+                if isinstance(change, dict)
+            ) and any(
+                _named_lambda_definition_finding_observed(finding, fact)
+                for finding in findings
+                if isinstance(finding, dict)
+            )
         if kind == "iterative_calculation_enabled":
             observed = any(
                 _iterative_calculation_enabled_observed(change, fact)
@@ -2445,6 +2575,16 @@ def evaluate_diff_case(case_dir: str | Path, *, executable: str = "formulafence"
                 _array_formula_mode_observed(change, fact)
                 for change in changes
                 if isinstance(change, dict)
+            )
+        if kind == "table_calculated_column_formula_changed":
+            observed = any(
+                _table_calculated_column_formula_observed(change, fact)
+                for change in changes
+                if isinstance(change, dict)
+            ) and any(
+                _table_calculated_column_formula_finding_observed(finding, fact)
+                for finding in findings
+                if isinstance(finding, dict)
             )
         (matched if observed else missed).append(str(kind))
 

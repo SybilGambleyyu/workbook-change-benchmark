@@ -22,7 +22,7 @@ configs:
 # Workbook Change Assurance Benchmark (WCAB)
 
 WCAB is an open, deterministic benchmark for tools that review changes to
-Excel workbooks. Each of its 49 synthetic cases supplies baseline/candidate
+Excel workbooks. Each of its 51 synthetic cases supplies baseline/candidate
 fixtures, explicit observable change facts, a reference review
 disposition, documented coverage boundaries, and—in relevant cases—a
 machine-matchable coverage expectation.
@@ -39,7 +39,9 @@ static analyzer, or editing agent preserves material review evidence when a
 workbook changes. The current cases include formula-to-value replacements,
 reference drift, input propagation, external references, named ranges,
 controls, calculation state, cycles, structural changes (including an Excel
-Table scope expansion with unchanged structured-reference text, a newly
+Table scope expansion with unchanged structured-reference text, a Table
+calculated-column master whose raw formula changes while worksheet cells and
+the structured-reference dashboard formula remain fixed, a newly
 introduced `INDIRECT` reference, unchanged `INDIRECT`/`OFFSET` formulas whose
 dynamic selectors change, an external-data connection that begins refreshing
 when the workbook opens, a local worksheet-backed PivotTable cache whose
@@ -73,6 +75,8 @@ external-workbook formula whose local `externalLink` package source target
 moves between reserved `example.invalid` URLs while its formula text and local
 dependency remain fixed, a local `ScenarioRate` defined name whose qualified
 external-workbook source text changes while its `Model!B2` formula and local
+dashboard consumer remain fixed, a workbook-scoped `ScenarioValue` named
+LAMBDA whose stored body changes while its inputs, calling formula, and local
 dashboard consumer remain fixed, a protected `Controls` worksheet whose stored
 sort permission moves from locked to permitted while its cells and formula
 context remain fixed, an unchanged
@@ -142,6 +146,14 @@ The external-defined-name source case records local `definedName` text only:
 it has no `externalLink` package, does not resolve, open, fetch, authenticate
 to, trust, refresh, calculate, or otherwise interact with either synthetic
 source, and does not claim that a client resolves the name or returns a value.
+
+The named-LAMBDA case records local `definedName` formula text only: it does
+not evaluate the function, calculate a result, infer Excel-version support, or
+claim that a client recalculates, spills, or persists a value.
+
+The Table calculated-column case records a Table-level formula master only: it
+does not fill a column, reconcile that master with row formulas, calculate a
+structured reference, infer a total, or claim client behavior.
 
 The sheet-protection sort case records a stored action permission only: it does
 not test a password, encryption, authorization, editable ranges, an actual

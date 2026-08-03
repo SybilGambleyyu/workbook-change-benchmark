@@ -113,6 +113,48 @@ formula context only. It never resolves, opens, fetches, authenticates to,
 trusts, refreshes, or calculates either synthetic source, and it does not claim
 that a client resolves the name or returns a value.
 
+## Named LAMBDAs are workbook-scoped formula programs, not ordinary cells
+
+Microsoft's [LAMBDA guidance](https://support.microsoft.com/en-us/excel/functions/lambda-function)
+describes naming a LAMBDA in Name Manager so it becomes a reusable custom
+function available throughout a workbook. Its [names-in-formulas guidance](https://support.microsoft.com/en-US/Excel/get-started/define-and-use-names-in-formulas)
+also calls out defining reusable formulas with LET and LAMBDA. A cell-level
+formula diff can therefore leave an invocation unchanged while the callable
+formula body behind its friendly name changes.
+
+WCAB 0.34 isolates that review surface in one original compact workbook. The
+only stored difference is the workbook-level `ScenarioValue` definition moving
+from `=LAMBDA(rate,amount,rate*amount)` to
+`=LAMBDA(rate,amount,rate*(amount+10))`. `Inputs!B2=0.08`,
+`Inputs!B3=100`, `Model!B2=ScenarioValue(Inputs!B2,Inputs!B3)`, and
+`Dashboard!B4=Model!$B$2` remain unchanged, as do calculation properties,
+workbook relationships, and every package member except `xl/workbook.xml`.
+The package has no external references or external-link part. The validator
+reads the stored definition and local ordinary formula paths only; it does not
+evaluate a LAMBDA, expand every named-formula dependency, calculate a result,
+infer client/version support, or claim a client recalculates, spills, or saves
+a value.
+
+## Table calculated-column masters can change outside worksheet cells
+
+Microsoft's [calculated-column guidance](https://support.microsoft.com/en-US/Excel/use-calculated-columns-in-an-excel-table)
+explains that a formula entered in one Excel Table column is filled through the
+column, and that later edits expand through the calculated column. In Open XML,
+[`calculatedColumnFormula`](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.spreadsheet.calculatedcolumnformula?view=openxml-3.0.1)
+is the `tableColumn` child that stores the formula used for each cell in that
+column. This is a stored formula program distinct from a worksheet `<f>` cell
+node and from a Table range change.
+
+WCAB 0.34 therefore keeps a local `ScenarioLedger` Table at `Ledger!A1:C4`,
+its worksheet-to-Table relationship, headers, ordinary `Ledger!C2:C4` formulas,
+and `Dashboard!B4=SUM(ScenarioLedger[Calculated amount])` fixed. Only the
+third Table column's raw `calculatedColumnFormula` text moves from `A2*B2` to
+`A2*(B2+1)`, so `xl/tables/table1.xml` is the sole changed package member. The
+validator follows that local binding and compares the Table part after erasing
+only the master text. It does not fill formulas, reconcile the master with
+stored row formulas, calculate a structured reference, infer a total, add a
+row, render a Table, open Excel, or claim client behavior.
+
 ## Iterative calculation and intentional circular models
 
 Microsoft's [circular-reference guidance](https://support.microsoft.com/en-US/Excel/remove-or-allow-a-circular-reference-in-excel)

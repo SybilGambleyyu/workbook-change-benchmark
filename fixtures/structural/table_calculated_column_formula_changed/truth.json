@@ -1,0 +1,36 @@
+{
+  "coverage": [
+    "The pair changes only xl/tables/table1.xml tableColumn/calculatedColumnFormula text from A2*B2 to A2*(B2+1). The Table name, range, headers, direct worksheet-to-Table relationship, ordinary Ledger!C2:C4 formulas, dashboard formula, calculation properties, and every other package member remain unchanged.",
+    "The raw calculatedColumnFormula is a Table-level formula master. WCAB records that stored declaration and its local Table binding only; it does not fill formulas down a column, reconcile the stored cell formulas to the master, evaluate a structured reference, or infer a total.",
+    "WCAB does not open Excel, calculate a workbook, apply a calculated-column update, add a row, render a Table, or claim client behavior. The stable Dashboard!B4 structured-reference formula is review context only."
+  ],
+  "coverage_expectations": [],
+  "facts": [
+    {
+      "baseline_formula": "A2*B2",
+      "calculated_column_id": 3,
+      "calculated_column_name": "Calculated amount",
+      "candidate_formula": "A2*(B2+1)",
+      "dashboard_cell": "B4",
+      "dashboard_formula": "=SUM(ScenarioLedger[Calculated amount])",
+      "dashboard_sheet": "Dashboard",
+      "kind": "table_calculated_column_formula_changed",
+      "stable_formula_cells": [
+        "C2",
+        "C3",
+        "C4"
+      ],
+      "table": "ScenarioLedger",
+      "table_member": "xl/tables/table1.xml",
+      "table_ref": "A1:C4",
+      "table_sheet": "Ledger"
+    }
+  ],
+  "family": "structural",
+  "id": "structural.table_calculated_column_formula_changed",
+  "must_reach": [],
+  "review_expectation": "block",
+  "schema_version": 3,
+  "title": "An Excel Table calculated-column master changes without a cell edit",
+  "topology": "pair"
+}

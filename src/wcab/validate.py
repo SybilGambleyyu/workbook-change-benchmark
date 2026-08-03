@@ -38,6 +38,7 @@ _NAMED_SHEET_VIEW_RELATIONSHIP = (
 )
 _XML_SCHEMA_NS = "http://www.w3.org/2001/XMLSchema"
 _XML_MAP_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/xmlMaps"
+_TABLE_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/table"
 _TABLE_SINGLE_CELLS_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/tableSingleCells"
 _WEB_EXTENSION_TASKPANES_NS = "http://schemas.microsoft.com/office/webextensions/taskpanes/2010/11"
 _WEB_EXTENSION_NS = "http://schemas.microsoft.com/office/webextensions/webextension/2010/11"
@@ -2924,6 +2925,197 @@ def _workbook_without_external_defined_name_source(path: Path) -> bytes | None:
         return None
     definition.text = None
     return ElementTree.tostring(workbook, encoding="utf-8", xml_declaration=True)
+
+
+def _raw_named_lambda_definition_state(path: Path) -> dict[str, Any] | None:
+    """Read WCAB's one workbook-scoped named LAMBDA declaration.
+
+    This is a deliberately narrow reader for the generated fixture. It
+    observes the stored defined-name text and confirms that the compact
+    package has no relationship-backed external-workbook declarations; it
+    neither evaluates the LAMBDA nor expands its dependencies.
+    """
+
+    try:
+        with ZipFile(path) as archive:
+            workbook = ElementTree.fromstring(archive.read("xl/workbook.xml"))
+            external_link_members = tuple(
+                sorted(name for name in archive.namelist() if name.startswith("xl/externalLinks/"))
+            )
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    defined_names_tag = f"{{{_SPREADSHEETML_NS}}}definedNames"
+    defined_name_tag = f"{{{_SPREADSHEETML_NS}}}definedName"
+    external_references_tag = f"{{{_SPREADSHEETML_NS}}}externalReferences"
+    containers = workbook.findall(defined_names_tag)
+    if len(containers) != 1 or containers[0].attrib or len(containers[0]) != 1:
+        return None
+    definition = containers[0][0]
+    if definition.tag != defined_name_tag or set(definition.attrib) != {"name"}:
+        return None
+    name = definition.get("name")
+    refers_to = definition.text
+    if not isinstance(name, str) or not name or not isinstance(refers_to, str) or not refers_to:
+        return None
+    return {
+        "workbook_member": "xl/workbook.xml",
+        "name": name,
+        "attributes": tuple(sorted(definition.attrib.items())),
+        "refers_to": refers_to,
+        "external_references_count": len(workbook.findall(external_references_tag)),
+        "external_link_members": external_link_members,
+    }
+
+
+def _workbook_without_named_lambda_definition(path: Path) -> bytes | None:
+    """Return raw workbook XML with WCAB's sole LAMBDA body erased."""
+
+    if _raw_named_lambda_definition_state(path) is None:
+        return None
+    try:
+        with ZipFile(path) as archive:
+            workbook = ElementTree.fromstring(archive.read("xl/workbook.xml"))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    defined_names = workbook.find(f"{{{_SPREADSHEETML_NS}}}definedNames")
+    if defined_names is None or len(defined_names) != 1:
+        return None
+    definition = defined_names[0]
+    if definition.tag != f"{{{_SPREADSHEETML_NS}}}definedName" or definition.text is None:
+        return None
+    definition.text = None
+    return ElementTree.tostring(workbook, encoding="utf-8", xml_declaration=True)
+
+
+def _raw_table_calculated_column_formula_state(
+    path: Path, sheet_name: str
+) -> dict[str, Any] | None:
+    """Read WCAB's local Table binding and its sole formula master.
+
+    The reader follows only one internal worksheet-to-Table relationship and
+    rejects any unexpected table shape. It establishes a stored formula
+    declaration only; it never fills a column, evaluates a structured
+    reference, or calculates a workbook.
+    """
+
+    try:
+        with ZipFile(path) as archive:
+            worksheet_member = _worksheet_member_for_sheet(archive, sheet_name)
+            if worksheet_member is None:
+                return None
+            worksheet = ElementTree.fromstring(archive.read(worksheet_member))
+            table_parts = worksheet.findall(f"{{{_SPREADSHEETML_NS}}}tableParts")
+            if len(table_parts) != 1 or len(table_parts[0]) != 1:
+                return None
+            table_parts_container = table_parts[0]
+            table_part = table_parts_container[0]
+            relationship_id_attribute = f"{{{_DOCUMENT_RELATIONSHIPS_NS}}}id"
+            if (
+                table_parts_container.attrib != {"count": "1"}
+                or table_part.tag != f"{{{_SPREADSHEETML_NS}}}tablePart"
+                or set(table_part.attrib) != {relationship_id_attribute}
+            ):
+                return None
+            table_relationship_id = table_part.get(relationship_id_attribute)
+            if not isinstance(table_relationship_id, str):
+                return None
+            worksheet_directory, worksheet_filename = worksheet_member.rsplit("/", maxsplit=1)
+            worksheet_relationships_member = (
+                f"{worksheet_directory}/_rels/{worksheet_filename}.rels"
+            )
+            worksheet_relationships = ElementTree.fromstring(
+                archive.read(worksheet_relationships_member)
+            )
+            table_member = _relationship_part_member(
+                worksheet_relationships,
+                table_relationship_id,
+                worksheet_member,
+                relationship_type=_TABLE_RELATIONSHIP,
+            )
+            if table_member is None:
+                return None
+            relationship_tag = f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationship"
+            table_relationships = [
+                relationship
+                for relationship in worksheet_relationships.findall(relationship_tag)
+                if relationship.get("Id") == table_relationship_id
+                and relationship.get("Type") == _TABLE_RELATIONSHIP
+                and relationship.get("TargetMode") is None
+            ]
+            if len(table_relationships) != 1:
+                return None
+            table = ElementTree.fromstring(archive.read(table_member))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError, ValueError):
+        return None
+
+    table_tag = f"{{{_SPREADSHEETML_NS}}}table"
+    auto_filter_tag = f"{{{_SPREADSHEETML_NS}}}autoFilter"
+    table_columns_tag = f"{{{_SPREADSHEETML_NS}}}tableColumns"
+    table_column_tag = f"{{{_SPREADSHEETML_NS}}}tableColumn"
+    calculated_formula_tag = f"{{{_SPREADSHEETML_NS}}}calculatedColumnFormula"
+    if table.tag != table_tag or len(table) != 2:
+        return None
+    auto_filters = table.findall(auto_filter_tag)
+    table_columns = table.findall(table_columns_tag)
+    if (
+        len(auto_filters) != 1
+        or len(auto_filters[0])
+        or len(table_columns) != 1
+        or table_columns[0].get("count") != "3"
+    ):
+        return None
+    columns = list(table_columns[0])
+    if len(columns) != 3 or any(column.tag != table_column_tag for column in columns):
+        return None
+    calculated_columns = [
+        column for column in columns if len(column) == 1 and column[0].tag == calculated_formula_tag
+    ]
+    if len(calculated_columns) != 1 or calculated_columns[0] is not columns[-1]:
+        return None
+    calculated_formula = calculated_columns[0][0]
+    formula_text = calculated_formula.text
+    if (
+        calculated_formula.attrib
+        or len(calculated_formula)
+        or not isinstance(formula_text, str)
+        or not formula_text
+        or any(len(column) for column in columns[:-1])
+    ):
+        return None
+    return {
+        "worksheet_member": worksheet_member,
+        "worksheet_relationships_member": worksheet_relationships_member,
+        "worksheet_table_part_attributes": tuple(sorted(table_part.attrib.items())),
+        "table_relationship_attributes": tuple(sorted(table_relationships[0].attrib.items())),
+        "table_member": table_member,
+        "table_attributes": tuple(sorted(table.attrib.items())),
+        "auto_filter_attributes": tuple(sorted(auto_filters[0].attrib.items())),
+        "table_columns_attributes": tuple(sorted(table_columns[0].attrib.items())),
+        "table_column_attributes": tuple(
+            tuple(sorted(column.attrib.items())) for column in columns
+        ),
+        "calculated_column_formula_attributes": tuple(sorted(calculated_formula.attrib.items())),
+        "calculated_column_formula": formula_text,
+    }
+
+
+def _table_without_calculated_column_formula(path: Path, sheet_name: str) -> bytes | None:
+    """Return WCAB's Table part with only its formula-master text erased."""
+
+    state = _raw_table_calculated_column_formula_state(path, sheet_name)
+    if state is None:
+        return None
+    try:
+        with ZipFile(path) as archive:
+            table = ElementTree.fromstring(archive.read(state["table_member"]))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    formula_tag = f"{{{_SPREADSHEETML_NS}}}calculatedColumnFormula"
+    formulas = list(table.iter(formula_tag))
+    if len(formulas) != 1 or formulas[0].text is None:
+        return None
+    formulas[0].text = None
+    return ElementTree.tostring(table, encoding="utf-8", xml_declaration=True)
 
 
 def _sheet_protection_sort_state(
@@ -6810,6 +7002,127 @@ def _validate_fact(
         )
         return
 
+    if kind == "named_lambda_definition_changed":
+        name = fact.get("name")
+        input_sheet = fact.get("input_sheet")
+        rate_cell = fact.get("rate_cell")
+        amount_cell = fact.get("amount_cell")
+        formula_sheet = fact.get("formula_sheet")
+        formula_cell = fact.get("formula_cell")
+        dashboard_sheet = fact.get("dashboard_sheet")
+        dashboard_cell = fact.get("dashboard_cell")
+        before_state = _raw_named_lambda_definition_state(baseline_path)
+        after_state = _raw_named_lambda_definition_state(candidate_path)
+        before_rate = (
+            _raw_cell_state(baseline_path, input_sheet, rate_cell)
+            if isinstance(input_sheet, str) and isinstance(rate_cell, str)
+            else None
+        )
+        after_rate = (
+            _raw_cell_state(candidate_path, input_sheet, rate_cell)
+            if isinstance(input_sheet, str) and isinstance(rate_cell, str)
+            else None
+        )
+        before_amount = (
+            _raw_cell_state(baseline_path, input_sheet, amount_cell)
+            if isinstance(input_sheet, str) and isinstance(amount_cell, str)
+            else None
+        )
+        after_amount = (
+            _raw_cell_state(candidate_path, input_sheet, amount_cell)
+            if isinstance(input_sheet, str) and isinstance(amount_cell, str)
+            else None
+        )
+        before_formula = (
+            _raw_cell_state(baseline_path, formula_sheet, formula_cell)
+            if isinstance(formula_sheet, str) and isinstance(formula_cell, str)
+            else None
+        )
+        after_formula = (
+            _raw_cell_state(candidate_path, formula_sheet, formula_cell)
+            if isinstance(formula_sheet, str) and isinstance(formula_cell, str)
+            else None
+        )
+        before_dashboard = (
+            _raw_cell_state(baseline_path, dashboard_sheet, dashboard_cell)
+            if isinstance(dashboard_sheet, str) and isinstance(dashboard_cell, str)
+            else None
+        )
+        after_dashboard = (
+            _raw_cell_state(candidate_path, dashboard_sheet, dashboard_cell)
+            if isinstance(dashboard_sheet, str) and isinstance(dashboard_cell, str)
+            else None
+        )
+        expected_common_state = {
+            "workbook_member": "xl/workbook.xml",
+            "name": "ScenarioValue",
+            "attributes": (("name", "ScenarioValue"),),
+            "external_references_count": 0,
+            "external_link_members": (),
+        }
+        graph = _direct_graph(candidate)
+        _assert(
+            name == "ScenarioValue"
+            and fact.get("workbook_member") == "xl/workbook.xml"
+            and fact.get("parameters") == ["rate", "amount"]
+            and fact.get("baseline_refers_to") == "=LAMBDA(rate,amount,rate*amount)"
+            and fact.get("candidate_refers_to") == "=LAMBDA(rate,amount,rate*(amount+10))"
+            and input_sheet == "Inputs"
+            and rate_cell == "B2"
+            and fact.get("rate_value") == 0.08
+            and amount_cell == "B3"
+            and fact.get("amount_value") == 100
+            and formula_sheet == "Model"
+            and formula_cell == "B2"
+            and fact.get("formula") == "=ScenarioValue(Inputs!B2,Inputs!B3)"
+            and dashboard_sheet == "Dashboard"
+            and dashboard_cell == "B4"
+            and fact.get("dashboard_formula") == "=Model!$B$2"
+            and before_state
+            == {
+                **expected_common_state,
+                "refers_to": "=LAMBDA(rate,amount,rate*amount)",
+            }
+            and after_state
+            == {
+                **expected_common_state,
+                "refers_to": "=LAMBDA(rate,amount,rate*(amount+10))",
+            }
+            and _defined_name_text(baseline, name) == fact.get("baseline_refers_to")
+            and _defined_name_text(candidate, name) == fact.get("candidate_refers_to")
+            and all(
+                sheet in baseline.sheetnames and sheet in candidate.sheetnames
+                for sheet in (input_sheet, formula_sheet, dashboard_sheet)
+            )
+            and before_rate is not None
+            and before_rate == after_rate
+            and before_rate[0] == "xl/worksheets/sheet1.xml"
+            and before_rate[4] == "0.08"
+            and before_amount is not None
+            and before_amount == after_amount
+            and before_amount[0] == "xl/worksheets/sheet1.xml"
+            and before_amount[4] == "100"
+            and before_formula is not None
+            and before_formula == after_formula
+            and before_formula[0] == "xl/worksheets/sheet2.xml"
+            and before_formula[3] == fact.get("formula")
+            and before_dashboard is not None
+            and before_dashboard == after_dashboard
+            and before_dashboard[0] == "xl/worksheets/sheet3.xml"
+            and before_dashboard[3] == fact.get("dashboard_formula")
+            and _workbook_without_named_lambda_definition(baseline_path)
+            == _workbook_without_named_lambda_definition(candidate_path)
+            and _xlsx_member_differences(baseline_path, candidate_path) == {"xl/workbook.xml"}
+            and _calculation_properties(baseline_path) == _calculation_properties(candidate_path)
+            and (dashboard_sheet, dashboard_cell)
+            in _reachable(graph, (formula_sheet, formula_cell))
+            and (formula_sheet, formula_cell) in _reachable(graph, (input_sheet, rate_cell))
+            and (dashboard_sheet, dashboard_cell) in _reachable(graph, (input_sheet, amount_cell)),
+            f"{truth['id']}: expected one local named LAMBDA body change with stable inputs, formulas, and package boundary",
+            errors,
+        )
+        return
+
     if kind == "array_formula_mode_changed":
         sheet_name = fact.get("sheet")
         coordinate = fact.get("cell")
@@ -6916,6 +7229,137 @@ def _validate_fact(
             and before_formula == after_formula
             and f"{table_name}[" in str(after_formula),
             f"{truth['id']}: expected structured-reference formula to retain text while table scope changes",
+            errors,
+        )
+        return
+
+    if kind == "table_calculated_column_formula_changed":
+        table_sheet = fact.get("table_sheet")
+        table_name = fact.get("table")
+        stable_formula_cells = fact.get("stable_formula_cells")
+        dashboard_sheet = fact.get("dashboard_sheet")
+        dashboard_cell = fact.get("dashboard_cell")
+        before_state = (
+            _raw_table_calculated_column_formula_state(baseline_path, table_sheet)
+            if isinstance(table_sheet, str)
+            else None
+        )
+        after_state = (
+            _raw_table_calculated_column_formula_state(candidate_path, table_sheet)
+            if isinstance(table_sheet, str)
+            else None
+        )
+        before_formula_cells = (
+            tuple(
+                _raw_cell_state(baseline_path, table_sheet, cell) for cell in stable_formula_cells
+            )
+            if isinstance(table_sheet, str)
+            and isinstance(stable_formula_cells, list)
+            and all(isinstance(cell, str) for cell in stable_formula_cells)
+            else None
+        )
+        after_formula_cells = (
+            tuple(
+                _raw_cell_state(candidate_path, table_sheet, cell) for cell in stable_formula_cells
+            )
+            if isinstance(table_sheet, str)
+            and isinstance(stable_formula_cells, list)
+            and all(isinstance(cell, str) for cell in stable_formula_cells)
+            else None
+        )
+        before_dashboard = (
+            _raw_cell_state(baseline_path, dashboard_sheet, dashboard_cell)
+            if isinstance(dashboard_sheet, str) and isinstance(dashboard_cell, str)
+            else None
+        )
+        after_dashboard = (
+            _raw_cell_state(candidate_path, dashboard_sheet, dashboard_cell)
+            if isinstance(dashboard_sheet, str) and isinstance(dashboard_cell, str)
+            else None
+        )
+        relationship_id_attribute = f"{{{_DOCUMENT_RELATIONSHIPS_NS}}}id"
+        expected_common_state = {
+            "worksheet_member": "xl/worksheets/sheet1.xml",
+            "worksheet_relationships_member": "xl/worksheets/_rels/sheet1.xml.rels",
+            "worksheet_table_part_attributes": ((relationship_id_attribute, "rId1"),),
+            "table_relationship_attributes": (
+                ("Id", "rId1"),
+                ("Target", "/xl/tables/table1.xml"),
+                ("Type", _TABLE_RELATIONSHIP),
+            ),
+            "table_member": "xl/tables/table1.xml",
+            "table_attributes": (
+                ("displayName", "ScenarioLedger"),
+                ("headerRowCount", "1"),
+                ("id", "1"),
+                ("name", "ScenarioLedger"),
+                ("ref", "A1:C4"),
+            ),
+            "auto_filter_attributes": (("ref", "A1:C4"),),
+            "table_columns_attributes": (("count", "3"),),
+            "table_column_attributes": (
+                (("id", "1"), ("name", "Units")),
+                (("id", "2"), ("name", "Rate")),
+                (("id", "3"), ("name", "Calculated amount")),
+            ),
+            "calculated_column_formula_attributes": (),
+        }
+        expected_formula_cells = (
+            ("C2", "=A2*B2"),
+            ("C3", "=A3*B3"),
+            ("C4", "=A4*B4"),
+        )
+        _assert(
+            table_sheet == "Ledger"
+            and table_name == "ScenarioLedger"
+            and fact.get("table_member") == "xl/tables/table1.xml"
+            and fact.get("table_ref") == "A1:C4"
+            and fact.get("calculated_column_id") == 3
+            and fact.get("calculated_column_name") == "Calculated amount"
+            and fact.get("baseline_formula") == "A2*B2"
+            and fact.get("candidate_formula") == "A2*(B2+1)"
+            and stable_formula_cells == [cell for cell, _formula in expected_formula_cells]
+            and dashboard_sheet == "Dashboard"
+            and dashboard_cell == "B4"
+            and fact.get("dashboard_formula") == "=SUM(ScenarioLedger[Calculated amount])"
+            and table_sheet in baseline.sheetnames
+            and table_sheet in candidate.sheetnames
+            and dashboard_sheet in baseline.sheetnames
+            and dashboard_sheet in candidate.sheetnames
+            and table_name in baseline[table_sheet].tables
+            and table_name in candidate[table_sheet].tables
+            and baseline[table_sheet].tables[table_name].ref == fact.get("table_ref")
+            and candidate[table_sheet].tables[table_name].ref == fact.get("table_ref")
+            and before_state
+            == {
+                **expected_common_state,
+                "calculated_column_formula": "A2*B2",
+            }
+            and after_state
+            == {
+                **expected_common_state,
+                "calculated_column_formula": "A2*(B2+1)",
+            }
+            and before_formula_cells is not None
+            and after_formula_cells == before_formula_cells
+            and all(cell_state is not None for cell_state in before_formula_cells)
+            and all(
+                cell_state is not None
+                and cell_state[0] == "xl/worksheets/sheet1.xml"
+                and cell_state[3] == formula
+                for cell_state, (_cell, formula) in zip(
+                    before_formula_cells, expected_formula_cells, strict=True
+                )
+            )
+            and before_dashboard is not None
+            and before_dashboard == after_dashboard
+            and before_dashboard[0] == "xl/worksheets/sheet2.xml"
+            and before_dashboard[3] == fact.get("dashboard_formula")
+            and _table_without_calculated_column_formula(baseline_path, table_sheet)
+            == _table_without_calculated_column_formula(candidate_path, table_sheet)
+            and _xlsx_member_differences(baseline_path, candidate_path) == {"xl/tables/table1.xml"}
+            and _calculation_properties(baseline_path) == _calculation_properties(candidate_path),
+            f"{truth['id']}: expected only one Table calculated-column master formula change with stable cells and package boundary",
             errors,
         )
         return

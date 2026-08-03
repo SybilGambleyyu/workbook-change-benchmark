@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.34.0 — 2026-08-03
+
+- Add a deterministic workbook-scoped named-LAMBDA definition case. Its sole
+  `ScenarioValue` body moves from `=LAMBDA(rate,amount,rate*amount)` to
+  `=LAMBDA(rate,amount,rate*(amount+10))` while its input cells, calling
+  `Model!B2` formula, direct `Dashboard!B4` consumer, calculation properties,
+  workbook relationships, sheet declarations, and every package member except
+  `xl/workbook.xml` remain fixed. The compact package has no external-link or
+  external-reference declaration.
+- Add a deterministic Excel Table calculated-column-master case. Its sole
+  third-column raw `calculatedColumnFormula` moves from `A2*B2` to
+  `A2*(B2+1)` while the `ScenarioLedger` Table binding/range/headers, ordinary
+  `Ledger!C2:C4` formulas, structured-reference dashboard formula, calculation
+  properties, and every package member except `xl/tables/table1.xml` remain
+  fixed.
+- Add exact raw-OOXML validators, package-isolation and corruption regressions,
+  plus narrow FormulaFence mappings. WCAB records stored formula definitions
+  only: it neither evaluates a LAMBDA nor fills a Table column, calculates a
+  structured reference, infers an output, or claims client behavior.
+
 ## 0.33.0 — 2026-08-03
 
 - Add a deterministic external defined-name source-change case. Its local
