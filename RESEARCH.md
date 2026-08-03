@@ -820,6 +820,29 @@ truth contract omits those texts, the range name, and the verifier so adapters
 can be scored on redacted material-change evidence rather than exposed account
 data.
 
+## Sensitivity-label metadata is a package review surface, not an enforcement result
+
+Microsoft's [Sensitivity Label Information Part specification](https://learn.microsoft.com/en-us/openspecs/office_standards/ms-oi29500/c0599e21-b77f-475e-99e0-bd647f60bcbb)
+defines a package-root `classificationlabels` relationship targeting an
+`application/xml` part whose root is `labelList`. The [LabelInfo stream
+specification](https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-offcrypto/8d6d414d-ac0b-40ee-ac87-af2e6401c128)
+documents the standard label-list shape, while the [LabelInfo versus custom
+document properties note](https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-offcrypto/13939de6-c833-44ab-b213-e0088bf02341)
+describes the older reserved custom-property representation. Those sources
+establish a real persisted review surface, but they do not justify inferring a
+label lookup, effective policy, encryption state, user permission, identity,
+or Office/SharePoint/OneDrive enforcement result from one local package diff.
+
+WCAB therefore uses one generated standards-form envelope: `docProps/custom.xml`
+has a bound `Sensitivity` property and seven `MSIP_Label_<GUID>_*` properties;
+the package root has one bound LabelInfo relationship and
+`docMetadata/LabelInfo.xml` `labelList` part. Only the synthetic MIP `Name`
+value changes. The raw validator checks the identifiers, values, relationships,
+content types, and LabelInfo element privately; public truth publishes only
+counts, safe member boundaries, and fixed formula context. The case is scored
+as stored-metadata change detection, never as label resolution, policy
+evaluation, permission checking, client behavior, or service enforcement.
+
 ## Chart series sources without a worksheet edit
 
 Microsoft's [chart-series guidance](https://support.microsoft.com/en-US/Excel/rename-a-data-series)

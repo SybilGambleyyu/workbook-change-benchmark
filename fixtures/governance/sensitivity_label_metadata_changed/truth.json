@@ -1,0 +1,55 @@
+{
+  "coverage": [
+    "The pair changes only docProps/custom.xml: one standard MSIP custom-property value differs while the document custom-property relationship, one root classificationlabels relationship, LabelInfo part, cells, formulas, calculation properties, and every other package member stay fixed.",
+    "Public truth records only count-level metadata and package-member boundaries. The generated label identifier, label name, action ID, site ID, timestamp, property names and values, LabelInfo XML, relationship IDs, and targets stay private to the raw validator.",
+    "The fact is a persisted metadata transition only. WCAB does not resolve a label, contact a policy service, determine effective classification, inspect encryption or permissions, infer access rights, authenticate an identity, invoke a spreadsheet client, or claim storage-service enforcement."
+  ],
+  "coverage_expectations": [],
+  "facts": [
+    {
+      "custom_properties_member": "docProps/custom.xml",
+      "custom_property_part_count": 1,
+      "dashboard_cell": "B4",
+      "dashboard_formula": "=Controls!$D$2",
+      "dashboard_sheet": "Dashboard",
+      "external_label_information_relationship_count": 0,
+      "formula": "=B2*C2",
+      "formula_cell": "D2",
+      "input_cell": "B2",
+      "input_value": 12,
+      "kind": "sensitivity_label_metadata_changed",
+      "label_id_count": 1,
+      "label_information_member": "docMetadata/LabelInfo.xml",
+      "label_information_part_count": 1,
+      "label_information_relationship_count": 1,
+      "msip_label_property_count": 7,
+      "sensitivity_property_count": 1,
+      "sheet": "Controls",
+      "unrecognized_sensitivity_label_metadata_count": 0
+    }
+  ],
+  "family": "governance",
+  "id": "governance.sensitivity_label_metadata_changed",
+  "must_reach": [
+    {
+      "source": {
+        "cell": "B2",
+        "sheet": "Controls"
+      },
+      "targets": [
+        {
+          "cell": "D2",
+          "sheet": "Controls"
+        },
+        {
+          "cell": "B4",
+          "sheet": "Dashboard"
+        }
+      ]
+    }
+  ],
+  "review_expectation": "block",
+  "schema_version": 3,
+  "title": "Sensitivity-label metadata changes without a cell edit",
+  "topology": "pair"
+}

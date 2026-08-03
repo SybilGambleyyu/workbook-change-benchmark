@@ -22,7 +22,7 @@ configs:
 # Workbook Change Assurance Benchmark (WCAB)
 
 WCAB is an open, deterministic benchmark for tools that review changes to
-Excel workbooks. Each of its 59 synthetic cases supplies fixtures, explicit
+Excel workbooks. Each of its 60 synthetic cases supplies fixtures, explicit
 observable change facts, a reference review
 disposition, documented coverage boundaries, and—in relevant cases—a
 machine-matchable coverage expectation.
@@ -108,7 +108,13 @@ context remain fixed, a protected range whose standard nested
 `securityDescriptor` text changes while its protected locked target, verifier,
 range name/reference, formula context, and every other package member remain
 fixed (stored metadata only: it does not identify, authenticate, authorize, or
-enforce an editor), an unchanged
+enforce an editor), one standards-form sensitivity-label metadata envelope
+whose root relationships and LabelInfo part remain fixed while one private MIP
+custom-property value changes in `docProps/custom.xml` (safe counts and
+package-member boundaries only: it does not expose label IDs/names, action/site
+IDs, timestamps, property names/values, XML, or relationship IDs/targets; or
+resolve a label, determine effective classification, inspect permissions, or
+claim Office or storage-service behavior), an unchanged
 direct circular formula whose iterative-calculation setting becomes enabled, an
 unchanged precision-sensitive input and formula whose calculation switches to
 precision as displayed, an unchanged legacy-CSE array formula that switches to
@@ -211,6 +217,16 @@ safe aggregate metadata rather than the descriptor, range name, or verifier;
 the case does not test a password, encryption, identity, authentication,
 authorization, editable-range enforcement, client behavior, or a resulting
 value.
+
+The sensitivity-label metadata case records one private MIP custom-property
+value transition only. Its standard custom-property and `classificationlabels`
+relationships plus LabelInfo package part are fixed; public truth and the
+FormulaFence adapter retain only aggregate counts and package-member boundaries.
+The case does not disclose label IDs or names, action/site IDs, timestamps,
+property names or values, XML, relationship IDs, or targets; resolve a label;
+contact a policy service; determine effective classification; inspect
+encryption or permissions; infer access; enforce policy; or claim Office,
+SharePoint, OneDrive, or storage-service behavior.
 
 ## Use
 

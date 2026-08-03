@@ -343,6 +343,20 @@ raw validator independently establishes the nested child, stable locked input
 and formula path, and worksheet-only package difference. Neither layer tests a
 password, encryption, authentication, authorization, editable-range
 enforcement, a spreadsheet client, or a resulting value.
+For the sensitivity-label metadata case, it requires one exact high-severity
+`sensitivity_label_metadata_changed` record and `FF118`: equal redacted
+profiles must retain one relevant custom-property part, one standard label-ID
+property, seven MIP properties, one label ID, one LabelInfo part, one internal
+LabelInfo relationship, and no malformed or external metadata, while only
+`sensitivity_label_metadata_material_changed=true` and
+`sensitivity_label_custom_properties_changed=true` differ. FormulaFence must
+not expose a label ID or name, action/site ID, timestamp, property name/value,
+LabelInfo XML, relationship ID, or target. WCAB's raw validator independently
+establishes the root relationship and LabelInfo shape, stable formula context,
+and `docProps/custom.xml`-only package difference. Neither layer resolves a
+label, contacts a policy service, determines effective classification, inspects
+encryption or permissions, infers access rights, enforces a policy, or claims
+Office, SharePoint, OneDrive, or storage-service behavior.
 For the PivotCache case,
 it requires one exact
 `pivot_cache_refresh_controls_changed` record and matching `FF023`: its

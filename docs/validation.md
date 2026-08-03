@@ -1,6 +1,6 @@
 # Validation record
 
-This record describes the WCAB 0.42.0 / schema-version-3 validation run. It is
+This record describes the WCAB 0.43.0 / schema-version-3 validation run. It is
 reproducible from this repository; no network service or private workbook is
 required.
 
@@ -32,16 +32,16 @@ wcab validate --fixtures fixtures
 
 Results:
 
-- 59 cases: 58 paired-workbook cases and one directory portfolio case.
-- 61 observable truth facts across 49 `block` and 10 `review` cases.
+- 60 cases: 59 paired-workbook cases and one directory portfolio case.
+- 62 observable truth facts across 50 `block` and 10 `review` cases.
 - Three scoreable coverage expectations: one newly introduced `INDIRECT`
   boundary and two unchanged-formula selector changes (`INDIRECT` address text
   and `OFFSET` column displacement).
-- 180 generated fixture files: 120 workbooks, 59 truth manifests, and one JSONL
+- 183 generated fixture files: 122 workbooks, 60 truth manifests, and one JSONL
   case catalogue, all generated from source.
-- Two hundred eighty unit tests passed locally under Python 3.13, including
+- Two hundred eighty-seven unit tests passed locally under Python 3.13, including
   independent regeneration and byte-for-byte fixture-tree equality.
-- The fixture validator accepted all 59 cases.
+- The fixture validator accepted all 60 cases.
 - The external-data refresh pair has identical package members except for
   `xl/connections.xml`; both archives pass ZIP integrity checks and remain
   readable by openpyxl. Its relationship-backed source is a non-routable
@@ -212,6 +212,19 @@ Results:
   password or verifier, encryption, identity, authentication, authorization,
   editable-range enforcement, spreadsheet-client behavior, or a resulting
   value.
+- The sensitivity-label metadata pair has identical package members except for
+  `docProps/custom.xml`; both archives pass ZIP integrity checks and remain
+  readable by openpyxl. Its document custom-property relationship, root
+  `classificationlabels` relationship, LabelInfo `labelList` part, ordinary
+  `Controls!B2=12` input, `Controls!D2=B2*C2` formula, direct `Dashboard!B4`
+  consumer, and calculation properties remain fixed while one private MIP
+  custom-property value changes. The validator reads the exact generated
+  relationship/content-type/property envelope privately and compares custom
+  properties after erasing only that value. Public truth exposes only counts
+  and safe package members; the validation run did not resolve a label, contact
+  a policy service, determine effective classification, inspect encryption or
+  permissions, infer access, authenticate an identity, enforce policy, or
+  claim Office, SharePoint, OneDrive, or storage-service behavior.
 - The PivotCache pair has identical package members except for
   `xl/pivotCache/pivotCacheDefinition1.xml`; both archives pass ZIP integrity
   checks and remain readable by openpyxl. Its local `Source!A1:B5` worksheet
@@ -397,7 +410,7 @@ Results:
 
 ## Distribution supplement
 
-The 0.42.0 release retains the one-row-per-case `manifest.jsonl` catalogue and
+The 0.43.0 release retains the one-row-per-case `manifest.jsonl` catalogue and
 the tool-neutral observation protocol at version 2. Each catalogue row retains
 the schema-version-3 truth contract and includes byte counts and SHA-256
 digests for the workbooks it names.
@@ -405,26 +418,26 @@ digests for the workbooks it names.
 Commands:
 
 ```bash
-python -m build --outdir /tmp/wcab-v042-dist
-twine check /tmp/wcab-v042-dist/*
-python -m venv /tmp/wcab-v042-wheel-test
-/tmp/wcab-v042-wheel-test/bin/python -m pip install \
-  /tmp/wcab-v042-dist/workbook_change_benchmark-0.42.0-py3-none-any.whl
-/tmp/wcab-v042-wheel-test/bin/python -c 'import wcab; print(wcab.__version__)'
-/tmp/wcab-v042-wheel-test/bin/wcab validate --fixtures fixtures
-/tmp/wcab-v042-wheel-test/bin/wcab manifest --fixtures fixtures --output /tmp/wcab-v042-wheel-manifest.jsonl
-cmp fixtures/manifest.jsonl /tmp/wcab-v042-wheel-manifest.jsonl
-/tmp/wcab-v042-wheel-test/bin/wcab observation-template --fixtures fixtures \
-  --output /tmp/wcab-v042-wheel-observations.json
-/tmp/wcab-v042-wheel-test/bin/wcab score --fixtures fixtures \
-  --observations /tmp/wcab-v042-wheel-observations.json
-python -m venv /tmp/wcab-v042-sdist-test
-/tmp/wcab-v042-sdist-test/bin/python -m pip install \
-  /tmp/wcab-v042-dist/workbook_change_benchmark-0.42.0.tar.gz
-/tmp/wcab-v042-sdist-test/bin/python -c 'import wcab; print(wcab.__version__)'
-/tmp/wcab-v042-sdist-test/bin/wcab validate --fixtures fixtures
-/tmp/wcab-v042-sdist-test/bin/wcab manifest --fixtures fixtures --output /tmp/wcab-v042-sdist-manifest.jsonl
-cmp fixtures/manifest.jsonl /tmp/wcab-v042-sdist-manifest.jsonl
+python -m build --outdir /tmp/wcab-v043-dist
+twine check /tmp/wcab-v043-dist/*
+python -m venv /tmp/wcab-v043-wheel-test
+/tmp/wcab-v043-wheel-test/bin/python -m pip install \
+  /tmp/wcab-v043-dist/workbook_change_benchmark-0.43.0-py3-none-any.whl
+/tmp/wcab-v043-wheel-test/bin/python -c 'import wcab; print(wcab.__version__)'
+/tmp/wcab-v043-wheel-test/bin/wcab validate --fixtures fixtures
+/tmp/wcab-v043-wheel-test/bin/wcab manifest --fixtures fixtures --output /tmp/wcab-v043-wheel-manifest.jsonl
+cmp fixtures/manifest.jsonl /tmp/wcab-v043-wheel-manifest.jsonl
+/tmp/wcab-v043-wheel-test/bin/wcab observation-template --fixtures fixtures \
+  --output /tmp/wcab-v043-wheel-observations.json
+/tmp/wcab-v043-wheel-test/bin/wcab score --fixtures fixtures \
+  --observations /tmp/wcab-v043-wheel-observations.json
+python -m venv /tmp/wcab-v043-sdist-test
+/tmp/wcab-v043-sdist-test/bin/python -m pip install \
+  /tmp/wcab-v043-dist/workbook_change_benchmark-0.43.0.tar.gz
+/tmp/wcab-v043-sdist-test/bin/python -c 'import wcab; print(wcab.__version__)'
+/tmp/wcab-v043-sdist-test/bin/wcab validate --fixtures fixtures
+/tmp/wcab-v043-sdist-test/bin/wcab manifest --fixtures fixtures --output /tmp/wcab-v043-sdist-manifest.jsonl
+cmp fixtures/manifest.jsonl /tmp/wcab-v043-sdist-manifest.jsonl
 ```
 
 Results:
@@ -434,20 +447,20 @@ Results:
   their uploaded assets in the GitHub release, avoiding a self-referential
   source-distribution checksum in this record.
 - Fresh Python 3.13 wheel and source-distribution installations both reported
-  version 0.42.0 and validated all 59 fixtures; both emitted byte-identical
+  version 0.43.0 and validated all 60 fixtures; both emitted byte-identical
   JSONL output.
-- The full 280-test suite, lint, and format checks passed locally under Python
+- The full 287-test suite, lint, and format checks passed locally under Python
   3.13.
 - The generated unsupported template scored as zero analyzed coverage, zero
   expected-fact recall, and zero coverage-disclosure recall, confirming that
   unsupported cases cannot become a pass.
-- The FormulaFence normalizer emitted 60 matched facts, one intentionally
+- The FormulaFence normalizer emitted 61 matched facts, one intentionally
   unmapped fact, three matched coverage declarations, and no invented review
   disposition.
 
 ## FormulaFence reference adapter
 
-FormulaFence 0.224.0 was installed from its released wheel and invoked only
+FormulaFence 0.225.0 was installed from its released wheel and invoked only
 against WCAB's generated files:
 
 ```bash
@@ -456,9 +469,9 @@ wcab formulafence --fixtures fixtures --strict
 
 Results:
 
-- All 60 currently mappable diff/portfolio facts were observed.
+- All 61 currently mappable diff/portfolio facts were observed.
 - All three mappable coverage expectations were matched; no mapped fact,
-  coverage expectation, or targeted lint rule was missed across all 59 cases.
+  coverage expectation, or targeted lint rule was missed across all 60 cases.
 - The schema-version-2 structured Table scope case was observed as a
   `table_definition_changed` diff, even though its summary formula text stays
   unchanged.
@@ -637,6 +650,19 @@ Results:
   and worksheet-only package boundary. Neither layer tested a password,
   encryption, authentication, authorization, editable-range enforcement, a
   spreadsheet client, or a resulting value.
+- The WCAB 0.43 sensitivity-label metadata case was observed as one exact
+  high-severity `sensitivity_label_metadata_changed` record and `FF118`.
+  FormulaFence's equal redacted before/after profiles retained one relevant
+  custom-property part, one standard label-ID property, seven MIP properties,
+  one label ID, one LabelInfo part, one internal LabelInfo relationship, and no
+  malformed or external metadata while only the private custom-property
+  material-change flags differed. It exposed no label ID/name, action/site ID,
+  timestamp, property name/value, XML, relationship ID, or target. WCAB
+  independently established the exact generated package envelope, stable
+  input/formula path, and `docProps/custom.xml`-only boundary. Neither layer
+  resolved a label, evaluated policy, determined effective classification,
+  inspected encryption or permissions, inferred access, enforced policy, or
+  claimed Office, SharePoint, OneDrive, or storage-service behavior.
 - The WCAB 0.14 PivotCache case was observed as one exact
   `pivot_cache_refresh_controls_changed` record and `FF023`. FormulaFence's
   redacted profile retained one local worksheet cache, ID 1, and all reported

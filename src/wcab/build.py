@@ -42,6 +42,11 @@ _SPREADSHEETML_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 _PACKAGE_RELATIONSHIPS_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
 _DOCUMENT_RELATIONSHIPS_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 _CONTENT_TYPES_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
+_CUSTOM_DOCUMENT_PROPERTIES_NS = (
+    "http://schemas.openxmlformats.org/officeDocument/2006/custom-properties"
+)
+_DOCUMENT_PROPERTY_TYPES_NS = "http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes"
+_SENSITIVITY_LABEL_INFORMATION_NS = "http://schemas.microsoft.com/office/2020/mipLabelMetadata"
 _XML_DIGITAL_SIGNATURE_NS = "http://www.w3.org/2000/09/xmldsig#"
 _OFFICE_2013_SPREADSHEET_NS = "http://schemas.microsoft.com/office/spreadsheetml/2010/11/main"
 _DYNAMIC_ARRAY_NS = "http://schemas.microsoft.com/office/spreadsheetml/2017/dynamicarray"
@@ -500,6 +505,33 @@ _PROTECTED_RANGE_SECURITY_DESCRIPTOR_RANGE_REF = "B2:B2"
 _PROTECTED_RANGE_SECURITY_DESCRIPTOR_LEGACY_VERIFIER = "A1B2"
 _PROTECTED_RANGE_SECURITY_DESCRIPTOR_BASELINE = "approved-editor@wcab.invalid"
 _PROTECTED_RANGE_SECURITY_DESCRIPTOR_CANDIDATE = "review-editor@wcab.invalid"
+_SENSITIVITY_LABEL_METADATA_SHEET = "Controls"
+_SENSITIVITY_LABEL_METADATA_INPUT_CELL = "B2"
+_SENSITIVITY_LABEL_METADATA_INPUT_VALUE = 12
+_SENSITIVITY_LABEL_METADATA_FORMULA_CELL = "D2"
+_SENSITIVITY_LABEL_METADATA_FORMULA = "=B2*C2"
+_SENSITIVITY_LABEL_METADATA_DASHBOARD_SHEET = "Dashboard"
+_SENSITIVITY_LABEL_METADATA_DASHBOARD_CELL = "B4"
+_SENSITIVITY_LABEL_METADATA_DASHBOARD_FORMULA = "=Controls!$D$2"
+_SENSITIVITY_LABEL_METADATA_CUSTOM_PROPERTIES_MEMBER = "docProps/custom.xml"
+_SENSITIVITY_LABEL_METADATA_LABEL_INFORMATION_MEMBER = "docMetadata/LabelInfo.xml"
+_SENSITIVITY_LABEL_METADATA_CUSTOM_PROPERTIES_RELATIONSHIP = (
+    f"{_DOCUMENT_RELATIONSHIPS_NS}/custom-properties"
+)
+_SENSITIVITY_LABEL_METADATA_LABEL_INFORMATION_RELATIONSHIP = (
+    "http://schemas.microsoft.com/office/2020/02/relationships/classificationlabels"
+)
+_SENSITIVITY_LABEL_METADATA_CUSTOM_PROPERTIES_RELATIONSHIP_ID = "rIdWCABCustomProperties"
+_SENSITIVITY_LABEL_METADATA_LABEL_INFORMATION_RELATIONSHIP_ID = "rIdWCABSensitivityLabelInformation"
+_SENSITIVITY_LABEL_METADATA_CUSTOM_PROPERTIES_CONTENT_TYPE = (
+    "application/vnd.openxmlformats-officedocument.custom-properties+xml"
+)
+_SENSITIVITY_LABEL_METADATA_PROPERTY_FORMAT_ID = "{D5CDD505-2E9C-101B-9397-08002B2CF9AE}"
+_SENSITIVITY_LABEL_METADATA_LABEL_ID = "11111111-2222-3333-4444-555555555555"
+_SENSITIVITY_LABEL_METADATA_SITE_ID = "66666666-7777-8888-9999-AAAAAAAAAAAA"
+_SENSITIVITY_LABEL_METADATA_ACTION_ID = "BBBBBBBB-CCCC-DDDD-EEEE-FFFFFFFFFFFF"
+_SENSITIVITY_LABEL_METADATA_BASELINE_NAME = "WCAB approved classification"
+_SENSITIVITY_LABEL_METADATA_CANDIDATE_NAME = "WCAB reviewed classification"
 _TABLE_CALCULATED_COLUMN_SHEET = "Ledger"
 _TABLE_CALCULATED_COLUMN_NAME = "ScenarioLedger"
 _TABLE_CALCULATED_COLUMN_REF = "A1:C4"
@@ -1741,6 +1773,180 @@ def _add_protected_range_security_descriptor(path: Path, *, descriptor: str) -> 
             encoding="utf-8",
             xml_declaration=True,
         )
+
+    _rewrite_xlsx_parts(path, mutate)
+
+
+def _sensitivity_label_metadata_workbook() -> Workbook:
+    """Build a small formula path beside standards-form label metadata.
+
+    The raw OOXML helper adds persisted Office metadata after openpyxl writes
+    the workbook. The ordinary cells make review context visible, but the case
+    establishes only a package declaration and never resolves a label or asks
+    a service or spreadsheet client to enforce one.
+    """
+
+    workbook = Workbook()
+    _configure_workbook(workbook, title="WCAB sensitivity-label metadata fixture")
+    controls = workbook.active
+    controls.title = _SENSITIVITY_LABEL_METADATA_SHEET
+    controls.append(["Control", "Units", "Rate", "Calculated amount"])
+    controls["A2"] = "Reviewed input"
+    controls[_SENSITIVITY_LABEL_METADATA_INPUT_CELL] = _SENSITIVITY_LABEL_METADATA_INPUT_VALUE
+    controls["C2"] = 5
+    controls[_SENSITIVITY_LABEL_METADATA_FORMULA_CELL] = _SENSITIVITY_LABEL_METADATA_FORMULA
+
+    dashboard = workbook.create_sheet(_SENSITIVITY_LABEL_METADATA_DASHBOARD_SHEET)
+    dashboard["A1"] = "Board output"
+    dashboard[_SENSITIVITY_LABEL_METADATA_DASHBOARD_CELL] = (
+        _SENSITIVITY_LABEL_METADATA_DASHBOARD_FORMULA
+    )
+    return workbook
+
+
+def _add_sensitivity_label_metadata(path: Path, *, label_name: str) -> None:
+    """Attach one standards-form Office sensitivity-label metadata envelope.
+
+    The package carries the documented custom-property relationship, reserved
+    ``Sensitivity`` and ``MSIP_Label_<GUID>_*`` properties, and a root
+    ``classificationlabels`` relationship to a ``labelList`` LabelInfo part.
+    The caller changes only the private MIP ``Name`` value; all identifiers,
+    relationship IDs, label metadata, and LabelInfo XML remain fixture-private.
+    """
+
+    def serialize(element: ElementTree.Element) -> bytes:
+        return ElementTree.tostring(element, encoding="utf-8", xml_declaration=True)
+
+    def mutate(members: dict[str, bytes]) -> None:
+        root_relationships_member = "_rels/.rels"
+        content_types_member = "[Content_Types].xml"
+        if (
+            _SENSITIVITY_LABEL_METADATA_CUSTOM_PROPERTIES_MEMBER in members
+            or _SENSITIVITY_LABEL_METADATA_LABEL_INFORMATION_MEMBER in members
+        ):
+            raise ValueError("sensitivity-label fixture already has metadata parts")
+
+        relationships = ElementTree.fromstring(members[root_relationships_member])
+        relationship_tag = f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationship"
+        if any(
+            relationship.get("Id")
+            in {
+                _SENSITIVITY_LABEL_METADATA_CUSTOM_PROPERTIES_RELATIONSHIP_ID,
+                _SENSITIVITY_LABEL_METADATA_LABEL_INFORMATION_RELATIONSHIP_ID,
+            }
+            or relationship.get("Type")
+            in {
+                _SENSITIVITY_LABEL_METADATA_CUSTOM_PROPERTIES_RELATIONSHIP,
+                _SENSITIVITY_LABEL_METADATA_LABEL_INFORMATION_RELATIONSHIP,
+            }
+            for relationship in relationships.findall(relationship_tag)
+        ):
+            raise ValueError("sensitivity-label fixture already has root metadata relationships")
+        ElementTree.SubElement(
+            relationships,
+            relationship_tag,
+            {
+                "Id": _SENSITIVITY_LABEL_METADATA_CUSTOM_PROPERTIES_RELATIONSHIP_ID,
+                "Type": _SENSITIVITY_LABEL_METADATA_CUSTOM_PROPERTIES_RELATIONSHIP,
+                "Target": _SENSITIVITY_LABEL_METADATA_CUSTOM_PROPERTIES_MEMBER,
+            },
+        )
+        ElementTree.SubElement(
+            relationships,
+            relationship_tag,
+            {
+                "Id": _SENSITIVITY_LABEL_METADATA_LABEL_INFORMATION_RELATIONSHIP_ID,
+                "Type": _SENSITIVITY_LABEL_METADATA_LABEL_INFORMATION_RELATIONSHIP,
+                "Target": _SENSITIVITY_LABEL_METADATA_LABEL_INFORMATION_MEMBER,
+            },
+        )
+        members[root_relationships_member] = serialize(relationships)
+
+        content_types = ElementTree.fromstring(members[content_types_member])
+        default_tag = f"{{{_CONTENT_TYPES_NS}}}Default"
+        override_tag = f"{{{_CONTENT_TYPES_NS}}}Override"
+        xml_defaults = [
+            default
+            for default in content_types.findall(default_tag)
+            if default.get("Extension") == "xml" and default.get("ContentType") == "application/xml"
+        ]
+        if len(xml_defaults) != 1:
+            raise ValueError("sensitivity-label fixture requires one generic XML content type")
+        if any(
+            override.get("PartName")
+            in {
+                f"/{_SENSITIVITY_LABEL_METADATA_CUSTOM_PROPERTIES_MEMBER}",
+                f"/{_SENSITIVITY_LABEL_METADATA_LABEL_INFORMATION_MEMBER}",
+            }
+            for override in content_types.findall(override_tag)
+        ):
+            raise ValueError("sensitivity-label fixture already has metadata content types")
+        ElementTree.SubElement(
+            content_types,
+            override_tag,
+            {
+                "PartName": f"/{_SENSITIVITY_LABEL_METADATA_CUSTOM_PROPERTIES_MEMBER}",
+                "ContentType": _SENSITIVITY_LABEL_METADATA_CUSTOM_PROPERTIES_CONTENT_TYPE,
+            },
+        )
+        members[content_types_member] = serialize(content_types)
+
+        ElementTree.register_namespace("", _CUSTOM_DOCUMENT_PROPERTIES_NS)
+        ElementTree.register_namespace("vt", _DOCUMENT_PROPERTY_TYPES_NS)
+        properties = ElementTree.Element(f"{{{_CUSTOM_DOCUMENT_PROPERTIES_NS}}}Properties")
+        property_values = (
+            ("Enabled", "True"),
+            ("SetDate", "2024-01-01T00:00:00Z"),
+            ("Method", "Standard"),
+            ("Name", label_name),
+            ("SiteId", f"{{{_SENSITIVITY_LABEL_METADATA_SITE_ID}}}"),
+            ("ActionId", f"{{{_SENSITIVITY_LABEL_METADATA_ACTION_ID}}}"),
+            ("ContentBits", "0"),
+        )
+        for pid, (suffix, value) in enumerate(property_values, start=2):
+            property_element = ElementTree.SubElement(
+                properties,
+                f"{{{_CUSTOM_DOCUMENT_PROPERTIES_NS}}}property",
+                {
+                    "fmtid": _SENSITIVITY_LABEL_METADATA_PROPERTY_FORMAT_ID,
+                    "pid": str(pid),
+                    "name": (f"MSIP_Label_{_SENSITIVITY_LABEL_METADATA_LABEL_ID}_{suffix}"),
+                },
+            )
+            ElementTree.SubElement(
+                property_element,
+                f"{{{_DOCUMENT_PROPERTY_TYPES_NS}}}lpwstr",
+            ).text = value
+        sensitivity_property = ElementTree.SubElement(
+            properties,
+            f"{{{_CUSTOM_DOCUMENT_PROPERTIES_NS}}}property",
+            {
+                "fmtid": _SENSITIVITY_LABEL_METADATA_PROPERTY_FORMAT_ID,
+                "pid": str(len(property_values) + 2),
+                "name": "Sensitivity",
+            },
+        )
+        ElementTree.SubElement(
+            sensitivity_property,
+            f"{{{_DOCUMENT_PROPERTY_TYPES_NS}}}lpwstr",
+        ).text = f"{{{_SENSITIVITY_LABEL_METADATA_LABEL_ID}}}"
+        members[_SENSITIVITY_LABEL_METADATA_CUSTOM_PROPERTIES_MEMBER] = serialize(properties)
+
+        ElementTree.register_namespace("clbl", _SENSITIVITY_LABEL_INFORMATION_NS)
+        label_list = ElementTree.Element(f"{{{_SENSITIVITY_LABEL_INFORMATION_NS}}}labelList")
+        ElementTree.SubElement(
+            label_list,
+            f"{{{_SENSITIVITY_LABEL_INFORMATION_NS}}}label",
+            {
+                "id": f"{{{_SENSITIVITY_LABEL_METADATA_LABEL_ID}}}",
+                "enabled": "1",
+                "method": "Standard",
+                "siteId": f"{{{_SENSITIVITY_LABEL_METADATA_SITE_ID}}}",
+                "contentBits": "0",
+                "removed": "0",
+            },
+        )
+        members[_SENSITIVITY_LABEL_METADATA_LABEL_INFORMATION_MEMBER] = serialize(label_list)
 
     _rewrite_xlsx_parts(path, mutate)
 
@@ -5557,6 +5763,84 @@ def _build_governance_protected_range_security_descriptor(root: Path) -> None:
     )
 
 
+def _build_governance_sensitivity_label_metadata(root: Path) -> None:
+    """Build one private custom-property sensitivity-label transition."""
+
+    directory = root / "governance" / "sensitivity_label_metadata_changed"
+    directory.mkdir(parents=True, exist_ok=True)
+    baseline = directory / "baseline.xlsx"
+    candidate = directory / "candidate.xlsx"
+    _save_workbook(_sensitivity_label_metadata_workbook(), baseline)
+    _save_workbook(_sensitivity_label_metadata_workbook(), candidate)
+    _add_sensitivity_label_metadata(
+        baseline,
+        label_name=_SENSITIVITY_LABEL_METADATA_BASELINE_NAME,
+    )
+    _add_sensitivity_label_metadata(
+        candidate,
+        label_name=_SENSITIVITY_LABEL_METADATA_CANDIDATE_NAME,
+    )
+    _write_json(
+        directory / "truth.json",
+        _truth(
+            case_id="governance.sensitivity_label_metadata_changed",
+            title="Sensitivity-label metadata changes without a cell edit",
+            family="governance",
+            review_expectation="block",
+            facts=[
+                {
+                    "kind": "sensitivity_label_metadata_changed",
+                    "sheet": _SENSITIVITY_LABEL_METADATA_SHEET,
+                    "custom_properties_member": (
+                        _SENSITIVITY_LABEL_METADATA_CUSTOM_PROPERTIES_MEMBER
+                    ),
+                    "label_information_member": (
+                        _SENSITIVITY_LABEL_METADATA_LABEL_INFORMATION_MEMBER
+                    ),
+                    "custom_property_part_count": 1,
+                    "sensitivity_property_count": 1,
+                    "msip_label_property_count": 7,
+                    "label_id_count": 1,
+                    "label_information_part_count": 1,
+                    "label_information_relationship_count": 1,
+                    "external_label_information_relationship_count": 0,
+                    "unrecognized_sensitivity_label_metadata_count": 0,
+                    "input_cell": _SENSITIVITY_LABEL_METADATA_INPUT_CELL,
+                    "input_value": _SENSITIVITY_LABEL_METADATA_INPUT_VALUE,
+                    "formula_cell": _SENSITIVITY_LABEL_METADATA_FORMULA_CELL,
+                    "formula": _SENSITIVITY_LABEL_METADATA_FORMULA,
+                    "dashboard_sheet": _SENSITIVITY_LABEL_METADATA_DASHBOARD_SHEET,
+                    "dashboard_cell": _SENSITIVITY_LABEL_METADATA_DASHBOARD_CELL,
+                    "dashboard_formula": _SENSITIVITY_LABEL_METADATA_DASHBOARD_FORMULA,
+                }
+            ],
+            must_reach=[
+                {
+                    "source": {
+                        "sheet": _SENSITIVITY_LABEL_METADATA_SHEET,
+                        "cell": _SENSITIVITY_LABEL_METADATA_INPUT_CELL,
+                    },
+                    "targets": [
+                        {
+                            "sheet": _SENSITIVITY_LABEL_METADATA_SHEET,
+                            "cell": _SENSITIVITY_LABEL_METADATA_FORMULA_CELL,
+                        },
+                        {
+                            "sheet": _SENSITIVITY_LABEL_METADATA_DASHBOARD_SHEET,
+                            "cell": _SENSITIVITY_LABEL_METADATA_DASHBOARD_CELL,
+                        },
+                    ],
+                }
+            ],
+            coverage=[
+                "The pair changes only docProps/custom.xml: one standard MSIP custom-property value differs while the document custom-property relationship, one root classificationlabels relationship, LabelInfo part, cells, formulas, calculation properties, and every other package member stay fixed.",
+                "Public truth records only count-level metadata and package-member boundaries. The generated label identifier, label name, action ID, site ID, timestamp, property names and values, LabelInfo XML, relationship IDs, and targets stay private to the raw validator.",
+                "The fact is a persisted metadata transition only. WCAB does not resolve a label, contact a policy service, determine effective classification, inspect encryption or permissions, infer access rights, authenticate an identity, invoke a spreadsheet client, or claim storage-service enforcement.",
+            ],
+        ),
+    )
+
+
 def _build_governance_workbook_structure_protection(root: Path) -> None:
     def mutate(workbook: Workbook) -> None:
         workbook.security.lockStructure = False
@@ -7552,6 +7836,7 @@ _BUILDERS: tuple[Callable[[Path], None], ...] = (
     _build_governance_protection,
     _build_governance_sheet_protection_sort_permission,
     _build_governance_protected_range_security_descriptor,
+    _build_governance_sensitivity_label_metadata,
     _build_governance_workbook_structure_protection,
     _build_governance_manual_calculation,
     _build_governance_iterative_calculation,
@@ -7613,6 +7898,7 @@ CASE_IDS = (
     "governance.formula_cell_unlocked",
     "governance.sheet_protection_sort_permission_enabled",
     "governance.protected_range_security_descriptor_changed",
+    "governance.sensitivity_label_metadata_changed",
     "governance.workbook_structure_lock_removed",
     "governance.manual_calculation_incomplete",
     "governance.iterative_calculation_enabled",

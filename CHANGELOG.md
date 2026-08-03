@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.43.0 — 2026-08-02
+
+- Add a deterministic standards-form Office sensitivity-label metadata pair.
+  Its sole raw change is one private MIP custom-property value in
+  `docProps/custom.xml`; the custom-property and `classificationlabels` root
+  relationships, `docMetadata/LabelInfo.xml` `labelList` part, ordinary cells,
+  formula context, calculation properties, and every other package member stay
+  fixed.
+- Add the exact `sensitivity_label_metadata_changed` fact, a bounded raw-OOXML
+  validator, private-value-only comparison, package-isolation check, and
+  corruption regressions. Public truth exposes only safe counts and package
+  members, never label identifiers/names, action/site IDs, timestamps, property
+  names/values, XML, relationship IDs, or targets. The fixture does not resolve
+  a label, evaluate policy, inspect encryption/permissions, infer access, or
+  claim client or storage-service enforcement.
+- Extend the optional FormulaFence adapter to require the exact high-severity
+  `sensitivity_label_metadata_changed` / `FF118` record with equal redacted
+  aggregate profiles and the private custom-property material-change flag.
+  The adapter accepts the broader custom-data signal alongside the dedicated
+  label-metadata evidence without relying on any private metadata.
+
 ## 0.42.0 — 2026-08-03
 
 - Add a deterministic standards-form protected-range descriptor pair. Its sole

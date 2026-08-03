@@ -47,6 +47,10 @@ _FACT_TO_CHANGE: dict[str, tuple[str, str | None]] = {
         "protected_range_permissions_changed",
         None,
     ),
+    "sensitivity_label_metadata_changed": (
+        "sensitivity_label_metadata_changed",
+        None,
+    ),
     "workbook_structure_lock_removed": ("workbook_protection_changed", None),
     "manual_calculation_incomplete": ("calculation_settings_changed", None),
     "iterative_calculation_enabled": ("calculation_settings_changed", None),
@@ -2670,6 +2674,81 @@ def _protected_range_security_descriptor_finding_observed(
     )
 
 
+def _sensitivity_label_metadata_details_observed(
+    details: Any,
+    fact: dict[str, Any],
+) -> bool:
+    """Require FormulaFence's count-only sensitivity-label evidence.
+
+    WCAB's raw validator establishes the custom-property, LabelInfo, and
+    package boundaries. FormulaFence must preserve exactly the safe aggregate
+    profile and private material-change flag without emitting a label ID, name,
+    action ID, site, timestamp, property, XML, relationship ID, or target.
+    """
+
+    if (
+        fact.get("sheet") != "Controls"
+        or fact.get("custom_properties_member") != "docProps/custom.xml"
+        or fact.get("label_information_member") != "docMetadata/LabelInfo.xml"
+        or fact.get("custom_property_part_count") != 1
+        or fact.get("sensitivity_property_count") != 1
+        or fact.get("msip_label_property_count") != 7
+        or fact.get("label_id_count") != 1
+        or fact.get("label_information_part_count") != 1
+        or fact.get("label_information_relationship_count") != 1
+        or fact.get("external_label_information_relationship_count") != 0
+        or fact.get("unrecognized_sensitivity_label_metadata_count") != 0
+        or fact.get("input_cell") != "B2"
+        or fact.get("input_value") != 12
+        or fact.get("formula_cell") != "D2"
+        or fact.get("formula") != "=B2*C2"
+        or fact.get("dashboard_sheet") != "Dashboard"
+        or fact.get("dashboard_cell") != "B4"
+        or fact.get("dashboard_formula") != "=Controls!$D$2"
+        or not isinstance(details, dict)
+    ):
+        return False
+    profile = {
+        "present": True,
+        "custom_property_part_count": 1,
+        "sensitivity_property_count": 1,
+        "msip_label_property_count": 7,
+        "label_id_count": 1,
+        "label_information_part_count": 1,
+        "label_information_relationship_count": 1,
+        "external_label_information_relationship_count": 0,
+        "unrecognized_sensitivity_label_metadata_count": 0,
+    }
+    return details == {
+        "before": profile,
+        "after": profile,
+        "sensitivity_label_metadata_material_changed": True,
+        "sensitivity_label_custom_properties_changed": True,
+    }
+
+
+def _sensitivity_label_metadata_observed(change: dict[str, Any], fact: dict[str, Any]) -> bool:
+    """Match FormulaFence's high-severity sensitivity-label metadata record."""
+
+    return (
+        change.get("kind") == "sensitivity_label_metadata_changed"
+        and change.get("severity") == "high"
+        and _sensitivity_label_metadata_details_observed(change.get("details"), fact)
+    )
+
+
+def _sensitivity_label_metadata_finding_observed(
+    finding: dict[str, Any], fact: dict[str, Any]
+) -> bool:
+    """Require high-severity FF118 evidence for the private metadata change."""
+
+    return (
+        finding.get("rule_id") == "FF118"
+        and finding.get("severity") == "high"
+        and _sensitivity_label_metadata_details_observed(finding.get("details"), fact)
+    )
+
+
 def _what_if_data_table_input_reference_details_observed(
     details: Any, fact: dict[str, Any]
 ) -> bool:
@@ -3313,6 +3392,16 @@ def evaluate_diff_case(case_dir: str | Path, *, executable: str = "formulafence"
                 if isinstance(change, dict)
             ) and any(
                 _protected_range_security_descriptor_finding_observed(finding, fact)
+                for finding in findings
+                if isinstance(finding, dict)
+            )
+        if kind == "sensitivity_label_metadata_changed":
+            observed = any(
+                _sensitivity_label_metadata_observed(change, fact)
+                for change in changes
+                if isinstance(change, dict)
+            ) and any(
+                _sensitivity_label_metadata_finding_observed(finding, fact)
                 for finding in findings
                 if isinstance(finding, dict)
             )

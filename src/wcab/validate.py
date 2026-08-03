@@ -31,6 +31,11 @@ _SPREADSHEETML_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 _PACKAGE_RELATIONSHIPS_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
 _DOCUMENT_RELATIONSHIPS_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 _CONTENT_TYPES_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
+_CUSTOM_DOCUMENT_PROPERTIES_NS = (
+    "http://schemas.openxmlformats.org/officeDocument/2006/custom-properties"
+)
+_DOCUMENT_PROPERTY_TYPES_NS = "http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes"
+_SENSITIVITY_LABEL_INFORMATION_NS = "http://schemas.microsoft.com/office/2020/mipLabelMetadata"
 _XML_DIGITAL_SIGNATURE_NS = "http://www.w3.org/2000/09/xmldsig#"
 _OFFICE_2010_SPREADSHEET_NS = "http://schemas.microsoft.com/office/spreadsheetml/2009/9/main"
 _OFFICE_2013_SPREADSHEET_NS = "http://schemas.microsoft.com/office/spreadsheetml/2010/11/main"
@@ -134,6 +139,33 @@ _PROTECTED_RANGE_SECURITY_DESCRIPTOR_RANGE_REF = "B2:B2"
 _PROTECTED_RANGE_SECURITY_DESCRIPTOR_LEGACY_VERIFIER = "A1B2"
 _PROTECTED_RANGE_SECURITY_DESCRIPTOR_BASELINE = "approved-editor@wcab.invalid"
 _PROTECTED_RANGE_SECURITY_DESCRIPTOR_CANDIDATE = "review-editor@wcab.invalid"
+_SENSITIVITY_LABEL_METADATA_SHEET = "Controls"
+_SENSITIVITY_LABEL_METADATA_INPUT_CELL = "B2"
+_SENSITIVITY_LABEL_METADATA_INPUT_VALUE = 12
+_SENSITIVITY_LABEL_METADATA_FORMULA_CELL = "D2"
+_SENSITIVITY_LABEL_METADATA_FORMULA = "=B2*C2"
+_SENSITIVITY_LABEL_METADATA_DASHBOARD_SHEET = "Dashboard"
+_SENSITIVITY_LABEL_METADATA_DASHBOARD_CELL = "B4"
+_SENSITIVITY_LABEL_METADATA_DASHBOARD_FORMULA = "=Controls!$D$2"
+_SENSITIVITY_LABEL_METADATA_CUSTOM_PROPERTIES_MEMBER = "docProps/custom.xml"
+_SENSITIVITY_LABEL_METADATA_LABEL_INFORMATION_MEMBER = "docMetadata/LabelInfo.xml"
+_SENSITIVITY_LABEL_METADATA_CUSTOM_PROPERTIES_RELATIONSHIP = (
+    f"{_DOCUMENT_RELATIONSHIPS_NS}/custom-properties"
+)
+_SENSITIVITY_LABEL_METADATA_LABEL_INFORMATION_RELATIONSHIP = (
+    "http://schemas.microsoft.com/office/2020/02/relationships/classificationlabels"
+)
+_SENSITIVITY_LABEL_METADATA_CUSTOM_PROPERTIES_RELATIONSHIP_ID = "rIdWCABCustomProperties"
+_SENSITIVITY_LABEL_METADATA_LABEL_INFORMATION_RELATIONSHIP_ID = "rIdWCABSensitivityLabelInformation"
+_SENSITIVITY_LABEL_METADATA_CUSTOM_PROPERTIES_CONTENT_TYPE = (
+    "application/vnd.openxmlformats-officedocument.custom-properties+xml"
+)
+_SENSITIVITY_LABEL_METADATA_PROPERTY_FORMAT_ID = "{D5CDD505-2E9C-101B-9397-08002B2CF9AE}"
+_SENSITIVITY_LABEL_METADATA_LABEL_ID = "11111111-2222-3333-4444-555555555555"
+_SENSITIVITY_LABEL_METADATA_SITE_ID = "66666666-7777-8888-9999-AAAAAAAAAAAA"
+_SENSITIVITY_LABEL_METADATA_ACTION_ID = "BBBBBBBB-CCCC-DDDD-EEEE-FFFFFFFFFFFF"
+_SENSITIVITY_LABEL_METADATA_BASELINE_NAME = "WCAB approved classification"
+_SENSITIVITY_LABEL_METADATA_CANDIDATE_NAME = "WCAB reviewed classification"
 _POWER_PIVOT_DATA_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/powerPivotData"
 _POWER_PIVOT_DATA_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.model+data"
 _POWER_PIVOT_DATA_PAYLOAD = (
@@ -4286,6 +4318,199 @@ def _worksheet_without_protected_range_security_descriptor(
     return ElementTree.tostring(worksheet, encoding="utf-8", xml_declaration=True)
 
 
+def _sensitivity_label_metadata_property_entries(label_name: str) -> tuple[tuple[str, str], ...]:
+    """Return WCAB's generated private MIP custom-property values."""
+
+    label_id = _SENSITIVITY_LABEL_METADATA_LABEL_ID
+    prefix = f"MSIP_Label_{label_id}_"
+    return (
+        (f"{prefix}Enabled", "True"),
+        (f"{prefix}SetDate", "2024-01-01T00:00:00Z"),
+        (f"{prefix}Method", "Standard"),
+        (f"{prefix}Name", label_name),
+        (f"{prefix}SiteId", f"{{{_SENSITIVITY_LABEL_METADATA_SITE_ID}}}"),
+        (f"{prefix}ActionId", f"{{{_SENSITIVITY_LABEL_METADATA_ACTION_ID}}}"),
+        (f"{prefix}ContentBits", "0"),
+        ("Sensitivity", f"{{{label_id}}}"),
+    )
+
+
+def _sensitivity_label_metadata_state(path: Path) -> dict[str, Any] | None:
+    """Read WCAB's standards-form label metadata without exposing it publicly.
+
+    This narrow reader verifies the generated custom-properties and LabelInfo
+    package shapes and raw stored values. It deliberately neither resolves a
+    label nor contacts a policy, storage, or identity service.
+    """
+
+    try:
+        with ZipFile(path) as archive:
+            relationships = ElementTree.fromstring(archive.read("_rels/.rels"))
+            content_types = ElementTree.fromstring(archive.read("[Content_Types].xml"))
+            custom_properties = ElementTree.fromstring(
+                archive.read(_SENSITIVITY_LABEL_METADATA_CUSTOM_PROPERTIES_MEMBER)
+            )
+            label_information = ElementTree.fromstring(
+                archive.read(_SENSITIVITY_LABEL_METADATA_LABEL_INFORMATION_MEMBER)
+            )
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+
+    relationship_tag = f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationship"
+    custom_relationships = [
+        relationship
+        for relationship in relationships.findall(relationship_tag)
+        if relationship.get("Type") == _SENSITIVITY_LABEL_METADATA_CUSTOM_PROPERTIES_RELATIONSHIP
+    ]
+    label_relationships = [
+        relationship
+        for relationship in relationships.findall(relationship_tag)
+        if relationship.get("Type") == _SENSITIVITY_LABEL_METADATA_LABEL_INFORMATION_RELATIONSHIP
+    ]
+    if len(custom_relationships) != 1 or len(label_relationships) != 1:
+        return None
+    custom_relationship = custom_relationships[0]
+    label_relationship = label_relationships[0]
+    expected_custom_relationship = (
+        ("Id", _SENSITIVITY_LABEL_METADATA_CUSTOM_PROPERTIES_RELATIONSHIP_ID),
+        ("Target", _SENSITIVITY_LABEL_METADATA_CUSTOM_PROPERTIES_MEMBER),
+        ("Type", _SENSITIVITY_LABEL_METADATA_CUSTOM_PROPERTIES_RELATIONSHIP),
+    )
+    expected_label_relationship = (
+        ("Id", _SENSITIVITY_LABEL_METADATA_LABEL_INFORMATION_RELATIONSHIP_ID),
+        ("Target", _SENSITIVITY_LABEL_METADATA_LABEL_INFORMATION_MEMBER),
+        ("Type", _SENSITIVITY_LABEL_METADATA_LABEL_INFORMATION_RELATIONSHIP),
+    )
+    if (
+        tuple(sorted(custom_relationship.attrib.items())) != expected_custom_relationship
+        or tuple(sorted(label_relationship.attrib.items())) != expected_label_relationship
+    ):
+        return None
+
+    default_tag = f"{{{_CONTENT_TYPES_NS}}}Default"
+    override_tag = f"{{{_CONTENT_TYPES_NS}}}Override"
+    xml_defaults = [
+        default
+        for default in content_types.findall(default_tag)
+        if default.get("Extension") == "xml" and default.get("ContentType") == "application/xml"
+    ]
+    custom_property_overrides = [
+        override
+        for override in content_types.findall(override_tag)
+        if override.get("PartName") == f"/{_SENSITIVITY_LABEL_METADATA_CUSTOM_PROPERTIES_MEMBER}"
+    ]
+    label_information_overrides = [
+        override
+        for override in content_types.findall(override_tag)
+        if override.get("PartName") == f"/{_SENSITIVITY_LABEL_METADATA_LABEL_INFORMATION_MEMBER}"
+    ]
+    expected_xml_default = (("ContentType", "application/xml"), ("Extension", "xml"))
+    expected_custom_property_override = (
+        ("ContentType", _SENSITIVITY_LABEL_METADATA_CUSTOM_PROPERTIES_CONTENT_TYPE),
+        ("PartName", f"/{_SENSITIVITY_LABEL_METADATA_CUSTOM_PROPERTIES_MEMBER}"),
+    )
+    if (
+        len(xml_defaults) != 1
+        or len(custom_property_overrides) != 1
+        or label_information_overrides
+        or tuple(sorted(xml_defaults[0].attrib.items())) != expected_xml_default
+        or tuple(sorted(custom_property_overrides[0].attrib.items()))
+        != expected_custom_property_override
+    ):
+        return None
+
+    property_tag = f"{{{_CUSTOM_DOCUMENT_PROPERTIES_NS}}}property"
+    value_tag = f"{{{_DOCUMENT_PROPERTY_TYPES_NS}}}lpwstr"
+    if (
+        custom_properties.tag != f"{{{_CUSTOM_DOCUMENT_PROPERTIES_NS}}}Properties"
+        or custom_properties.attrib
+        or any(property_element.tag != property_tag for property_element in custom_properties)
+    ):
+        return None
+    expected_property_names = tuple(
+        property_name for property_name, _value in _sensitivity_label_metadata_property_entries("")
+    )
+    if len(custom_properties) != len(expected_property_names):
+        return None
+    property_entries: list[tuple[str, str]] = []
+    for pid, (property_element, property_name) in enumerate(
+        zip(custom_properties, expected_property_names, strict=True),
+        start=2,
+    ):
+        if tuple(sorted(property_element.attrib.items())) != (
+            ("fmtid", _SENSITIVITY_LABEL_METADATA_PROPERTY_FORMAT_ID),
+            ("name", property_name),
+            ("pid", str(pid)),
+        ):
+            return None
+        value_children = list(property_element)
+        if (
+            len(value_children) != 1
+            or value_children[0].tag != value_tag
+            or value_children[0].attrib
+            or len(value_children[0])
+            or not isinstance(value_children[0].text, str)
+        ):
+            return None
+        property_entries.append((property_name, value_children[0].text))
+
+    label_tag = f"{{{_SENSITIVITY_LABEL_INFORMATION_NS}}}label"
+    if (
+        label_information.tag != f"{{{_SENSITIVITY_LABEL_INFORMATION_NS}}}labelList"
+        or label_information.attrib
+        or len(label_information) != 1
+        or label_information[0].tag != label_tag
+        or label_information[0].text is not None
+        or len(label_information[0])
+    ):
+        return None
+    expected_label_attributes = (
+        ("contentBits", "0"),
+        ("enabled", "1"),
+        ("id", f"{{{_SENSITIVITY_LABEL_METADATA_LABEL_ID}}}"),
+        ("method", "Standard"),
+        ("removed", "0"),
+        ("siteId", f"{{{_SENSITIVITY_LABEL_METADATA_SITE_ID}}}"),
+    )
+    if tuple(sorted(label_information[0].attrib.items())) != expected_label_attributes:
+        return None
+    return {
+        "custom_relationship_attributes": tuple(sorted(custom_relationship.attrib.items())),
+        "label_relationship_attributes": tuple(sorted(label_relationship.attrib.items())),
+        "xml_default_attributes": tuple(sorted(xml_defaults[0].attrib.items())),
+        "custom_property_content_type_attributes": tuple(
+            sorted(custom_property_overrides[0].attrib.items())
+        ),
+        "custom_property_entries": tuple(property_entries),
+        "label_information_attributes": tuple(sorted(label_information[0].attrib.items())),
+    }
+
+
+def _sensitivity_label_custom_properties_without_name(path: Path) -> bytes | None:
+    """Return WCAB custom properties with only its private MIP name erased."""
+
+    if _sensitivity_label_metadata_state(path) is None:
+        return None
+    try:
+        with ZipFile(path) as archive:
+            properties = ElementTree.fromstring(
+                archive.read(_SENSITIVITY_LABEL_METADATA_CUSTOM_PROPERTIES_MEMBER)
+            )
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    property_tag = f"{{{_CUSTOM_DOCUMENT_PROPERTIES_NS}}}property"
+    name_property = f"MSIP_Label_{_SENSITIVITY_LABEL_METADATA_LABEL_ID}_Name"
+    matches = [
+        property_element
+        for property_element in properties.findall(property_tag)
+        if property_element.get("name") == name_property
+    ]
+    if len(matches) != 1 or len(matches[0]) != 1:
+        return None
+    matches[0][0].text = None
+    return ElementTree.tostring(properties, encoding="utf-8", xml_declaration=True)
+
+
 def _xlsx_member_differences(baseline_path: Path, candidate_path: Path) -> set[str] | None:
     """Return changed member names when two small fixture archives align."""
 
@@ -4839,6 +5064,137 @@ def _validate_fact(
                 (dashboard_sheet, dashboard_cell),
             }.issubset(_reachable(graph, (sheet_name, input_cell))),
             f"{truth['id']}: expected only one standard nested protected-range descriptor transition with stable locked input and formula context",
+            errors,
+        )
+        return
+
+    if kind == "sensitivity_label_metadata_changed":
+        sheet_name = fact.get("sheet")
+        input_cell = fact.get("input_cell")
+        formula_cell = fact.get("formula_cell")
+        dashboard_sheet = fact.get("dashboard_sheet")
+        dashboard_cell = fact.get("dashboard_cell")
+        before_state = _sensitivity_label_metadata_state(baseline_path)
+        after_state = _sensitivity_label_metadata_state(candidate_path)
+        before_input = (
+            _raw_cell_state(baseline_path, sheet_name, input_cell)
+            if isinstance(sheet_name, str) and isinstance(input_cell, str)
+            else None
+        )
+        after_input = (
+            _raw_cell_state(candidate_path, sheet_name, input_cell)
+            if isinstance(sheet_name, str) and isinstance(input_cell, str)
+            else None
+        )
+        before_formula = (
+            _raw_cell_state(baseline_path, sheet_name, formula_cell)
+            if isinstance(sheet_name, str) and isinstance(formula_cell, str)
+            else None
+        )
+        after_formula = (
+            _raw_cell_state(candidate_path, sheet_name, formula_cell)
+            if isinstance(sheet_name, str) and isinstance(formula_cell, str)
+            else None
+        )
+        before_dashboard = (
+            _raw_cell_state(baseline_path, dashboard_sheet, dashboard_cell)
+            if isinstance(dashboard_sheet, str) and isinstance(dashboard_cell, str)
+            else None
+        )
+        after_dashboard = (
+            _raw_cell_state(candidate_path, dashboard_sheet, dashboard_cell)
+            if isinstance(dashboard_sheet, str) and isinstance(dashboard_cell, str)
+            else None
+        )
+        graph = _direct_graph(candidate)
+        expected_custom_relationship = (
+            ("Id", _SENSITIVITY_LABEL_METADATA_CUSTOM_PROPERTIES_RELATIONSHIP_ID),
+            ("Target", _SENSITIVITY_LABEL_METADATA_CUSTOM_PROPERTIES_MEMBER),
+            ("Type", _SENSITIVITY_LABEL_METADATA_CUSTOM_PROPERTIES_RELATIONSHIP),
+        )
+        expected_label_relationship = (
+            ("Id", _SENSITIVITY_LABEL_METADATA_LABEL_INFORMATION_RELATIONSHIP_ID),
+            ("Target", _SENSITIVITY_LABEL_METADATA_LABEL_INFORMATION_MEMBER),
+            ("Type", _SENSITIVITY_LABEL_METADATA_LABEL_INFORMATION_RELATIONSHIP),
+        )
+        expected_xml_default = (("ContentType", "application/xml"), ("Extension", "xml"))
+        expected_custom_property_content_type = (
+            ("ContentType", _SENSITIVITY_LABEL_METADATA_CUSTOM_PROPERTIES_CONTENT_TYPE),
+            ("PartName", f"/{_SENSITIVITY_LABEL_METADATA_CUSTOM_PROPERTIES_MEMBER}"),
+        )
+        expected_label_information = (
+            ("contentBits", "0"),
+            ("enabled", "1"),
+            ("id", f"{{{_SENSITIVITY_LABEL_METADATA_LABEL_ID}}}"),
+            ("method", "Standard"),
+            ("removed", "0"),
+            ("siteId", f"{{{_SENSITIVITY_LABEL_METADATA_SITE_ID}}}"),
+        )
+        _assert(
+            sheet_name == _SENSITIVITY_LABEL_METADATA_SHEET
+            and fact.get("custom_properties_member")
+            == _SENSITIVITY_LABEL_METADATA_CUSTOM_PROPERTIES_MEMBER
+            and fact.get("label_information_member")
+            == _SENSITIVITY_LABEL_METADATA_LABEL_INFORMATION_MEMBER
+            and fact.get("custom_property_part_count") == 1
+            and fact.get("sensitivity_property_count") == 1
+            and fact.get("msip_label_property_count") == 7
+            and fact.get("label_id_count") == 1
+            and fact.get("label_information_part_count") == 1
+            and fact.get("label_information_relationship_count") == 1
+            and fact.get("external_label_information_relationship_count") == 0
+            and fact.get("unrecognized_sensitivity_label_metadata_count") == 0
+            and input_cell == _SENSITIVITY_LABEL_METADATA_INPUT_CELL
+            and fact.get("input_value") == _SENSITIVITY_LABEL_METADATA_INPUT_VALUE
+            and formula_cell == _SENSITIVITY_LABEL_METADATA_FORMULA_CELL
+            and fact.get("formula") == _SENSITIVITY_LABEL_METADATA_FORMULA
+            and dashboard_sheet == _SENSITIVITY_LABEL_METADATA_DASHBOARD_SHEET
+            and dashboard_cell == _SENSITIVITY_LABEL_METADATA_DASHBOARD_CELL
+            and fact.get("dashboard_formula") == _SENSITIVITY_LABEL_METADATA_DASHBOARD_FORMULA
+            and before_state is not None
+            and after_state is not None
+            and before_state["custom_relationship_attributes"] == expected_custom_relationship
+            and after_state["custom_relationship_attributes"] == expected_custom_relationship
+            and before_state["label_relationship_attributes"] == expected_label_relationship
+            and after_state["label_relationship_attributes"] == expected_label_relationship
+            and before_state["xml_default_attributes"] == expected_xml_default
+            and after_state["xml_default_attributes"] == expected_xml_default
+            and before_state["custom_property_content_type_attributes"]
+            == expected_custom_property_content_type
+            and after_state["custom_property_content_type_attributes"]
+            == expected_custom_property_content_type
+            and before_state["custom_property_entries"]
+            == _sensitivity_label_metadata_property_entries(
+                _SENSITIVITY_LABEL_METADATA_BASELINE_NAME
+            )
+            and after_state["custom_property_entries"]
+            == _sensitivity_label_metadata_property_entries(
+                _SENSITIVITY_LABEL_METADATA_CANDIDATE_NAME
+            )
+            and before_state["label_information_attributes"] == expected_label_information
+            and after_state["label_information_attributes"] == expected_label_information
+            and before_input is not None
+            and after_input is not None
+            and before_input == after_input
+            and before_input[4] == str(_SENSITIVITY_LABEL_METADATA_INPUT_VALUE)
+            and before_formula is not None
+            and after_formula is not None
+            and before_formula == after_formula
+            and before_formula[3] == _SENSITIVITY_LABEL_METADATA_FORMULA
+            and before_dashboard is not None
+            and after_dashboard is not None
+            and before_dashboard == after_dashboard
+            and before_dashboard[3] == _SENSITIVITY_LABEL_METADATA_DASHBOARD_FORMULA
+            and _sensitivity_label_custom_properties_without_name(baseline_path)
+            == _sensitivity_label_custom_properties_without_name(candidate_path)
+            and _xlsx_member_differences(baseline_path, candidate_path)
+            == {_SENSITIVITY_LABEL_METADATA_CUSTOM_PROPERTIES_MEMBER}
+            and _calculation_properties(baseline_path) == _calculation_properties(candidate_path)
+            and {
+                (sheet_name, formula_cell),
+                (dashboard_sheet, dashboard_cell),
+            }.issubset(_reachable(graph, (sheet_name, input_cell))),
+            f"{truth['id']}: expected only one private standards-form sensitivity-label metadata transition with stable formula context",
             errors,
         )
         return

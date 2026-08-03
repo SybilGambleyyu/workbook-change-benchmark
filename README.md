@@ -127,6 +127,15 @@ retains the range shape and safe counts, not the descriptor, range name, or
 legacy verifier. It records stored metadata only: it does not prove identity,
 authentication, authorization, editable-range enforcement, encryption, or a
 spreadsheet-client result.
+It also covers one standards-form sensitivity-label metadata envelope whose
+root relationships and `docMetadata/LabelInfo.xml` `labelList` part remain
+fixed while one private MIP custom-property value changes in `docProps/custom.xml`.
+Public truth holds only safe counts and package-member boundaries, never label
+IDs or names, action/site IDs, timestamps, property names or values, XML, or
+relationship IDs/targets. It records persisted metadata only: it does not
+resolve a label, contact a policy service, determine effective classification,
+inspect encryption or permissions, infer access rights, authenticate an
+identity, enforce a policy, or claim Office or storage-service behavior.
 It also covers one macro-enabled `.xlsm` workbook whose workbook-scoped
 `_xlnm.Auto_Open` binding moves from the very-hidden `Macro Automation!A1`
 cell to `Macro Automation!A2` while the XLM macro sheet remains byte-identical
@@ -496,6 +505,18 @@ raw validator independently establishes those compact generated XML invariants
 and the worksheet-only difference. Neither layer authenticates an actor,
 determines authorization, tests enforcement, decrypts a file, opens a client,
 or claims a result.
+For the sensitivity-label metadata case, it requires FormulaFence's exact
+high-severity `sensitivity_label_metadata_changed` / `FF118` evidence: equal
+redacted before/after profiles retain one custom-property part, one standard
+label-ID property, seven MIP properties, one label ID, one LabelInfo part, one
+internal LabelInfo relationship, and no malformed or external metadata, while
+only the private custom-property material-change flags differ. FormulaFence
+does not expose label IDs or names, action/site IDs, timestamps, properties,
+XML, relationship IDs, or targets. WCAB's raw validator independently proves
+the exact generated package shape and `docProps/custom.xml`-only difference;
+neither layer resolves a label, contacts a policy service, determines effective
+classification, enforces a policy, inspects permissions, or claims client or
+storage-service behavior.
 It separately requires FormulaFence's `pivot_cache_refresh_controls_changed`
 record and matching `FF023` for the local worksheet-backed PivotCache case.
 FormulaFence safely reports cache-level source/control metadata rather than

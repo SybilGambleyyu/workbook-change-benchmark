@@ -589,6 +589,26 @@ def _protected_range_security_descriptor_details() -> dict[str, object]:
     }
 
 
+def _sensitivity_label_metadata_details() -> dict[str, object]:
+    profile = {
+        "present": True,
+        "custom_property_part_count": 1,
+        "sensitivity_property_count": 1,
+        "msip_label_property_count": 7,
+        "label_id_count": 1,
+        "label_information_part_count": 1,
+        "label_information_relationship_count": 1,
+        "external_label_information_relationship_count": 0,
+        "unrecognized_sensitivity_label_metadata_count": 0,
+    }
+    return {
+        "before": dict(profile),
+        "after": dict(profile),
+        "sensitivity_label_metadata_material_changed": True,
+        "sensitivity_label_custom_properties_changed": True,
+    }
+
+
 def _chart_series_reference_details() -> dict[str, object]:
     profile = {
         "present": True,
@@ -1253,6 +1273,32 @@ def test_committed_manifest_matches_fixture_tree() -> None:
             "protected_range_count": 1,
             "security_descriptor_count": 1,
             "has_legacy_verifier": True,
+            "input_cell": "B2",
+            "input_value": 12,
+            "formula_cell": "D2",
+            "formula": "=B2*C2",
+            "dashboard_sheet": "Dashboard",
+            "dashboard_cell": "B4",
+            "dashboard_formula": "=Controls!$D$2",
+        }
+    ]
+    sensitivity_label_metadata_row = next(
+        row for row in rows if row["id"] == "governance.sensitivity_label_metadata_changed"
+    )
+    assert sensitivity_label_metadata_row["facts"] == [
+        {
+            "kind": "sensitivity_label_metadata_changed",
+            "sheet": "Controls",
+            "custom_properties_member": "docProps/custom.xml",
+            "label_information_member": "docMetadata/LabelInfo.xml",
+            "custom_property_part_count": 1,
+            "sensitivity_property_count": 1,
+            "msip_label_property_count": 7,
+            "label_id_count": 1,
+            "label_information_part_count": 1,
+            "label_information_relationship_count": 1,
+            "external_label_information_relationship_count": 0,
+            "unrecognized_sensitivity_label_metadata_count": 0,
             "input_cell": "B2",
             "input_value": 12,
             "formula_cell": "D2",
@@ -4389,6 +4435,104 @@ def test_validator_rejects_a_corrupted_protected_range_security_descriptor(
     assert validate_case(candidate.parent)
 
 
+def test_sensitivity_label_metadata_pair_changes_only_private_custom_property(
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "governance" / "sensitivity_label_metadata_changed"
+    assert validate_case(case) == []
+    with ZipFile(case / "baseline.xlsx") as baseline, ZipFile(case / "candidate.xlsx") as candidate:
+        assert baseline.testzip() is None
+        assert candidate.testzip() is None
+        baseline_members = {
+            entry.filename: baseline.read(entry.filename) for entry in baseline.infolist()
+        }
+        candidate_members = {
+            entry.filename: candidate.read(entry.filename) for entry in candidate.infolist()
+        }
+    assert set(baseline_members) == set(candidate_members)
+    assert [
+        member
+        for member in sorted(baseline_members)
+        if baseline_members[member] != candidate_members[member]
+    ] == ["docProps/custom.xml"]
+
+    namespace = "http://schemas.openxmlformats.org/officeDocument/2006/custom-properties"
+    property_tag = f"{{{namespace}}}property"
+    baseline_properties = ElementTree.fromstring(baseline_members["docProps/custom.xml"])
+    candidate_properties = ElementTree.fromstring(candidate_members["docProps/custom.xml"])
+    baseline_name = next(
+        property_element
+        for property_element in baseline_properties.findall(property_tag)
+        if property_element.get("name", "").endswith("_Name")
+    )
+    candidate_name = next(
+        property_element
+        for property_element in candidate_properties.findall(property_tag)
+        if property_element.get("name", "").endswith("_Name")
+    )
+    assert baseline_name[0].text != candidate_name[0].text
+    baseline_name[0].text = None
+    candidate_name[0].text = None
+    assert ElementTree.tostring(baseline_properties) == ElementTree.tostring(candidate_properties)
+
+    public_truth = (case / "truth.json").read_text(encoding="utf-8")
+    for private_value in (
+        "11111111-2222-3333-4444-555555555555",
+        "66666666-7777-8888-9999-AAAAAAAAAAAA",
+        "BBBBBBBB-CCCC-DDDD-EEEE-FFFFFFFFFFFF",
+        "WCAB approved classification",
+        "WCAB reviewed classification",
+        "2024-01-01T00:00:00Z",
+        "rIdWCABSensitivityLabelInformation",
+        "MSIP_Label_11111111-2222-3333-4444-555555555555_Name",
+    ):
+        assert private_value not in public_truth
+
+
+def test_validator_rejects_a_false_sensitivity_label_metadata_fact(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "governance" / "sensitivity_label_metadata_changed"
+    truth_path = case / "truth.json"
+    truth = json.loads(truth_path.read_text(encoding="utf-8"))
+    truth["facts"][0]["msip_label_property_count"] = 6
+    truth_path.write_text(json.dumps(truth), encoding="utf-8")
+    assert validate_case(case)
+
+
+def test_validator_rejects_a_corrupted_sensitivity_label_metadata_value(
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = (
+        fixture_root / "governance" / "sensitivity_label_metadata_changed" / "candidate.xlsx"
+    )
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    namespace = "http://schemas.openxmlformats.org/officeDocument/2006/custom-properties"
+    properties = ElementTree.fromstring(members["docProps/custom.xml"])
+    name_property = next(
+        property_element
+        for property_element in properties.findall(f"{{{namespace}}}property")
+        if property_element.get("name", "").endswith("_Name")
+    )
+    name_property[0].text = "WCAB approved classification"
+    members["docProps/custom.xml"] = ElementTree.tostring(
+        properties,
+        encoding="utf-8",
+        xml_declaration=True,
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
 def test_validator_rejects_a_false_iterative_calculation_fact(tmp_path: Path) -> None:
     fixture_root = tmp_path / "fixtures"
     build_all(fixture_root)
@@ -6622,6 +6766,130 @@ def test_formulafence_adapter_requires_high_change_for_protected_range_descripto
     assert result["status"] == "missed"
     assert result["matched"] == []
     assert result["missed"] == ["protected_range_security_descriptor_changed"]
+
+
+def test_formulafence_adapter_maps_the_exact_sensitivity_label_metadata(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _sensitivity_label_metadata_details()
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "sensitivity_label_metadata_changed",
+                    "severity": "high",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF118", "severity": "high", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "sensitivity_label_metadata_changed"
+    )
+    assert result["status"] == "matched"
+    assert result["matched"] == ["sensitivity_label_metadata_changed"]
+
+
+def test_formulafence_adapter_rejects_inexact_sensitivity_label_metadata(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _sensitivity_label_metadata_details()
+        details["after"]["unrecognized_sensitivity_label_metadata_count"] = 1
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "sensitivity_label_metadata_changed",
+                    "severity": "high",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF118", "severity": "high", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "sensitivity_label_metadata_changed"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["sensitivity_label_metadata_changed"]
+
+
+def test_formulafence_adapter_requires_high_ff118_for_sensitivity_label_metadata(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _sensitivity_label_metadata_details()
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "sensitivity_label_metadata_changed",
+                    "severity": "high",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF118", "severity": "medium", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "sensitivity_label_metadata_changed"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["sensitivity_label_metadata_changed"]
+
+
+def test_formulafence_adapter_requires_high_change_for_sensitivity_label_metadata(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _sensitivity_label_metadata_details()
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "sensitivity_label_metadata_changed",
+                    "severity": "medium",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF118", "severity": "high", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "sensitivity_label_metadata_changed"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["sensitivity_label_metadata_changed"]
 
 
 def test_formulafence_adapter_maps_the_exact_iterative_calculation_transition(

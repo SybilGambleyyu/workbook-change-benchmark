@@ -148,6 +148,7 @@ Facts are observed directly from the fixture files by `wcab validate`.
 | `formula_cell_unlocked` | `sheet`, `cell` | A formula cell is explicitly unlocked while its sheet remains protected. |
 | `sheet_protection_sort_permission_enabled` | `sheet`, `worksheet_member`, `baseline_sort_locked`, `candidate_sort_locked`, `formula_cell`, `formula`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | One protected worksheet retains its stored protection and every other action lock while raw `sheetProtection/@sort` changes exactly from `1` (locked) to `0` (permitted). Its formula context, styles, calculation properties, and every package member except the declared worksheet remain unchanged. The validator does not test a password, encryption, authorization, editable ranges, a client sort operation, or a resulting value. |
 | `protected_range_security_descriptor_changed` | `sheet`, `worksheet_member`, `protected_range_ref`, `protected_range_count`, `security_descriptor_count`, `has_legacy_verifier`, `input_cell`, `input_value`, `formula_cell`, `formula`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | One protected worksheet keeps its locked target, range name/reference, legacy verifier, formulas, calculation properties, and every package member except the declared worksheet fixed while one standard nested `protectedRange/securityDescriptor` text node changes. Public truth excludes the descriptor, range name, and verifier. The validator records raw stored metadata only; it does not test a password, encryption, identity, authentication, authorization, enforcement, a client action, or a result. |
+| `sensitivity_label_metadata_changed` | `sheet`, `custom_properties_member`, `label_information_member`, `custom_property_part_count`, `sensitivity_property_count`, `msip_label_property_count`, `label_id_count`, `label_information_part_count`, `label_information_relationship_count`, `external_label_information_relationship_count`, `unrecognized_sensitivity_label_metadata_count`, `input_cell`, `input_value`, `formula_cell`, `formula`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | One standards-form Office sensitivity-label metadata envelope retains its root relationships, LabelInfo part, ordinary cells, formulas, calculation properties, and every package member except `docProps/custom.xml` while one MIP custom-property value changes. Public truth excludes label identifiers and names, action/site IDs, timestamps, property names/values, LabelInfo XML, and relationship IDs/targets. The validator records stored metadata only; it does not resolve a label, contact a service, determine effective classification, inspect encryption or permissions, infer access, authenticate an identity, enforce a policy, or claim client/storage behavior. |
 | `workbook_structure_lock_removed` | `baseline_lock_structure`, `candidate_lock_structure`, `hidden_sheet`, `hidden_sheet_state`, `formula_sheet`, `formula_cell`, `formula` | Raw `workbookProtection/@lockStructure` changes exactly from `true` to `false` while the declared hidden-sheet state, formula, calculation properties, and every package member except `xl/workbook.xml` remain unchanged. The validator does not test a password, encryption, authorization, or client behavior. |
 | `manual_calculation_incomplete` | none | Candidate calculation metadata is `manual` and records incomplete calculation. |
 | `iterative_calculation_enabled` | `sheet`, `cell`, `formula`, `baseline_iterate`, `candidate_iterate`, `iteration_count`, `iteration_delta` | The declared direct self-referencing formula remains unchanged while raw `calcPr/@iterate` changes exactly from `false` to `true`; the explicit count and delta remain the declared values, and all non-iteration calculation attributes are unchanged. The validator does not calculate the model. |
@@ -312,6 +313,29 @@ the worksheet after erasing only that text, and requires the worksheet to be
 the sole package difference. Public truth retains no descriptor, range name,
 or verifier. The case does not test a verifier, encryption, identity,
 authentication, authorization, editable-range enforcement, or client behavior.
+
+## Sensitivity-label metadata
+
+Microsoft's [Sensitivity Label Information Part specification](https://learn.microsoft.com/en-us/openspecs/office_standards/ms-oi29500/c0599e21-b77f-475e-99e0-bd647f60bcbb)
+defines an `application/xml` LabelInfo package part whose root is `labelList`
+and which is targeted by the package-root `classificationlabels` relationship.
+Its [custom-document-property interoperability note](https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-offcrypto/13939de6-c833-44ab-b213-e0088bf02341)
+also describes the relationship between persisted label information and the
+reserved custom-property forms. These are important review surfaces even when
+ordinary cells and formulas do not move.
+
+WCAB's sensitivity-label metadata pair contains the documented custom-property
+relationship, one `Sensitivity` label-ID property, seven standard
+`MSIP_Label_<GUID>_*` properties, one root `classificationlabels` relationship,
+and one `docMetadata/LabelInfo.xml` `labelList` part. Its only package change
+is one private MIP custom-property value in `docProps/custom.xml`; all
+relationships, LabelInfo metadata, formula context, and calculation properties
+remain fixed. The raw validator checks the generated identifiers and values
+privately, but public truth retains only safe counts and package-member names.
+It does not resolve a label, contact a policy service, determine effective
+classification, inspect encryption or permissions, infer access rights,
+authenticate an identity, enforce a policy, or claim Office, SharePoint, or
+OneDrive behavior.
 
 ## Static impact lower bounds
 
