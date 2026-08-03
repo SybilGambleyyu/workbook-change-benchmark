@@ -357,6 +357,18 @@ and `docProps/custom.xml`-only package difference. Neither layer resolves a
 label, contacts a policy service, determines effective classification, inspects
 encryption or permissions, infers access rights, enforces a policy, or claims
 Office, SharePoint, OneDrive, or storage-service behavior.
+For the relationship-bound worksheet-control macro-assignment case, it requires
+one exact critical `worksheet_embedded_controls_changed` record and `FF029`:
+equal redacted profiles must retain one control sheet, one worksheet control,
+one form-control-properties part, one control macro assignment, one related
+relationship, and no ActiveX, OLE, legacy VML, external, or unrecognized
+surface, while only `worksheet_control_definition_material_changed=true`
+differs. FormulaFence must not expose a control identity, shape ID, macro name,
+relationship ID, or raw XML. WCAB's raw validator independently establishes
+the bounded private assignment transition, stable formula context, and
+worksheet-XML-only package difference. Neither layer loads a control, inspects
+or executes VBA, resolves a macro, evaluates permissions, or claims Office
+client behavior.
 For the PivotCache case,
 it requires one exact
 `pivot_cache_refresh_controls_changed` record and matching `FF023`: its

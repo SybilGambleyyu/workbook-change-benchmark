@@ -532,6 +532,25 @@ _SENSITIVITY_LABEL_METADATA_SITE_ID = "66666666-7777-8888-9999-AAAAAAAAAAAA"
 _SENSITIVITY_LABEL_METADATA_ACTION_ID = "BBBBBBBB-CCCC-DDDD-EEEE-FFFFFFFFFFFF"
 _SENSITIVITY_LABEL_METADATA_BASELINE_NAME = "WCAB approved classification"
 _SENSITIVITY_LABEL_METADATA_CANDIDATE_NAME = "WCAB reviewed classification"
+_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_SHEET = "Controls"
+_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_WORKSHEET_MEMBER = "xl/worksheets/sheet1.xml"
+_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_RELATIONSHIPS_MEMBER = "xl/worksheets/_rels/sheet1.xml.rels"
+_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_CONTROL_PROPERTIES_MEMBER = "xl/ctrlProps/ctrlProp1.xml"
+_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/ctrlProp"
+_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_RELATIONSHIP_ID = "rIdWCABControlProperties"
+_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_CONTENT_TYPE = "application/vnd.ms-excel.controlproperties+xml"
+_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_CONTROL_NAME = "WCAB guarded action control"
+_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_SHAPE_ID = "1025"
+_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_BASELINE_MACRO = "WCABBaselineReviewMacro"
+_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_CANDIDATE_MACRO = "WCABCandidateReviewMacro"
+_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_INPUT_CELL = "B2"
+_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_INPUT_VALUE = 12
+_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_FORMULA_CELL = "D2"
+_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_FORMULA = "=B2*C2"
+_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_DASHBOARD_SHEET = "Dashboard"
+_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_DASHBOARD_CELL = "B4"
+_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_DASHBOARD_FORMULA = "=Controls!$D$2"
+_OFFICE_2010_SPREADSHEET_NS = "http://schemas.microsoft.com/office/spreadsheetml/2009/9/main"
 _TABLE_CALCULATED_COLUMN_SHEET = "Ledger"
 _TABLE_CALCULATED_COLUMN_NAME = "ScenarioLedger"
 _TABLE_CALCULATED_COLUMN_REF = "A1:C4"
@@ -1947,6 +1966,135 @@ def _add_sensitivity_label_metadata(path: Path, *, label_name: str) -> None:
             },
         )
         members[_SENSITIVITY_LABEL_METADATA_LABEL_INFORMATION_MEMBER] = serialize(label_list)
+
+    _rewrite_xlsx_parts(path, mutate)
+
+
+def _worksheet_control_macro_assignment_workbook() -> Workbook:
+    """Build one local formula path beside a relationship-backed control."""
+
+    workbook = Workbook()
+    _configure_workbook(workbook, title="WCAB worksheet control macro-assignment fixture")
+    controls = workbook.active
+    controls.title = _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_SHEET
+    controls.append(["Control", "Units", "Rate", "Calculated amount"])
+    controls["A2"] = "Reviewed input"
+    controls[_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_INPUT_CELL] = (
+        _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_INPUT_VALUE
+    )
+    controls["C2"] = 5
+    controls[_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_FORMULA_CELL] = (
+        _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_FORMULA
+    )
+
+    dashboard = workbook.create_sheet(_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_DASHBOARD_SHEET)
+    dashboard["A1"] = "Board output"
+    dashboard[_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_DASHBOARD_CELL] = (
+        _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_DASHBOARD_FORMULA
+    )
+    return workbook
+
+
+def _add_worksheet_control_macro_assignment(path: Path, *, macro: str) -> None:
+    """Attach one standards-form control whose macro name remains private.
+
+    A worksheet control is relationship-bound to one form-control-properties
+    part. The caller changes only the inline macro assignment. The generated
+    package contains no VBA payload and the builder never opens an Office
+    client or invokes a macro.
+    """
+
+    def serialize(element: ElementTree.Element) -> bytes:
+        return ElementTree.tostring(element, encoding="utf-8", xml_declaration=True)
+
+    def mutate(members: dict[str, bytes]) -> None:
+        worksheet_member = _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_WORKSHEET_MEMBER
+        relationships_member = _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_RELATIONSHIPS_MEMBER
+        control_properties_member = _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_CONTROL_PROPERTIES_MEMBER
+        if control_properties_member in members:
+            raise ValueError("worksheet-control fixture already has a properties part")
+
+        content_types = ElementTree.fromstring(members["[Content_Types].xml"])
+        override_tag = f"{{{_CONTENT_TYPES_NS}}}Override"
+        if any(
+            override.get("PartName") == f"/{control_properties_member}"
+            for override in content_types.findall(override_tag)
+        ):
+            raise ValueError("worksheet-control fixture already has a content-type override")
+        ElementTree.SubElement(
+            content_types,
+            override_tag,
+            {
+                "PartName": f"/{control_properties_member}",
+                "ContentType": _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_CONTENT_TYPE,
+            },
+        )
+        members["[Content_Types].xml"] = serialize(content_types)
+
+        worksheet = ElementTree.fromstring(members[worksheet_member])
+        controls_tag = f"{{{_SPREADSHEETML_NS}}}controls"
+        control_tag = f"{{{_SPREADSHEETML_NS}}}control"
+        control_properties_tag = f"{{{_SPREADSHEETML_NS}}}controlPr"
+        if worksheet.find(controls_tag) is not None:
+            raise ValueError("worksheet-control fixture already has controls")
+        controls = ElementTree.Element(controls_tag)
+        control = ElementTree.SubElement(
+            controls,
+            control_tag,
+            {
+                "shapeId": _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_SHAPE_ID,
+                "name": _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_CONTROL_NAME,
+                f"{{{_DOCUMENT_RELATIONSHIPS_NS}}}id": (
+                    _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_RELATIONSHIP_ID
+                ),
+            },
+        )
+        ElementTree.SubElement(control, control_properties_tag, {"macro": macro})
+        trailing_tags = {
+            f"{{{_SPREADSHEETML_NS}}}webPublishItems",
+            f"{{{_SPREADSHEETML_NS}}}tableParts",
+            f"{{{_SPREADSHEETML_NS}}}extLst",
+        }
+        insert_index = next(
+            (index for index, child in enumerate(worksheet) if child.tag in trailing_tags),
+            len(worksheet),
+        )
+        worksheet.insert(insert_index, controls)
+        members[worksheet_member] = serialize(worksheet)
+
+        relationships = ElementTree.fromstring(
+            members.get(
+                relationships_member,
+                (
+                    b'<?xml version="1.0" encoding="UTF-8"?>'
+                    b'<Relationships xmlns="http://schemas.openxmlformats.org/'
+                    b'package/2006/relationships"/>'
+                ),
+            )
+        )
+        relationship_tag = f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationship"
+        if any(
+            relationship.get("Id") == _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_RELATIONSHIP_ID
+            or relationship.get("Type") == _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_RELATIONSHIP
+            for relationship in relationships.findall(relationship_tag)
+        ):
+            raise ValueError("worksheet-control fixture already has a control relationship")
+        ElementTree.SubElement(
+            relationships,
+            relationship_tag,
+            {
+                "Id": _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_RELATIONSHIP_ID,
+                "Type": _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_RELATIONSHIP,
+                "Target": "../ctrlProps/ctrlProp1.xml",
+            },
+        )
+        members[relationships_member] = serialize(relationships)
+
+        control_properties = ElementTree.Element(
+            f"{{{_OFFICE_2010_SPREADSHEET_NS}}}formControlPr",
+            {"objectType": "Button"},
+        )
+        members[control_properties_member] = serialize(control_properties)
 
     _rewrite_xlsx_parts(path, mutate)
 
@@ -5841,6 +5989,91 @@ def _build_governance_sensitivity_label_metadata(root: Path) -> None:
     )
 
 
+def _build_governance_worksheet_control_macro_assignment(root: Path) -> None:
+    """Build one private worksheet-control macro-assignment transition."""
+
+    directory = root / "governance" / "worksheet_control_macro_assignment_changed"
+    directory.mkdir(parents=True, exist_ok=True)
+    baseline = directory / "baseline.xlsx"
+    candidate = directory / "candidate.xlsx"
+    _save_workbook(_worksheet_control_macro_assignment_workbook(), baseline)
+    _save_workbook(_worksheet_control_macro_assignment_workbook(), candidate)
+    _add_worksheet_control_macro_assignment(
+        baseline,
+        macro=_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_BASELINE_MACRO,
+    )
+    _add_worksheet_control_macro_assignment(
+        candidate,
+        macro=_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_CANDIDATE_MACRO,
+    )
+    _write_json(
+        directory / "truth.json",
+        _truth(
+            case_id="governance.worksheet_control_macro_assignment_changed",
+            title="A worksheet control retargets a macro without a cell edit",
+            family="governance",
+            review_expectation="block",
+            facts=[
+                {
+                    "kind": "worksheet_control_macro_assignment_changed",
+                    "sheet": _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_SHEET,
+                    "worksheet_member": (_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_WORKSHEET_MEMBER),
+                    "control_properties_member": (
+                        _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_CONTROL_PROPERTIES_MEMBER
+                    ),
+                    "control_sheet_count": 1,
+                    "worksheet_control_count": 1,
+                    "active_x_part_count": 0,
+                    "form_control_property_part_count": 1,
+                    "legacy_vml_drawing_part_count": 0,
+                    "legacy_vml_control_count": 0,
+                    "control_macro_assignment_count": 1,
+                    "control_cell_link_count": 0,
+                    "control_source_range_count": 0,
+                    "form_control_formula_binding_count": 0,
+                    "ole_object_count": 0,
+                    "related_relationship_count": 1,
+                    "external_relationship_count": 0,
+                    "internal_related_part_count": 0,
+                    "fingerprinted_related_part_count": 0,
+                    "uninspected_related_part_count": 0,
+                    "unrecognized_part_count": 0,
+                    "input_cell": _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_INPUT_CELL,
+                    "input_value": _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_INPUT_VALUE,
+                    "formula_cell": _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_FORMULA_CELL,
+                    "formula": _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_FORMULA,
+                    "dashboard_sheet": _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_DASHBOARD_SHEET,
+                    "dashboard_cell": _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_DASHBOARD_CELL,
+                    "dashboard_formula": (_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_DASHBOARD_FORMULA),
+                }
+            ],
+            must_reach=[
+                {
+                    "source": {
+                        "sheet": _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_SHEET,
+                        "cell": _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_INPUT_CELL,
+                    },
+                    "targets": [
+                        {
+                            "sheet": _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_SHEET,
+                            "cell": _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_FORMULA_CELL,
+                        },
+                        {
+                            "sheet": _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_DASHBOARD_SHEET,
+                            "cell": _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_DASHBOARD_CELL,
+                        },
+                    ],
+                }
+            ],
+            coverage=[
+                "The pair changes only xl/worksheets/sheet1.xml: one relationship-bound worksheet control keeps its declaration, control-properties part, relationships, ordinary cells, formulas, calculation properties, and every other package member fixed while its private macro assignment changes.",
+                "Public truth records only structural control counts and package-member boundaries. The control name, shape identifier, macro names, relationship identifier, and raw control XML remain private to the raw validator.",
+                "The fact is a stored assignment change only. WCAB does not load a control, inspect or execute a VBA payload, resolve a macro, authenticate a user, evaluate permissions, invoke an Office client, or claim an event-dispatch result.",
+            ],
+        ),
+    )
+
+
 def _build_governance_workbook_structure_protection(root: Path) -> None:
     def mutate(workbook: Workbook) -> None:
         workbook.security.lockStructure = False
@@ -7837,6 +8070,7 @@ _BUILDERS: tuple[Callable[[Path], None], ...] = (
     _build_governance_sheet_protection_sort_permission,
     _build_governance_protected_range_security_descriptor,
     _build_governance_sensitivity_label_metadata,
+    _build_governance_worksheet_control_macro_assignment,
     _build_governance_workbook_structure_protection,
     _build_governance_manual_calculation,
     _build_governance_iterative_calculation,
@@ -7899,6 +8133,7 @@ CASE_IDS = (
     "governance.sheet_protection_sort_permission_enabled",
     "governance.protected_range_security_descriptor_changed",
     "governance.sensitivity_label_metadata_changed",
+    "governance.worksheet_control_macro_assignment_changed",
     "governance.workbook_structure_lock_removed",
     "governance.manual_calculation_incomplete",
     "governance.iterative_calculation_enabled",

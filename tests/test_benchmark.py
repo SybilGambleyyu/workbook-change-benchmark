@@ -609,6 +609,42 @@ def _sensitivity_label_metadata_details() -> dict[str, object]:
     }
 
 
+def _worksheet_control_macro_assignment_details() -> dict[str, object]:
+    profile = {
+        "present": True,
+        "control_sheet_count": 1,
+        "worksheet_control_count": 1,
+        "active_x_part_count": 0,
+        "active_x_binary_reference_count": 0,
+        "form_control_property_part_count": 1,
+        "legacy_vml_drawing_part_count": 0,
+        "legacy_vml_control_count": 0,
+        "legacy_vml_macro_assignment_count": 0,
+        "legacy_vml_cell_link_count": 0,
+        "legacy_vml_source_range_count": 0,
+        "legacy_vml_camera_source_range_count": 0,
+        "control_macro_assignment_count": 1,
+        "control_cell_link_count": 0,
+        "control_source_range_count": 0,
+        "form_control_formula_binding_count": 0,
+        "ole_object_count": 0,
+        "linked_ole_object_count": 0,
+        "auto_load_ole_object_count": 0,
+        "auto_update_ole_object_count": 0,
+        "related_relationship_count": 1,
+        "external_relationship_count": 0,
+        "internal_related_part_count": 0,
+        "fingerprinted_related_part_count": 0,
+        "uninspected_related_part_count": 0,
+        "unrecognized_part_count": 0,
+    }
+    return {
+        "before": dict(profile),
+        "after": dict(profile),
+        "worksheet_control_definition_material_changed": True,
+    }
+
+
 def _chart_series_reference_details() -> dict[str, object]:
     profile = {
         "present": True,
@@ -1299,6 +1335,41 @@ def test_committed_manifest_matches_fixture_tree() -> None:
             "label_information_relationship_count": 1,
             "external_label_information_relationship_count": 0,
             "unrecognized_sensitivity_label_metadata_count": 0,
+            "input_cell": "B2",
+            "input_value": 12,
+            "formula_cell": "D2",
+            "formula": "=B2*C2",
+            "dashboard_sheet": "Dashboard",
+            "dashboard_cell": "B4",
+            "dashboard_formula": "=Controls!$D$2",
+        }
+    ]
+    worksheet_control_macro_assignment_row = next(
+        row for row in rows if row["id"] == "governance.worksheet_control_macro_assignment_changed"
+    )
+    assert worksheet_control_macro_assignment_row["facts"] == [
+        {
+            "kind": "worksheet_control_macro_assignment_changed",
+            "sheet": "Controls",
+            "worksheet_member": "xl/worksheets/sheet1.xml",
+            "control_properties_member": "xl/ctrlProps/ctrlProp1.xml",
+            "control_sheet_count": 1,
+            "worksheet_control_count": 1,
+            "active_x_part_count": 0,
+            "form_control_property_part_count": 1,
+            "legacy_vml_drawing_part_count": 0,
+            "legacy_vml_control_count": 0,
+            "control_macro_assignment_count": 1,
+            "control_cell_link_count": 0,
+            "control_source_range_count": 0,
+            "form_control_formula_binding_count": 0,
+            "ole_object_count": 0,
+            "related_relationship_count": 1,
+            "external_relationship_count": 0,
+            "internal_related_part_count": 0,
+            "fingerprinted_related_part_count": 0,
+            "uninspected_related_part_count": 0,
+            "unrecognized_part_count": 0,
             "input_cell": "B2",
             "input_value": 12,
             "formula_cell": "D2",
@@ -4533,6 +4604,105 @@ def test_validator_rejects_a_corrupted_sensitivity_label_metadata_value(
     assert validate_case(candidate.parent)
 
 
+def test_worksheet_control_macro_assignment_pair_changes_only_private_macro(
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "governance" / "worksheet_control_macro_assignment_changed"
+    assert validate_case(case) == []
+    with ZipFile(case / "baseline.xlsx") as baseline, ZipFile(case / "candidate.xlsx") as candidate:
+        assert baseline.testzip() is None
+        assert candidate.testzip() is None
+        baseline_members = {
+            entry.filename: baseline.read(entry.filename) for entry in baseline.infolist()
+        }
+        candidate_members = {
+            entry.filename: candidate.read(entry.filename) for entry in candidate.infolist()
+        }
+    assert set(baseline_members) == set(candidate_members)
+    assert [
+        member
+        for member in sorted(baseline_members)
+        if baseline_members[member] != candidate_members[member]
+    ] == ["xl/worksheets/sheet1.xml"]
+
+    namespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    control_path = f"{{{namespace}}}controls/{{{namespace}}}control"
+    control_properties_tag = f"{{{namespace}}}controlPr"
+    baseline_worksheet = ElementTree.fromstring(baseline_members["xl/worksheets/sheet1.xml"])
+    candidate_worksheet = ElementTree.fromstring(candidate_members["xl/worksheets/sheet1.xml"])
+    baseline_control = baseline_worksheet.find(control_path)
+    candidate_control = candidate_worksheet.find(control_path)
+    assert baseline_control is not None
+    assert candidate_control is not None
+    assert baseline_control.attrib == candidate_control.attrib
+    baseline_properties = baseline_control.find(control_properties_tag)
+    candidate_properties = candidate_control.find(control_properties_tag)
+    assert baseline_properties is not None
+    assert candidate_properties is not None
+    assert baseline_properties.get("macro") != candidate_properties.get("macro")
+    assert baseline_properties.attrib.pop("macro", None)
+    assert candidate_properties.attrib.pop("macro", None)
+    assert ElementTree.tostring(baseline_worksheet) == ElementTree.tostring(candidate_worksheet)
+
+    public_truth = (case / "truth.json").read_text(encoding="utf-8")
+    for private_value in (
+        "WCABBaselineReviewMacro",
+        "WCABCandidateReviewMacro",
+        "WCAB guarded action control",
+        "1025",
+        "rIdWCABControlProperties",
+    ):
+        assert private_value not in public_truth
+
+
+def test_validator_rejects_a_false_worksheet_control_macro_assignment_fact(
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "governance" / "worksheet_control_macro_assignment_changed"
+    truth_path = case / "truth.json"
+    truth = json.loads(truth_path.read_text(encoding="utf-8"))
+    truth["facts"][0]["control_macro_assignment_count"] = 0
+    truth_path.write_text(json.dumps(truth), encoding="utf-8")
+    assert validate_case(case)
+
+
+def test_validator_rejects_a_corrupted_worksheet_control_macro_assignment(
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = (
+        fixture_root
+        / "governance"
+        / "worksheet_control_macro_assignment_changed"
+        / "candidate.xlsx"
+    )
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    namespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    worksheet = ElementTree.fromstring(members["xl/worksheets/sheet1.xml"])
+    control_properties = worksheet.find(
+        f"{{{namespace}}}controls/{{{namespace}}}control/{{{namespace}}}controlPr"
+    )
+    assert control_properties is not None
+    control_properties.set("macro", "WCABBaselineReviewMacro")
+    members["xl/worksheets/sheet1.xml"] = ElementTree.tostring(
+        worksheet,
+        encoding="utf-8",
+        xml_declaration=True,
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
 def test_validator_rejects_a_false_iterative_calculation_fact(tmp_path: Path) -> None:
     fixture_root = tmp_path / "fixtures"
     build_all(fixture_root)
@@ -6890,6 +7060,130 @@ def test_formulafence_adapter_requires_high_change_for_sensitivity_label_metadat
     assert result["status"] == "missed"
     assert result["matched"] == []
     assert result["missed"] == ["sensitivity_label_metadata_changed"]
+
+
+def test_formulafence_adapter_maps_the_exact_worksheet_control_macro_assignment(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _worksheet_control_macro_assignment_details()
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "worksheet_embedded_controls_changed",
+                    "severity": "critical",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF029", "severity": "critical", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "worksheet_control_macro_assignment_changed"
+    )
+    assert result["status"] == "matched"
+    assert result["matched"] == ["worksheet_control_macro_assignment_changed"]
+
+
+def test_formulafence_adapter_rejects_inexact_worksheet_control_macro_assignment(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _worksheet_control_macro_assignment_details()
+        details["after"]["unrecognized_part_count"] = 1
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "worksheet_embedded_controls_changed",
+                    "severity": "critical",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF029", "severity": "critical", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "worksheet_control_macro_assignment_changed"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["worksheet_control_macro_assignment_changed"]
+
+
+def test_formulafence_adapter_requires_critical_ff029_for_worksheet_control_macro_assignment(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _worksheet_control_macro_assignment_details()
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "worksheet_embedded_controls_changed",
+                    "severity": "critical",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF029", "severity": "high", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "worksheet_control_macro_assignment_changed"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["worksheet_control_macro_assignment_changed"]
+
+
+def test_formulafence_adapter_requires_critical_change_for_worksheet_control_macro_assignment(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _worksheet_control_macro_assignment_details()
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "worksheet_embedded_controls_changed",
+                    "severity": "high",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF029", "severity": "critical", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "worksheet_control_macro_assignment_changed"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["worksheet_control_macro_assignment_changed"]
 
 
 def test_formulafence_adapter_maps_the_exact_iterative_calculation_transition(

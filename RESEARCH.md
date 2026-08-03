@@ -820,6 +820,28 @@ truth contract omits those texts, the range name, and the verifier so adapters
 can be scored on redacted material-change evidence rather than exposed account
 data.
 
+## Worksheet-control macro assignments can change without a cell edit
+
+Microsoft's [control-button guidance](https://support.microsoft.com/en-us/excel/assign-a-macro-to-a-form-or-a-control-button)
+documents that Form and ActiveX controls can run a workbook macro when clicked.
+That makes a stored control-to-macro assignment review-material independently
+of the worksheet cells a button happens to sit beside. It does not require a
+benchmark to package or execute VBA: the security-relevant review boundary is
+already present in the local declaration.
+
+WCAB 0.44 isolates a compact relationship-bound Form-control declaration. The
+baseline and candidate retain one worksheet control, its direct
+control-properties relationship and Office 2010 properties part, content type,
+ordinary `Controls!B2=12` input, `Controls!D2=B2*C2` formula, direct
+`Dashboard!B4=Controls!$D$2` consumer, calculation properties, and every other
+package member. Only the private inline control macro assignment differs in
+`xl/worksheets/sheet1.xml`. The validator reads only this bounded local OOXML
+shape and compares the worksheets after removing that one attribute. It keeps
+the control identity, shape ID, macro names, relationship ID, and raw XML
+private; it does not load a control, inspect or execute VBA, resolve a macro,
+authenticate a user, evaluate permissions, invoke an Office client, or claim
+an event-dispatch result.
+
 ## Sensitivity-label metadata is a package review surface, not an enforcement result
 
 Microsoft's [Sensitivity Label Information Part specification](https://learn.microsoft.com/en-us/openspecs/office_standards/ms-oi29500/c0599e21-b77f-475e-99e0-bd647f60bcbb)

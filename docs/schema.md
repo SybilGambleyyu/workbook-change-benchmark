@@ -149,6 +149,7 @@ Facts are observed directly from the fixture files by `wcab validate`.
 | `sheet_protection_sort_permission_enabled` | `sheet`, `worksheet_member`, `baseline_sort_locked`, `candidate_sort_locked`, `formula_cell`, `formula`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | One protected worksheet retains its stored protection and every other action lock while raw `sheetProtection/@sort` changes exactly from `1` (locked) to `0` (permitted). Its formula context, styles, calculation properties, and every package member except the declared worksheet remain unchanged. The validator does not test a password, encryption, authorization, editable ranges, a client sort operation, or a resulting value. |
 | `protected_range_security_descriptor_changed` | `sheet`, `worksheet_member`, `protected_range_ref`, `protected_range_count`, `security_descriptor_count`, `has_legacy_verifier`, `input_cell`, `input_value`, `formula_cell`, `formula`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | One protected worksheet keeps its locked target, range name/reference, legacy verifier, formulas, calculation properties, and every package member except the declared worksheet fixed while one standard nested `protectedRange/securityDescriptor` text node changes. Public truth excludes the descriptor, range name, and verifier. The validator records raw stored metadata only; it does not test a password, encryption, identity, authentication, authorization, enforcement, a client action, or a result. |
 | `sensitivity_label_metadata_changed` | `sheet`, `custom_properties_member`, `label_information_member`, `custom_property_part_count`, `sensitivity_property_count`, `msip_label_property_count`, `label_id_count`, `label_information_part_count`, `label_information_relationship_count`, `external_label_information_relationship_count`, `unrecognized_sensitivity_label_metadata_count`, `input_cell`, `input_value`, `formula_cell`, `formula`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | One standards-form Office sensitivity-label metadata envelope retains its root relationships, LabelInfo part, ordinary cells, formulas, calculation properties, and every package member except `docProps/custom.xml` while one MIP custom-property value changes. Public truth excludes label identifiers and names, action/site IDs, timestamps, property names/values, LabelInfo XML, and relationship IDs/targets. The validator records stored metadata only; it does not resolve a label, contact a service, determine effective classification, inspect encryption or permissions, infer access, authenticate an identity, enforce a policy, or claim client/storage behavior. |
+| `worksheet_control_macro_assignment_changed` | `sheet`, `worksheet_member`, `control_properties_member`, `control_sheet_count`, `worksheet_control_count`, `active_x_part_count`, `form_control_property_part_count`, `legacy_vml_drawing_part_count`, `legacy_vml_control_count`, `control_macro_assignment_count`, `control_cell_link_count`, `control_source_range_count`, `form_control_formula_binding_count`, `ole_object_count`, `related_relationship_count`, `external_relationship_count`, `internal_related_part_count`, `fingerprinted_related_part_count`, `uninspected_related_part_count`, `unrecognized_part_count`, `input_cell`, `input_value`, `formula_cell`, `formula`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | One relationship-bound worksheet Form control retains its declaration, control-properties part, relationships, ordinary cells, formulas, calculation properties, and every package member except `xl/worksheets/sheet1.xml` while one private inline macro assignment changes. Public truth excludes the control name, shape ID, macro names, relationship ID, and raw XML. The validator records a stored assignment only; it does not load a control, inspect or execute VBA, resolve a macro, authenticate a user, evaluate permissions, invoke an Office client, or claim an event-dispatch result. |
 | `workbook_structure_lock_removed` | `baseline_lock_structure`, `candidate_lock_structure`, `hidden_sheet`, `hidden_sheet_state`, `formula_sheet`, `formula_cell`, `formula` | Raw `workbookProtection/@lockStructure` changes exactly from `true` to `false` while the declared hidden-sheet state, formula, calculation properties, and every package member except `xl/workbook.xml` remain unchanged. The validator does not test a password, encryption, authorization, or client behavior. |
 | `manual_calculation_incomplete` | none | Candidate calculation metadata is `manual` and records incomplete calculation. |
 | `iterative_calculation_enabled` | `sheet`, `cell`, `formula`, `baseline_iterate`, `candidate_iterate`, `iteration_count`, `iteration_delta` | The declared direct self-referencing formula remains unchanged while raw `calcPr/@iterate` changes exactly from `false` to `true`; the explicit count and delta remain the declared values, and all non-iteration calculation attributes are unchanged. The validator does not calculate the model. |
@@ -336,6 +337,27 @@ It does not resolve a label, contact a policy service, determine effective
 classification, inspect encryption or permissions, infer access rights,
 authenticate an identity, enforce a policy, or claim Office, SharePoint, or
 OneDrive behavior.
+
+## Relationship-bound worksheet control macro assignments
+
+Excel's [control-button guidance](https://support.microsoft.com/en-us/excel/assign-a-macro-to-a-form-or-a-control-button)
+documents assigning macros to Form and ActiveX controls. A stored control
+assignment is therefore a review surface separate from a formula or cell-value
+diff, even though this benchmark does not require an executable VBA payload.
+
+WCAB 0.44 uses a compact relationship-bound Form-control shape: one worksheet
+`controls/control` declaration has one inline `controlPr/@macro`, one direct
+control-properties relationship, and one Office 2010 `formControlPr` part.
+The baseline and candidate retain that entire graph, ordinary `Controls!B2=12`
+input, `Controls!D2=B2*C2` formula, direct `Dashboard!B4=Controls!$D$2`
+consumer, calculation properties, and every other package member. Only the
+private inline macro assignment differs in `xl/worksheets/sheet1.xml`. The raw
+validator reads only this bounded local package shape and compares the
+worksheets after erasing that one attribute. Public truth retains only safe
+aggregate control counts and member paths, never the control name, shape ID,
+macro names, relationship ID, or raw XML. It does not load a control, inspect
+or execute VBA, resolve a macro, authenticate a user, evaluate permissions,
+invoke an Office client, or claim an event-dispatch result.
 
 ## Static impact lower bounds
 

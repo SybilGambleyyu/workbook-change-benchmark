@@ -51,6 +51,10 @@ _FACT_TO_CHANGE: dict[str, tuple[str, str | None]] = {
         "sensitivity_label_metadata_changed",
         None,
     ),
+    "worksheet_control_macro_assignment_changed": (
+        "worksheet_embedded_controls_changed",
+        None,
+    ),
     "workbook_structure_lock_removed": ("workbook_protection_changed", None),
     "manual_calculation_incomplete": ("calculation_settings_changed", None),
     "iterative_calculation_enabled": ("calculation_settings_changed", None),
@@ -2749,6 +2753,109 @@ def _sensitivity_label_metadata_finding_observed(
     )
 
 
+def _worksheet_control_macro_assignment_details_observed(
+    details: Any,
+    fact: dict[str, Any],
+) -> bool:
+    """Require FormulaFence's redacted one-control macro-assignment evidence.
+
+    WCAB's raw validator establishes the relationship, private macro transition,
+    and one-member package boundary. FormulaFence must retain only the exact
+    safe control profile and its private definition-material signal.
+    """
+
+    if (
+        fact.get("sheet") != "Controls"
+        or fact.get("worksheet_member") != "xl/worksheets/sheet1.xml"
+        or fact.get("control_properties_member") != "xl/ctrlProps/ctrlProp1.xml"
+        or fact.get("control_sheet_count") != 1
+        or fact.get("worksheet_control_count") != 1
+        or fact.get("active_x_part_count") != 0
+        or fact.get("form_control_property_part_count") != 1
+        or fact.get("legacy_vml_drawing_part_count") != 0
+        or fact.get("legacy_vml_control_count") != 0
+        or fact.get("control_macro_assignment_count") != 1
+        or fact.get("control_cell_link_count") != 0
+        or fact.get("control_source_range_count") != 0
+        or fact.get("form_control_formula_binding_count") != 0
+        or fact.get("ole_object_count") != 0
+        or fact.get("related_relationship_count") != 1
+        or fact.get("external_relationship_count") != 0
+        or fact.get("internal_related_part_count") != 0
+        or fact.get("fingerprinted_related_part_count") != 0
+        or fact.get("uninspected_related_part_count") != 0
+        or fact.get("unrecognized_part_count") != 0
+        or fact.get("input_cell") != "B2"
+        or fact.get("input_value") != 12
+        or fact.get("formula_cell") != "D2"
+        or fact.get("formula") != "=B2*C2"
+        or fact.get("dashboard_sheet") != "Dashboard"
+        or fact.get("dashboard_cell") != "B4"
+        or fact.get("dashboard_formula") != "=Controls!$D$2"
+        or not isinstance(details, dict)
+    ):
+        return False
+    profile = {
+        "present": True,
+        "control_sheet_count": 1,
+        "worksheet_control_count": 1,
+        "active_x_part_count": 0,
+        "active_x_binary_reference_count": 0,
+        "form_control_property_part_count": 1,
+        "legacy_vml_drawing_part_count": 0,
+        "legacy_vml_control_count": 0,
+        "legacy_vml_macro_assignment_count": 0,
+        "legacy_vml_cell_link_count": 0,
+        "legacy_vml_source_range_count": 0,
+        "legacy_vml_camera_source_range_count": 0,
+        "control_macro_assignment_count": 1,
+        "control_cell_link_count": 0,
+        "control_source_range_count": 0,
+        "form_control_formula_binding_count": 0,
+        "ole_object_count": 0,
+        "linked_ole_object_count": 0,
+        "auto_load_ole_object_count": 0,
+        "auto_update_ole_object_count": 0,
+        "related_relationship_count": 1,
+        "external_relationship_count": 0,
+        "internal_related_part_count": 0,
+        "fingerprinted_related_part_count": 0,
+        "uninspected_related_part_count": 0,
+        "unrecognized_part_count": 0,
+    }
+    return details == {
+        "before": profile,
+        "after": profile,
+        "worksheet_control_definition_material_changed": True,
+    }
+
+
+def _worksheet_control_macro_assignment_observed(
+    change: dict[str, Any],
+    fact: dict[str, Any],
+) -> bool:
+    """Match FormulaFence's critical worksheet-control change record."""
+
+    return (
+        change.get("kind") == "worksheet_embedded_controls_changed"
+        and change.get("severity") == "critical"
+        and _worksheet_control_macro_assignment_details_observed(change.get("details"), fact)
+    )
+
+
+def _worksheet_control_macro_assignment_finding_observed(
+    finding: dict[str, Any],
+    fact: dict[str, Any],
+) -> bool:
+    """Require critical FF029 evidence for the private macro transition."""
+
+    return (
+        finding.get("rule_id") == "FF029"
+        and finding.get("severity") == "critical"
+        and _worksheet_control_macro_assignment_details_observed(finding.get("details"), fact)
+    )
+
+
 def _what_if_data_table_input_reference_details_observed(
     details: Any, fact: dict[str, Any]
 ) -> bool:
@@ -3402,6 +3509,16 @@ def evaluate_diff_case(case_dir: str | Path, *, executable: str = "formulafence"
                 if isinstance(change, dict)
             ) and any(
                 _sensitivity_label_metadata_finding_observed(finding, fact)
+                for finding in findings
+                if isinstance(finding, dict)
+            )
+        if kind == "worksheet_control_macro_assignment_changed":
+            observed = any(
+                _worksheet_control_macro_assignment_observed(change, fact)
+                for change in changes
+                if isinstance(change, dict)
+            ) and any(
+                _worksheet_control_macro_assignment_finding_observed(finding, fact)
                 for finding in findings
                 if isinstance(finding, dict)
             )

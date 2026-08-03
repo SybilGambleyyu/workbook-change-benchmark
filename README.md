@@ -34,7 +34,7 @@ gates, static analyzers, and agent workflows that propose workbook edits.
 
 ## Scope and non-goals
 
-Version `0.42` covers formula-to-value replacements, formula reference drift,
+Version `0.44` covers formula-to-value replacements, formula reference drift,
 value changes with downstream effects, external formula references, named
 ranges, data validation, conditional formatting, sheet visibility, direct cell
 and workbook-structure protection, calculation settings, static cycles,
@@ -136,6 +136,16 @@ relationship IDs/targets. It records persisted metadata only: it does not
 resolve a label, contact a policy service, determine effective classification,
 inspect encryption or permissions, infer access rights, authenticate an
 identity, enforce a policy, or claim Office or storage-service behavior.
+It also covers one relationship-bound worksheet Form control whose private
+stored macro assignment changes while its control declaration, control-properties
+part, relationship and content type, ordinary `Controls!B2=12` input,
+`Controls!D2=B2*C2` formula, `Dashboard!B4=Controls!$D$2` consumer,
+calculation properties, and every other package member remain fixed. Public
+truth exposes only structural control counts and safe member boundaries, never
+the control name, shape ID, macro names, relationship ID, or raw control XML.
+It records a stored assignment only: WCAB includes no VBA payload and does not
+load a control, resolve or execute a macro, authenticate a user, evaluate
+permissions, invoke an Office client, or claim an event-dispatch result.
 It also covers one macro-enabled `.xlsm` workbook whose workbook-scoped
 `_xlnm.Auto_Open` binding moves from the very-hidden `Macro Automation!A1`
 cell to `Macro Automation!A2` while the XLM macro sheet remains byte-identical
@@ -517,6 +527,17 @@ the exact generated package shape and `docProps/custom.xml`-only difference;
 neither layer resolves a label, contacts a policy service, determines effective
 classification, enforces a policy, inspects permissions, or claims client or
 storage-service behavior.
+For the relationship-bound worksheet-control macro-assignment case, it requires
+FormulaFence's exact critical `worksheet_embedded_controls_changed` / `FF029`
+evidence: equal redacted profiles retain one worksheet control, one
+form-control-properties part, one macro assignment, one related relationship,
+and no ActiveX, OLE, legacy VML, external, or unrecognized surface, while only
+`worksheet_control_definition_material_changed=true` differs. FormulaFence
+does not expose the control identity, shape, macro name, relationship ID, or
+raw XML. WCAB's raw validator independently proves the private assignment
+transition, stable formula context, and worksheet-XML-only boundary; neither
+layer loads a control, resolves or executes a macro, evaluates permissions, or
+claims an Office-client result.
 It separately requires FormulaFence's `pivot_cache_refresh_controls_changed`
 record and matching `FF023` for the local worksheet-backed PivotCache case.
 FormulaFence safely reports cache-level source/control metadata rather than

@@ -166,6 +166,24 @@ _SENSITIVITY_LABEL_METADATA_SITE_ID = "66666666-7777-8888-9999-AAAAAAAAAAAA"
 _SENSITIVITY_LABEL_METADATA_ACTION_ID = "BBBBBBBB-CCCC-DDDD-EEEE-FFFFFFFFFFFF"
 _SENSITIVITY_LABEL_METADATA_BASELINE_NAME = "WCAB approved classification"
 _SENSITIVITY_LABEL_METADATA_CANDIDATE_NAME = "WCAB reviewed classification"
+_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_SHEET = "Controls"
+_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_WORKSHEET_MEMBER = "xl/worksheets/sheet1.xml"
+_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_RELATIONSHIPS_MEMBER = "xl/worksheets/_rels/sheet1.xml.rels"
+_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_CONTROL_PROPERTIES_MEMBER = "xl/ctrlProps/ctrlProp1.xml"
+_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/ctrlProp"
+_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_RELATIONSHIP_ID = "rIdWCABControlProperties"
+_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_CONTENT_TYPE = "application/vnd.ms-excel.controlproperties+xml"
+_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_CONTROL_NAME = "WCAB guarded action control"
+_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_SHAPE_ID = "1025"
+_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_BASELINE_MACRO = "WCABBaselineReviewMacro"
+_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_CANDIDATE_MACRO = "WCABCandidateReviewMacro"
+_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_INPUT_CELL = "B2"
+_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_INPUT_VALUE = 12
+_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_FORMULA_CELL = "D2"
+_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_FORMULA = "=B2*C2"
+_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_DASHBOARD_SHEET = "Dashboard"
+_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_DASHBOARD_CELL = "B4"
+_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_DASHBOARD_FORMULA = "=Controls!$D$2"
 _POWER_PIVOT_DATA_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/powerPivotData"
 _POWER_PIVOT_DATA_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.model+data"
 _POWER_PIVOT_DATA_PAYLOAD = (
@@ -4511,6 +4529,132 @@ def _sensitivity_label_custom_properties_without_name(path: Path) -> bytes | Non
     return ElementTree.tostring(properties, encoding="utf-8", xml_declaration=True)
 
 
+def _worksheet_control_macro_assignment_state(path: Path) -> dict[str, Any] | None:
+    """Read WCAB's relationship-backed control without exposing it publicly.
+
+    This compact parser follows only the generated worksheet, its one direct
+    form-control-properties relationship, and the local properties part. It
+    records a stored assignment; it does not resolve or execute a macro.
+    """
+
+    try:
+        with ZipFile(path) as archive:
+            worksheet_member = _worksheet_member_for_sheet(
+                archive,
+                _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_SHEET,
+            )
+            if worksheet_member is None:
+                return None
+            worksheet = ElementTree.fromstring(archive.read(worksheet_member))
+            relationships = ElementTree.fromstring(
+                archive.read(_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_RELATIONSHIPS_MEMBER)
+            )
+            content_types = ElementTree.fromstring(archive.read("[Content_Types].xml"))
+            control_properties = ElementTree.fromstring(
+                archive.read(_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_CONTROL_PROPERTIES_MEMBER)
+            )
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+
+    controls_tag = f"{{{_SPREADSHEETML_NS}}}controls"
+    control_tag = f"{{{_SPREADSHEETML_NS}}}control"
+    control_properties_tag = f"{{{_SPREADSHEETML_NS}}}controlPr"
+    relationship_tag = f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationship"
+    override_tag = f"{{{_CONTENT_TYPES_NS}}}Override"
+    relationship_attribute = f"{{{_DOCUMENT_RELATIONSHIPS_NS}}}id"
+    if (
+        worksheet_member != _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_WORKSHEET_MEMBER
+        or worksheet.tag != f"{{{_SPREADSHEETML_NS}}}worksheet"
+    ):
+        return None
+    controls = worksheet.findall(controls_tag)
+    if len(controls) != 1 or controls[0].attrib or len(controls[0]) != 1:
+        return None
+    control = controls[0][0]
+    if control.tag != control_tag or len(control) != 1:
+        return None
+    inline_properties = control[0]
+    if (
+        inline_properties.tag != control_properties_tag
+        or len(inline_properties)
+        or not isinstance(inline_properties.get("macro"), str)
+    ):
+        return None
+    if control.get(relationship_attribute) != _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_RELATIONSHIP_ID:
+        return None
+
+    if (
+        relationships.tag != f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationships"
+        or len(relationships) != 1
+        or relationships[0].tag != relationship_tag
+    ):
+        return None
+    relationship = relationships[0]
+    expected_relationship = (
+        ("Id", _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_RELATIONSHIP_ID),
+        ("Target", "../ctrlProps/ctrlProp1.xml"),
+        ("Type", _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_RELATIONSHIP),
+    )
+    if tuple(sorted(relationship.attrib.items())) != expected_relationship:
+        return None
+
+    matching_overrides = [
+        override
+        for override in content_types.findall(override_tag)
+        if override.get("PartName")
+        == f"/{_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_CONTROL_PROPERTIES_MEMBER}"
+    ]
+    expected_override = (
+        ("ContentType", _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_CONTENT_TYPE),
+        (
+            "PartName",
+            f"/{_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_CONTROL_PROPERTIES_MEMBER}",
+        ),
+    )
+    if (
+        len(matching_overrides) != 1
+        or tuple(sorted(matching_overrides[0].attrib.items())) != expected_override
+    ):
+        return None
+
+    if (
+        control_properties.tag != f"{{{_OFFICE_2010_SPREADSHEET_NS}}}formControlPr"
+        or len(control_properties)
+        or tuple(sorted(control_properties.attrib.items())) != (("objectType", "Button"),)
+    ):
+        return None
+    return {
+        "worksheet_member": worksheet_member,
+        "control_attributes": tuple(sorted(control.attrib.items())),
+        "macro": inline_properties.get("macro"),
+        "relationship_attributes": tuple(sorted(relationship.attrib.items())),
+        "content_type_attributes": tuple(sorted(matching_overrides[0].attrib.items())),
+        "control_properties_attributes": tuple(sorted(control_properties.attrib.items())),
+    }
+
+
+def _worksheet_without_control_macro_assignment(path: Path) -> bytes | None:
+    """Return WCAB's control worksheet after erasing only its macro assignment."""
+
+    if _worksheet_control_macro_assignment_state(path) is None:
+        return None
+    try:
+        with ZipFile(path) as archive:
+            worksheet = ElementTree.fromstring(
+                archive.read(_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_WORKSHEET_MEMBER)
+            )
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    inline_properties = worksheet.find(
+        f"{{{_SPREADSHEETML_NS}}}controls/"
+        f"{{{_SPREADSHEETML_NS}}}control/"
+        f"{{{_SPREADSHEETML_NS}}}controlPr"
+    )
+    if inline_properties is None or inline_properties.attrib.pop("macro", None) is None:
+        return None
+    return ElementTree.tostring(worksheet, encoding="utf-8", xml_declaration=True)
+
+
 def _xlsx_member_differences(baseline_path: Path, candidate_path: Path) -> set[str] | None:
     """Return changed member names when two small fixture archives align."""
 
@@ -5195,6 +5339,144 @@ def _validate_fact(
                 (dashboard_sheet, dashboard_cell),
             }.issubset(_reachable(graph, (sheet_name, input_cell))),
             f"{truth['id']}: expected only one private standards-form sensitivity-label metadata transition with stable formula context",
+            errors,
+        )
+        return
+
+    if kind == "worksheet_control_macro_assignment_changed":
+        sheet_name = fact.get("sheet")
+        input_cell = fact.get("input_cell")
+        formula_cell = fact.get("formula_cell")
+        dashboard_sheet = fact.get("dashboard_sheet")
+        dashboard_cell = fact.get("dashboard_cell")
+        before_state = _worksheet_control_macro_assignment_state(baseline_path)
+        after_state = _worksheet_control_macro_assignment_state(candidate_path)
+        before_input = (
+            _raw_cell_state(baseline_path, sheet_name, input_cell)
+            if isinstance(sheet_name, str) and isinstance(input_cell, str)
+            else None
+        )
+        after_input = (
+            _raw_cell_state(candidate_path, sheet_name, input_cell)
+            if isinstance(sheet_name, str) and isinstance(input_cell, str)
+            else None
+        )
+        before_formula = (
+            _raw_cell_state(baseline_path, sheet_name, formula_cell)
+            if isinstance(sheet_name, str) and isinstance(formula_cell, str)
+            else None
+        )
+        after_formula = (
+            _raw_cell_state(candidate_path, sheet_name, formula_cell)
+            if isinstance(sheet_name, str) and isinstance(formula_cell, str)
+            else None
+        )
+        before_dashboard = (
+            _raw_cell_state(baseline_path, dashboard_sheet, dashboard_cell)
+            if isinstance(dashboard_sheet, str) and isinstance(dashboard_cell, str)
+            else None
+        )
+        after_dashboard = (
+            _raw_cell_state(candidate_path, dashboard_sheet, dashboard_cell)
+            if isinstance(dashboard_sheet, str) and isinstance(dashboard_cell, str)
+            else None
+        )
+        graph = _direct_graph(candidate)
+        expected_fact_profile = {
+            "control_sheet_count": 1,
+            "worksheet_control_count": 1,
+            "active_x_part_count": 0,
+            "form_control_property_part_count": 1,
+            "legacy_vml_drawing_part_count": 0,
+            "legacy_vml_control_count": 0,
+            "control_macro_assignment_count": 1,
+            "control_cell_link_count": 0,
+            "control_source_range_count": 0,
+            "form_control_formula_binding_count": 0,
+            "ole_object_count": 0,
+            "related_relationship_count": 1,
+            "external_relationship_count": 0,
+            "internal_related_part_count": 0,
+            "fingerprinted_related_part_count": 0,
+            "uninspected_related_part_count": 0,
+            "unrecognized_part_count": 0,
+        }
+        expected_control_attributes = tuple(
+            sorted(
+                (
+                    ("name", _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_CONTROL_NAME),
+                    ("shapeId", _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_SHAPE_ID),
+                    (
+                        f"{{{_DOCUMENT_RELATIONSHIPS_NS}}}id",
+                        _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_RELATIONSHIP_ID,
+                    ),
+                )
+            )
+        )
+        expected_relationship = (
+            ("Id", _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_RELATIONSHIP_ID),
+            ("Target", "../ctrlProps/ctrlProp1.xml"),
+            ("Type", _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_RELATIONSHIP),
+        )
+        expected_content_type = (
+            ("ContentType", _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_CONTENT_TYPE),
+            (
+                "PartName",
+                f"/{_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_CONTROL_PROPERTIES_MEMBER}",
+            ),
+        )
+        _assert(
+            sheet_name == _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_SHEET
+            and fact.get("worksheet_member") == _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_WORKSHEET_MEMBER
+            and fact.get("control_properties_member")
+            == _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_CONTROL_PROPERTIES_MEMBER
+            and all(fact.get(key) == value for key, value in expected_fact_profile.items())
+            and input_cell == _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_INPUT_CELL
+            and fact.get("input_value") == _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_INPUT_VALUE
+            and formula_cell == _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_FORMULA_CELL
+            and fact.get("formula") == _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_FORMULA
+            and dashboard_sheet == _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_DASHBOARD_SHEET
+            and dashboard_cell == _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_DASHBOARD_CELL
+            and fact.get("dashboard_formula")
+            == _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_DASHBOARD_FORMULA
+            and before_state is not None
+            and after_state is not None
+            and before_state["worksheet_member"]
+            == _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_WORKSHEET_MEMBER
+            and after_state["worksheet_member"]
+            == _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_WORKSHEET_MEMBER
+            and before_state["control_attributes"] == expected_control_attributes
+            and after_state["control_attributes"] == expected_control_attributes
+            and before_state["relationship_attributes"] == expected_relationship
+            and after_state["relationship_attributes"] == expected_relationship
+            and before_state["content_type_attributes"] == expected_content_type
+            and after_state["content_type_attributes"] == expected_content_type
+            and before_state["control_properties_attributes"] == (("objectType", "Button"),)
+            and after_state["control_properties_attributes"] == (("objectType", "Button"),)
+            and before_state["macro"] == _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_BASELINE_MACRO
+            and after_state["macro"] == _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_CANDIDATE_MACRO
+            and before_input is not None
+            and after_input is not None
+            and before_input == after_input
+            and before_input[4] == str(_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_INPUT_VALUE)
+            and before_formula is not None
+            and after_formula is not None
+            and before_formula == after_formula
+            and before_formula[3] == _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_FORMULA
+            and before_dashboard is not None
+            and after_dashboard is not None
+            and before_dashboard == after_dashboard
+            and before_dashboard[3] == _WORKSHEET_CONTROL_MACRO_ASSIGNMENT_DASHBOARD_FORMULA
+            and _worksheet_without_control_macro_assignment(baseline_path)
+            == _worksheet_without_control_macro_assignment(candidate_path)
+            and _xlsx_member_differences(baseline_path, candidate_path)
+            == {_WORKSHEET_CONTROL_MACRO_ASSIGNMENT_WORKSHEET_MEMBER}
+            and _calculation_properties(baseline_path) == _calculation_properties(candidate_path)
+            and {
+                (sheet_name, formula_cell),
+                (dashboard_sheet, dashboard_cell),
+            }.issubset(_reachable(graph, (sheet_name, input_cell))),
+            f"{truth['id']}: expected only one private relationship-bound worksheet control macro-assignment transition with stable formula context",
             errors,
         )
         return

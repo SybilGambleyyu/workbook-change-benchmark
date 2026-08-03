@@ -22,7 +22,7 @@ configs:
 # Workbook Change Assurance Benchmark (WCAB)
 
 WCAB is an open, deterministic benchmark for tools that review changes to
-Excel workbooks. Each of its 60 synthetic cases supplies fixtures, explicit
+Excel workbooks. Each of its 61 synthetic cases supplies fixtures, 63 explicit
 observable change facts, a reference review
 disposition, documented coverage boundaries, and—in relevant cases—a
 machine-matchable coverage expectation.
@@ -114,8 +114,14 @@ custom-property value changes in `docProps/custom.xml` (safe counts and
 package-member boundaries only: it does not expose label IDs/names, action/site
 IDs, timestamps, property names/values, XML, or relationship IDs/targets; or
 resolve a label, determine effective classification, inspect permissions, or
-claim Office or storage-service behavior), an unchanged
-direct circular formula whose iterative-calculation setting becomes enabled, an
+claim Office or storage-service behavior), one relationship-bound worksheet
+Form control whose private stored macro assignment changes while its
+declaration, control-properties part, relationship/content type, ordinary
+cells, formulas, and every other package member remain fixed (safe structural
+counts and member boundaries only: it does not expose the control name, shape
+ID, macro names, relationship ID, or raw XML; load a control, resolve or
+execute a macro, evaluate permissions, or claim Office client behavior), an
+unchanged direct circular formula whose iterative-calculation setting becomes enabled, an
 unchanged precision-sensitive input and formula whose calculation switches to
 precision as displayed, an unchanged legacy-CSE array formula that switches to
 dynamic-array semantics, a saved numeric formula result that changes despite
@@ -227,6 +233,16 @@ property names or values, XML, relationship IDs, or targets; resolve a label;
 contact a policy service; determine effective classification; inspect
 encryption or permissions; infer access; enforce policy; or claim Office,
 SharePoint, OneDrive, or storage-service behavior.
+
+The worksheet-control macro-assignment case records one private stored control
+assignment transition only. Its control declaration, one relationship-backed
+form-control-properties part, relationship and content-type bindings, ordinary
+formula context, and all package members except `xl/worksheets/sheet1.xml` are
+fixed. Public truth and the FormulaFence adapter retain only aggregate control
+counts and package-member boundaries. The case does not disclose control or
+macro identities, load a control, inspect or execute VBA, resolve a macro,
+authenticate a user, evaluate permissions, invoke an Office client, or claim
+an event-dispatch result.
 
 ## Use
 

@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.44.0 — 2026-08-02
+
+- Add a deterministic relationship-bound worksheet Form-control pair. Its sole
+  raw change is one private inline macro assignment in
+  `xl/worksheets/sheet1.xml`; the control declaration, control-properties part,
+  relationship/content-type bindings, ordinary cells, formula context,
+  calculation properties, and every other package member stay fixed.
+- Add the exact `worksheet_control_macro_assignment_changed` fact, a bounded
+  raw-OOXML validator, assignment-only comparison, package-isolation check, and
+  corruption regressions. Public truth exposes only safe structural counts and
+  member boundaries, never a control name, shape ID, macro name, relationship
+  ID, or raw control XML. The fixture contains no VBA payload and does not load
+  a control, resolve or execute a macro, evaluate permissions, or claim an
+  Office-client event result.
+- Extend the optional FormulaFence adapter to require the exact critical
+  `worksheet_embedded_controls_changed` / `FF029` record with equal redacted
+  one-control profiles and `worksheet_control_definition_material_changed=true`.
+  The adapter never relies on private control or macro identity.
+
 ## 0.43.0 — 2026-08-02
 
 - Add a deterministic standards-form Office sensitivity-label metadata pair.

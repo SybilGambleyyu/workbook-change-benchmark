@@ -1,0 +1,64 @@
+{
+  "coverage": [
+    "The pair changes only xl/worksheets/sheet1.xml: one relationship-bound worksheet control keeps its declaration, control-properties part, relationships, ordinary cells, formulas, calculation properties, and every other package member fixed while its private macro assignment changes.",
+    "Public truth records only structural control counts and package-member boundaries. The control name, shape identifier, macro names, relationship identifier, and raw control XML remain private to the raw validator.",
+    "The fact is a stored assignment change only. WCAB does not load a control, inspect or execute a VBA payload, resolve a macro, authenticate a user, evaluate permissions, invoke an Office client, or claim an event-dispatch result."
+  ],
+  "coverage_expectations": [],
+  "facts": [
+    {
+      "active_x_part_count": 0,
+      "control_cell_link_count": 0,
+      "control_macro_assignment_count": 1,
+      "control_properties_member": "xl/ctrlProps/ctrlProp1.xml",
+      "control_sheet_count": 1,
+      "control_source_range_count": 0,
+      "dashboard_cell": "B4",
+      "dashboard_formula": "=Controls!$D$2",
+      "dashboard_sheet": "Dashboard",
+      "external_relationship_count": 0,
+      "fingerprinted_related_part_count": 0,
+      "form_control_formula_binding_count": 0,
+      "form_control_property_part_count": 1,
+      "formula": "=B2*C2",
+      "formula_cell": "D2",
+      "input_cell": "B2",
+      "input_value": 12,
+      "internal_related_part_count": 0,
+      "kind": "worksheet_control_macro_assignment_changed",
+      "legacy_vml_control_count": 0,
+      "legacy_vml_drawing_part_count": 0,
+      "ole_object_count": 0,
+      "related_relationship_count": 1,
+      "sheet": "Controls",
+      "uninspected_related_part_count": 0,
+      "unrecognized_part_count": 0,
+      "worksheet_control_count": 1,
+      "worksheet_member": "xl/worksheets/sheet1.xml"
+    }
+  ],
+  "family": "governance",
+  "id": "governance.worksheet_control_macro_assignment_changed",
+  "must_reach": [
+    {
+      "source": {
+        "cell": "B2",
+        "sheet": "Controls"
+      },
+      "targets": [
+        {
+          "cell": "D2",
+          "sheet": "Controls"
+        },
+        {
+          "cell": "B4",
+          "sheet": "Dashboard"
+        }
+      ]
+    }
+  ],
+  "review_expectation": "block",
+  "schema_version": 3,
+  "title": "A worksheet control retargets a macro without a cell edit",
+  "topology": "pair"
+}
