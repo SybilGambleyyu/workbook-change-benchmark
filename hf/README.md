@@ -22,7 +22,7 @@ configs:
 # Workbook Change Assurance Benchmark (WCAB)
 
 WCAB is an open, deterministic benchmark for tools that review changes to
-Excel workbooks. Each of its 51 synthetic cases supplies baseline/candidate
+Excel workbooks. Each of its 52 synthetic cases supplies baseline/candidate
 fixtures, explicit observable change facts, a reference review
 disposition, documented coverage boundaries, and—in relevant cases—a
 machine-matchable coverage expectation.
@@ -41,7 +41,9 @@ reference drift, input propagation, external references, named ranges,
 controls, calculation state, cycles, structural changes (including an Excel
 Table scope expansion with unchanged structured-reference text, a Table
 calculated-column master whose raw formula changes while worksheet cells and
-the structured-reference dashboard formula remain fixed, a newly
+the structured-reference dashboard formula remain fixed, an embedded Power
+Pivot/Data Model relationship whose raw target key changes while its binding,
+local Tables, and opaque payload remain fixed, a newly
 introduced `INDIRECT` reference, unchanged `INDIRECT`/`OFFSET` formulas whose
 dynamic selectors change, an external-data connection that begins refreshing
 when the workbook opens, a local worksheet-backed PivotTable cache whose
@@ -154,6 +156,11 @@ claim that a client recalculates, spills, or persists a value.
 The Table calculated-column case records a Table-level formula master only: it
 does not fill a column, reconcile that master with row formulas, calculate a
 structured reference, infer a total, or claim client behavior.
+
+The Power Pivot/Data Model case records a raw relationship declaration only:
+it does not deserialize the Analysis Services payload, evaluate DAX, refresh a
+model, calculate or render a report, infer model-to-cell impact, or claim
+client behavior.
 
 The sheet-protection sort case records a stored action permission only: it does
 not test a password, encryption, authorization, editable ranges, an actual

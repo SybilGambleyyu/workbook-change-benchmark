@@ -69,7 +69,10 @@ styles, calculation properties, and every package member except its worksheet.
 WCAB 0.34 adds a workbook-scoped named-LAMBDA body transition with unchanged
 inputs and ordinary formulas, plus a Table calculated-column master transition
 with unchanged row and dashboard formulas. Each isolates one raw formula
-definition in its owning package part.
+definition in its owning package part. WCAB 0.35 adds an embedded Power
+Pivot/Data Model relationship-key transition with fixed workbook binding,
+content type, local Tables, and opaque model payload. It isolates one raw
+`x15:modelRelationship` declaration without claiming model execution.
 Version 2 remains
 available in the immutable v0.2.0 and v0.3.0 releases.
 
@@ -138,6 +141,7 @@ Facts are observed directly from the fixture files by `wcab validate`.
 | `external_workbook_link_source_changed` | `sheet`, `cell`, `formula`, `workbook_member`, `workbook_relationships_member`, `workbook_relationship_id`, `workbook_relationship_type`, `external_link_member`, `external_link_relationships_member`, `external_link_content_type`, `external_link_relationship_id`, `external_link_relationship_type`, `external_sheet`, `target_mode`, `baseline_target`, `candidate_target`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | One external-workbook formula, workbook external-reference relationship, `externalLink`/`externalBook` declaration, content type, source-sheet name, local downstream formula, and calculation properties remain unchanged while one external `externalLinkPath` relationship `Target` moves between declared reserved URLs. The validator reads local OOXML only; it does not resolve, open, fetch, authenticate to, trust, refresh, calculate, or claim that a client updates a link or returns a value. |
 | `external_defined_name_source_changed` | `name`, `workbook_member`, `baseline_refers_to`, `candidate_refers_to`, `formula_sheet`, `formula_cell`, `formula`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | One local `definedName` text moves between declared qualified external-workbook expressions while the name, local formula context, calculation properties, sheet declarations, workbook relationships, and every package member except `xl/workbook.xml` remain unchanged. The compact package deliberately has no `externalLink` part or `externalReferences` declaration. The validator does not resolve, open, fetch, authenticate to, trust, refresh, calculate, or claim a client result. |
 | `named_lambda_definition_changed` | `name`, `workbook_member`, `parameters`, `baseline_refers_to`, `candidate_refers_to`, `input_sheet`, `rate_cell`, `rate_value`, `amount_cell`, `amount_value`, `formula_sheet`, `formula_cell`, `formula`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | One workbook-scoped named `LAMBDA` body changes while its declared inputs, calling formula, dashboard consumer, calculation properties, sheet declarations, workbook relationships, and every package member except `xl/workbook.xml` remain unchanged. The compact package has no `externalLink` part or `externalReferences` declaration. The validator does not evaluate a LAMBDA, calculate a result, infer client/version support, or claim a client result. |
+| `power_pivot_data_model_relationship_changed` | `workbook_member`, `workbook_relationships_member`, `data_model_member`, `workbook_relationship_id`, `workbook_relationship_type`, `workbook_relationship_target`, `data_model_content_type`, `extension_uri`, `min_version_load`, `model_tables`, `from_table`, `from_column`, `to_table`, `baseline_to_column`, `candidate_to_column`, `data_model_payload_sha256`, `data_model_payload_size` | One workbook-level `x15:modelRelationship` target key changes while the generated `powerPivotData` binding, `.data` content type, local Table context, calculation properties, and opaque `xl/model/item.data` payload remain unchanged; `xl/workbook.xml` is the only changed package member. The validator reads the declaration, local package binding, and payload digest only. It does not deserialize an Analysis Services payload, evaluate DAX, refresh a model, calculate or render a report, infer model-to-cell impact, or claim client behavior. |
 | `array_formula_mode_changed` | `sheet`, `cell`, `formula`, `baseline_mode`, `candidate_mode`, `baseline_output_range`, `candidate_output_range` | The declared unchanged array anchor moves from `legacy_cse` to `dynamic`, with its stored formula text and output range exactly as declared. The validator reads the raw OOXML cell-metadata binding. |
 | `static_cycle_introduced` | `cells` | Every declared direct A1 cell reaches itself in the local static dependency graph. |
 | `three_d_scope_changed` | `formula_sheet`, `formula_cell`, `inserted_sheet`, `after_sheet`, `before_sheet` | Formula text remains unchanged while a sheet is inserted inside the declared tab span. |
@@ -541,6 +545,26 @@ compact Table shape and formula-master text, and compares the Table part after
 erasing only that text. It does not fill a column, reconcile row formulas to a
 master, calculate a structured reference, infer a total, add rows, open Excel,
 or claim client behavior.
+
+## Power Pivot/Data Model relationship
+
+Microsoft's [PowerPivot Model object guidance](https://learn.microsoft.com/en-us/office/vba/excel/concepts/about-the-powerpivot-model-object-in-excel)
+explains that relationships connect model tables and enable multi-table
+PivotTable or PivotChart filtering. The Open XML
+[`x15:dataModel` declaration](https://learn.microsoft.com/en-us/openspecs/office_standards/ms-xlsx/eaea0fe6-3e3c-401d-a3a0-2d2cbb9fce00)
+contains `modelRelationship` entries with `fromTable`, `fromColumn`, `toTable`,
+and `toColumn` attributes. That declaration is a review surface outside the
+ordinary A1 formula graph.
+
+WCAB 0.35 keeps the generated `SalesModel` and `CalendarModel` local Tables,
+one `powerPivotData` workbook binding, the `.data` content type, calculation
+properties, and fixed opaque `xl/model/item.data` bytes unchanged. Its sole
+`x15:modelRelationship` changes `toColumn` from `DateKey` to `FiscalDateKey`.
+The raw validator checks the exact relationship, package binding, model-table
+metadata, and payload SHA-256, then compares workbook XML with just that target
+key erased. It does not deserialize an Analysis Services stream, evaluate DAX,
+load or refresh a model, calculate or render a report, infer model-to-cell
+impact, or claim client behavior.
 
 ## Workbook serial-date system
 

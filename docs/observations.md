@@ -240,6 +240,18 @@ proves the exact generated master transition, worksheet-to-Table relationship,
 stable row/dashboard formulas, and Table-part-only difference. Neither layer
 fills a column, reconciles a master with row formulas, calculates a structured
 reference, infers a total, or claims client behavior.
+For the Power Pivot/Data Model relationship case, the adapter requires one
+exact high-severity `power_pivot_data_model_changed` record and `FF033`. Its
+redacted before/after profile must retain one internal model-data part, one
+workbook binding, one `x15:dataModel` declaration, two model tables, one model
+relationship, one fingerprinted payload, and no direct/external/uninspected or
+unrecognized material; only `workbook_data_model_declaration_changed=true` is
+accepted. FormulaFence does not expose model names, keys, DAX, relationship
+targets, XML, or payload bytes. WCAB's raw validator independently proves the
+exact `DateKey`-to-`FiscalDateKey` declaration transition, fixed opaque payload,
+and workbook-XML-only package difference. Neither layer deserializes a model,
+evaluates DAX, refreshes it, calculates or renders a report, infers model-to-cell
+impact, or claims client behavior.
 For the sheet-protection sort-permission case, it requires one exact
 `sheet_protection_changed` record with high-severity `FF022`: the protected
 `Controls` profile must retain every action lock except `sort`, which moves from

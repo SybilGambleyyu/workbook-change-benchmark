@@ -1,0 +1,40 @@
+{
+  "coverage": [
+    "The pair changes only the x15:modelRelationship/@toColumn value in xl/workbook.xml, from CalendarModel.DateKey to CalendarModel.FiscalDateKey. The workbook-to-model relationship, content type, local Tables, opaque xl/model/item.data bytes, calculation properties, and every other package member remain unchanged.",
+    "The stored model relationship binds the declared foreign-key SalesModel.CalendarKey to a named primary key on CalendarModel. It is relationship-definition evidence only: WCAB does not treat either local Excel Table as loaded Data Model content or claim that the fixed opaque payload is a complete executable model.",
+    "WCAB does not deserialize the Analysis Services payload, evaluate DAX, refresh a model, calculate or render a PivotTable or chart, infer model-to-cell impact, or fetch an external target. The raw declaration is deliberately outside the ordinary A1 dependency graph, so this case has no formula reachability assertion."
+  ],
+  "coverage_expectations": [],
+  "facts": [
+    {
+      "baseline_to_column": "DateKey",
+      "candidate_to_column": "FiscalDateKey",
+      "data_model_content_type": "application/vnd.openxmlformats-officedocument.model+data",
+      "data_model_member": "xl/model/item.data",
+      "data_model_payload_sha256": "97fa2a7df8643711934e7cbfc44b360d9faa0f8000211536d24d7454b1354302",
+      "data_model_payload_size": 86,
+      "extension_uri": "{FCE2AD5D-F65C-4FA6-A056-5C36A1767C68}",
+      "from_column": "CalendarKey",
+      "from_table": "SalesModel",
+      "kind": "power_pivot_data_model_relationship_changed",
+      "min_version_load": "5",
+      "model_tables": [
+        "SalesModel",
+        "CalendarModel"
+      ],
+      "to_table": "CalendarModel",
+      "workbook_member": "xl/workbook.xml",
+      "workbook_relationship_id": "rIdWCABPowerPivotData",
+      "workbook_relationship_target": "model/item.data",
+      "workbook_relationship_type": "http://schemas.openxmlformats.org/officeDocument/2006/relationships/powerPivotData",
+      "workbook_relationships_member": "xl/_rels/workbook.xml.rels"
+    }
+  ],
+  "family": "structural",
+  "id": "structural.power_pivot_data_model_relationship_changed",
+  "must_reach": [],
+  "review_expectation": "block",
+  "schema_version": 3,
+  "title": "A Power Pivot Data Model relationship retargets its key column",
+  "topology": "pair"
+}

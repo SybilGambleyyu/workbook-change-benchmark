@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.35.0 — 2026-08-03
+
+- Add a deterministic Power Pivot/Data Model relationship-definition case. Its
+  one `x15:modelRelationship` moves from
+  `SalesModel.CalendarKey → CalendarModel.DateKey` to
+  `SalesModel.CalendarKey → CalendarModel.FiscalDateKey` while its workbook
+  `powerPivotData` binding, content type, local Tables, calculation properties,
+  and opaque `xl/model/item.data` payload remain fixed; only
+  `xl/workbook.xml` changes.
+- Add an exact raw-OOXML validator, package-isolation and corruption regressions,
+  and a narrow FormulaFence mapping requiring the exact redacted
+  `power_pivot_data_model_changed` profile and high-severity `FF033`.
+  WCAB records a relationship declaration only: it does not deserialize the
+  Analysis Services payload, evaluate DAX, refresh a model, calculate or render
+  a report, infer model-to-cell impact, or claim client behavior.
+
 ## 0.34.0 — 2026-08-03
 
 - Add a deterministic workbook-scoped named-LAMBDA definition case. Its sole

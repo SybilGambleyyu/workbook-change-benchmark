@@ -316,6 +316,27 @@ def _table_calculated_column_formula_details() -> dict[str, object]:
     }
 
 
+def _power_pivot_data_model_relationship_details() -> dict[str, object]:
+    profile = {
+        "present": True,
+        "data_model_part_count": 1,
+        "workbook_binding_count": 1,
+        "data_model_declaration_count": 1,
+        "model_table_count": 2,
+        "model_relationship_count": 1,
+        "related_relationship_count": 0,
+        "external_relationship_count": 0,
+        "fingerprinted_data_part_count": 1,
+        "uninspected_data_part_count": 0,
+        "unrecognized_part_count": 0,
+    }
+    return {
+        "before": dict(profile),
+        "after": dict(profile),
+        "workbook_data_model_declaration_changed": True,
+    }
+
+
 def _sheet_protection_sort_permission_details() -> dict[str, object]:
     credential = {
         "configured": False,
@@ -1320,6 +1341,35 @@ def test_committed_manifest_matches_fixture_tree() -> None:
             "dashboard_sheet": "Dashboard",
             "dashboard_cell": "B4",
             "dashboard_formula": "=Model!$B$2",
+        }
+    ]
+    power_pivot_data_model_row = next(
+        row for row in rows if row["id"] == "structural.power_pivot_data_model_relationship_changed"
+    )
+    assert power_pivot_data_model_row["facts"] == [
+        {
+            "kind": "power_pivot_data_model_relationship_changed",
+            "workbook_member": "xl/workbook.xml",
+            "workbook_relationships_member": "xl/_rels/workbook.xml.rels",
+            "data_model_member": "xl/model/item.data",
+            "workbook_relationship_id": "rIdWCABPowerPivotData",
+            "workbook_relationship_type": (
+                "http://schemas.openxmlformats.org/officeDocument/2006/relationships/powerPivotData"
+            ),
+            "workbook_relationship_target": "model/item.data",
+            "data_model_content_type": "application/vnd.openxmlformats-officedocument.model+data",
+            "extension_uri": "{FCE2AD5D-F65C-4FA6-A056-5C36A1767C68}",
+            "min_version_load": "5",
+            "model_tables": ["SalesModel", "CalendarModel"],
+            "from_table": "SalesModel",
+            "from_column": "CalendarKey",
+            "to_table": "CalendarModel",
+            "baseline_to_column": "DateKey",
+            "candidate_to_column": "FiscalDateKey",
+            "data_model_payload_sha256": (
+                "97fa2a7df8643711934e7cbfc44b360d9faa0f8000211536d24d7454b1354302"
+            ),
+            "data_model_payload_size": 86,
         }
     ]
     table_calculated_column_row = next(
@@ -2955,6 +3005,116 @@ def test_named_lambda_definition_pair_changes_only_workbook_xml(tmp_path: Path) 
     ] == ["xl/workbook.xml"]
 
 
+def test_validator_rejects_a_false_power_pivot_data_model_relationship_fact(
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "structural" / "power_pivot_data_model_relationship_changed"
+    truth_path = case / "truth.json"
+    truth = json.loads(truth_path.read_text(encoding="utf-8"))
+    truth["facts"][0]["candidate_to_column"] = "DateKey"
+    truth_path.write_text(json.dumps(truth), encoding="utf-8")
+    assert validate_case(case)
+
+
+def test_validator_rejects_a_corrupted_power_pivot_data_model_relationship(
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = (
+        fixture_root
+        / "structural"
+        / "power_pivot_data_model_relationship_changed"
+        / "candidate.xlsx"
+    )
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    members["xl/workbook.xml"] = members["xl/workbook.xml"].replace(
+        b' toColumn="FiscalDateKey"', b' toColumn="DateKey"', 1
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_validator_rejects_power_pivot_data_model_payload_drift(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = (
+        fixture_root
+        / "structural"
+        / "power_pivot_data_model_relationship_changed"
+        / "candidate.xlsx"
+    )
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    members["xl/model/item.data"] = b"WCAB unexpected opaque Data Model payload drift."
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_validator_rejects_an_unrelated_power_pivot_data_model_declaration_change(
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = (
+        fixture_root
+        / "structural"
+        / "power_pivot_data_model_relationship_changed"
+        / "candidate.xlsx"
+    )
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    workbook = ElementTree.fromstring(members["xl/workbook.xml"])
+    namespace = "http://schemas.microsoft.com/office/spreadsheetml/2010/11/main"
+    sales_model = next(
+        table
+        for table in workbook.iter(f"{{{namespace}}}modelTable")
+        if table.get("name") == "SalesModel"
+    )
+    sales_model.set("connection", "UnexpectedConnection")
+    members["xl/workbook.xml"] = ElementTree.tostring(
+        workbook, encoding="utf-8", xml_declaration=True
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_power_pivot_data_model_relationship_pair_changes_only_workbook_xml(
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "structural" / "power_pivot_data_model_relationship_changed"
+    with ZipFile(case / "baseline.xlsx") as baseline, ZipFile(case / "candidate.xlsx") as candidate:
+        baseline_members = {
+            entry.filename: baseline.read(entry.filename) for entry in baseline.infolist()
+        }
+        candidate_members = {
+            entry.filename: candidate.read(entry.filename) for entry in candidate.infolist()
+        }
+    assert set(baseline_members) == set(candidate_members)
+    assert [
+        member
+        for member in sorted(baseline_members)
+        if baseline_members[member] != candidate_members[member]
+    ] == ["xl/workbook.xml"]
+
+
 def test_validator_rejects_a_false_table_calculated_column_formula_fact(tmp_path: Path) -> None:
     fixture_root = tmp_path / "fixtures"
     build_all(fixture_root)
@@ -4483,6 +4643,95 @@ def test_formulafence_adapter_requires_named_lambda_finding(monkeypatch, tmp_pat
     assert result["status"] == "missed"
     assert result["matched"] == []
     assert result["missed"] == ["named_lambda_definition_changed"]
+
+
+def test_formulafence_adapter_maps_the_exact_power_pivot_data_model_relationship(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _power_pivot_data_model_relationship_details()
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "power_pivot_data_model_changed",
+                    "location": None,
+                    "severity": "high",
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF033", "severity": "high", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "structural" / "power_pivot_data_model_relationship_changed"
+    )
+    assert result["status"] == "matched"
+    assert result["matched"] == ["power_pivot_data_model_relationship_changed"]
+
+
+def test_formulafence_adapter_rejects_an_inexact_power_pivot_data_model_relationship(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _power_pivot_data_model_relationship_details()
+        details["workbook_data_model_declaration_changed"] = False
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "power_pivot_data_model_changed",
+                    "location": None,
+                    "severity": "high",
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF033", "severity": "high", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "structural" / "power_pivot_data_model_relationship_changed"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["power_pivot_data_model_relationship_changed"]
+
+
+def test_formulafence_adapter_requires_power_pivot_data_model_finding(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "power_pivot_data_model_changed",
+                    "location": None,
+                    "severity": "high",
+                    "details": _power_pivot_data_model_relationship_details(),
+                }
+            ],
+            "findings": [],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "structural" / "power_pivot_data_model_relationship_changed"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["power_pivot_data_model_relationship_changed"]
 
 
 def test_formulafence_adapter_maps_the_exact_table_calculated_column_formula(

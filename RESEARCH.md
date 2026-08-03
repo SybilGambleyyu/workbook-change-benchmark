@@ -155,6 +155,29 @@ only the master text. It does not fill formulas, reconcile the master with
 stored row formulas, calculate a structured reference, infer a total, add a
 row, render a Table, open Excel, or claim client behavior.
 
+## Data Model relationships can change report filtering outside cell formulas
+
+Microsoft's [PowerPivot Model object guidance](https://learn.microsoft.com/en-us/office/vba/excel/concepts/about-the-powerpivot-model-object-in-excel)
+describes one workbook model containing tables and relationships, where a
+relationship connects a primary key to a foreign key and lets a user filter
+across multiple tables in a PivotTable or PivotChart. The Open XML
+[`dataModel` declaration](https://learn.microsoft.com/en-us/openspecs/office_standards/ms-xlsx/eaea0fe6-3e3c-401d-a3a0-2d2cbb9fce00)
+and [`modelRelationship` type](https://learn.microsoft.com/en-us/openspecs/office_standards/ms-xlsx/02c4fd22-dfcb-4cbb-abc0-05fc16dd9db0)
+place that relationship separately from ordinary worksheet cell formulas. A
+worksheet diff can therefore miss a changed model key even if its visible cells
+and formulas remain stable.
+
+WCAB 0.35 isolates one compact declaration whose relationship changes from
+`SalesModel.CalendarKey → CalendarModel.DateKey` to
+`SalesModel.CalendarKey → CalendarModel.FiscalDateKey`. Its two local source
+Tables, `powerPivotData` workbook relationship, `.data` content type,
+calculation properties, and fixed opaque `xl/model/item.data` payload remain
+unchanged; `xl/workbook.xml` is the sole changed package member. The raw
+validator reads only that declaration, its local package binding, and a digest
+of the opaque payload. It does not deserialize the Analysis Services stream,
+evaluate DAX, load or refresh a model, calculate or render a PivotTable or
+chart, infer model-to-cell impact, or claim Excel-client behavior.
+
 ## Iterative calculation and intentional circular models
 
 Microsoft's [circular-reference guidance](https://support.microsoft.com/en-US/Excel/remove-or-allow-a-circular-reference-in-excel)

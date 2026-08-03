@@ -1,6 +1,6 @@
 # Validation record
 
-This record describes the WCAB 0.34.0 / schema-version-3 validation run. It is
+This record describes the WCAB 0.35.0 / schema-version-3 validation run. It is
 reproducible from this repository; no network service or private workbook is
 required.
 
@@ -32,16 +32,16 @@ wcab validate --fixtures fixtures
 
 Results:
 
-- 51 cases: 50 paired-workbook cases and one directory portfolio case.
-- 53 observable truth facts across 41 `block` and 10 `review` cases.
+- 52 cases: 51 paired-workbook cases and one directory portfolio case.
+- 54 observable truth facts across 42 `block` and 10 `review` cases.
 - Three scoreable coverage expectations: one newly introduced `INDIRECT`
   boundary and two unchanged-formula selector changes (`INDIRECT` address text
   and `OFFSET` column displacement).
-- 156 generated fixture files: 104 workbooks, 51 truth manifests, and one JSONL
+- 159 generated fixture files: 106 workbooks, 52 truth manifests, and one JSONL
   case catalogue, all generated from source.
-- Two hundred thirty-one unit tests passed locally under Python 3.13, including
+- Two hundred thirty-nine unit tests passed locally under Python 3.13, including
   independent regeneration and byte-for-byte fixture-tree equality.
-- The fixture validator accepted all 51 cases.
+- The fixture validator accepted all 52 cases.
 - The external-data pair has identical package members except for
   `xl/connections.xml`; both archives pass ZIP integrity checks and remain
   readable by openpyxl. Its relationship-backed source is a non-routable
@@ -110,6 +110,16 @@ Results:
   the raw ID-3 `calculatedColumnFormula` moves exactly from `A2*B2` to
   `A2*(B2+1)`. The validation run did not fill a calculated column, calculate
   a workbook, infer stored results, or claim client behavior.
+- The Power Pivot/Data Model relationship pair has identical package members
+  except for `xl/workbook.xml`; both archives pass ZIP integrity checks and
+  remain readable by openpyxl. Its one `x15:modelRelationship` moves exactly
+  from `SalesModel.CalendarKey → CalendarModel.DateKey` to
+  `SalesModel.CalendarKey → CalendarModel.FiscalDateKey`, while its two local
+  Tables, `powerPivotData` workbook relationship, `.data` content type,
+  calculation properties, and fixed opaque `xl/model/item.data` payload remain
+  unchanged. The validation run read the local declaration and payload digest
+  only: it did not deserialize a model, evaluate DAX, refresh it, calculate or
+  render a report, infer model-to-cell impact, or claim client behavior.
 - The sheet-protection sort-permission pair has identical package members
   except for `xl/worksheets/sheet1.xml`; both archives pass ZIP integrity
   checks and remain readable by openpyxl. Its `Controls` worksheet remains
@@ -304,7 +314,7 @@ Results:
 
 ## Distribution supplement
 
-The 0.34.0 release retains the one-row-per-case `manifest.jsonl` catalogue and
+The 0.35.0 release retains the one-row-per-case `manifest.jsonl` catalogue and
 the tool-neutral observation protocol at version 2. Each catalogue row retains
 the schema-version-3 truth contract and includes byte counts and SHA-256
 digests for the workbooks it names.
@@ -312,24 +322,24 @@ digests for the workbooks it names.
 Commands:
 
 ```bash
-python -m build --outdir /tmp/wcab-v034-dist
-twine check /tmp/wcab-v034-dist/*
-python -m venv /tmp/wcab-v034-wheel-test
-/tmp/wcab-v034-wheel-test/bin/python -m pip install \
-  /tmp/wcab-v034-dist/workbook_change_benchmark-0.34.0-py3-none-any.whl
-/tmp/wcab-v034-wheel-test/bin/python -c 'import wcab; print(wcab.__version__)'
-/tmp/wcab-v034-wheel-test/bin/wcab validate --fixtures fixtures
-/tmp/wcab-v034-wheel-test/bin/wcab manifest --fixtures fixtures --output /tmp/wcab-v034-wheel-manifest.jsonl
-cmp fixtures/manifest.jsonl /tmp/wcab-v034-wheel-manifest.jsonl
-/tmp/wcab-v034-wheel-test/bin/wcab observation-template --fixtures fixtures \
-  --output /tmp/wcab-v034-wheel-observations.json
-/tmp/wcab-v034-wheel-test/bin/wcab score --fixtures fixtures \
-  --observations /tmp/wcab-v034-wheel-observations.json
-python -m venv /tmp/wcab-v034-sdist-test
-/tmp/wcab-v034-sdist-test/bin/python -m pip install \
-  /tmp/wcab-v034-dist/workbook_change_benchmark-0.34.0.tar.gz
-/tmp/wcab-v034-sdist-test/bin/python -c 'import wcab; print(wcab.__version__)'
-/tmp/wcab-v034-sdist-test/bin/wcab validate --fixtures fixtures
+python -m build --outdir /tmp/wcab-v035-dist
+twine check /tmp/wcab-v035-dist/*
+python -m venv /tmp/wcab-v035-wheel-test
+/tmp/wcab-v035-wheel-test/bin/python -m pip install \
+  /tmp/wcab-v035-dist/workbook_change_benchmark-0.35.0-py3-none-any.whl
+/tmp/wcab-v035-wheel-test/bin/python -c 'import wcab; print(wcab.__version__)'
+/tmp/wcab-v035-wheel-test/bin/wcab validate --fixtures fixtures
+/tmp/wcab-v035-wheel-test/bin/wcab manifest --fixtures fixtures --output /tmp/wcab-v035-wheel-manifest.jsonl
+cmp fixtures/manifest.jsonl /tmp/wcab-v035-wheel-manifest.jsonl
+/tmp/wcab-v035-wheel-test/bin/wcab observation-template --fixtures fixtures \
+  --output /tmp/wcab-v035-wheel-observations.json
+/tmp/wcab-v035-wheel-test/bin/wcab score --fixtures fixtures \
+  --observations /tmp/wcab-v035-wheel-observations.json
+python -m venv /tmp/wcab-v035-sdist-test
+/tmp/wcab-v035-sdist-test/bin/python -m pip install \
+  /tmp/wcab-v035-dist/workbook_change_benchmark-0.35.0.tar.gz
+/tmp/wcab-v035-sdist-test/bin/python -c 'import wcab; print(wcab.__version__)'
+/tmp/wcab-v035-sdist-test/bin/wcab validate --fixtures fixtures
 ```
 
 Results:
@@ -339,14 +349,14 @@ Results:
   their uploaded assets in the GitHub release, avoiding a self-referential
   source-distribution checksum in this record.
 - Fresh Python 3.13 wheel and source-distribution installations both reported
-  version 0.34.0 and validated all 51 fixtures; both emitted byte-identical
+  version 0.35.0 and validated all 52 fixtures; both emitted byte-identical
   JSONL output.
-- The full 231-test suite, lint, and format checks passed locally under Python
+- The full 239-test suite, lint, and format checks passed locally under Python
   3.13.
 - The generated unsupported template scored as zero analyzed coverage, zero
   expected-fact recall, and zero coverage-disclosure recall, confirming that
   unsupported cases cannot become a pass.
-- The FormulaFence normalizer emitted 52 matched facts, one intentionally
+- The FormulaFence normalizer emitted 53 matched facts, one intentionally
   unmapped fact, three matched coverage declarations, and no invented review
   disposition.
 
@@ -361,9 +371,9 @@ wcab formulafence --fixtures fixtures --strict
 
 Results:
 
-- All 52 currently mappable diff/portfolio facts were observed.
+- All 53 currently mappable diff/portfolio facts were observed.
 - All three mappable coverage expectations were matched; no mapped fact,
-  coverage expectation, or targeted lint rule was missed across all 51 cases.
+  coverage expectation, or targeted lint rule was missed across all 52 cases.
 - The schema-version-2 structured Table scope case was observed as a
   `table_definition_changed` diff, even though its summary formula text stays
   unchanged.
@@ -383,6 +393,17 @@ Results:
   ID-3 formula transition, stable row formulas/dashboard formula, and
   Table-part-only difference. Neither report filled a column, calculated a
   workbook, inferred results, or claimed client behavior.
+- The WCAB 0.35 Power Pivot/Data Model relationship case was observed as one
+  exact high-severity `power_pivot_data_model_changed` record and `FF033`.
+  FormulaFence's redacted profile retained one internal data part, one workbook
+  binding, one declaration, two model tables, one model relationship, one
+  fingerprinted payload, and no coverage gaps; only its declaration-change flag
+  differed. FormulaFence did not expose model names, relationship keys, DAX,
+  targets, XML, or payload bytes. WCAB independently established the exact raw
+  `DateKey`-to-`FiscalDateKey` transition, fixed opaque payload, and
+  workbook-XML-only difference. Neither report deserialized a model, evaluated
+  DAX, refreshed it, rendered a report, inferred model-to-cell impact, or
+  claimed client behavior.
 - The schema-version-3 introduced-dynamic case was observed as both a
   `dynamic_formula_reference_added` diff and `FF012` coverage warning.
 - The two WCAB 0.5 dynamic-driver cases were observed as an `Inputs!E12`

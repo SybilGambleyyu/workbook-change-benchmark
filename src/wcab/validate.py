@@ -11,6 +11,7 @@ import re
 import struct
 from collections import deque
 from decimal import Decimal, InvalidOperation
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree
@@ -31,6 +32,7 @@ _PACKAGE_RELATIONSHIPS_NS = "http://schemas.openxmlformats.org/package/2006/rela
 _DOCUMENT_RELATIONSHIPS_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 _CONTENT_TYPES_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
 _OFFICE_2010_SPREADSHEET_NS = "http://schemas.microsoft.com/office/spreadsheetml/2009/9/main"
+_OFFICE_2013_SPREADSHEET_NS = "http://schemas.microsoft.com/office/spreadsheetml/2010/11/main"
 _OFFICE_2014_REVISION_NS = "http://schemas.microsoft.com/office/spreadsheetml/2014/revision"
 _NAMED_SHEET_VIEW_NS = "http://schemas.microsoft.com/office/spreadsheetml/2019/namedsheetviews"
 _NAMED_SHEET_VIEW_RELATIONSHIP = (
@@ -58,6 +60,11 @@ _QUERY_TABLE_CONTENT_TYPE = (
 )
 _QUERY_TABLE_CONNECTIONS_CONTENT_TYPE = (
     "application/vnd.openxmlformats-officedocument.spreadsheetml.connections+xml"
+)
+_POWER_PIVOT_DATA_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/powerPivotData"
+_POWER_PIVOT_DATA_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.model+data"
+_POWER_PIVOT_DATA_PAYLOAD = (
+    b"WCAB opaque synthetic Power Pivot Data Model payload v1; never deserialized or opened."
 )
 _CELL_HYPERLINK_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/hyperlink"
 _EXTERNAL_WORKBOOK_LINK_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/externalLink"
@@ -3116,6 +3123,158 @@ def _table_without_calculated_column_formula(path: Path, sheet_name: str) -> byt
         return None
     formulas[0].text = None
     return ElementTree.tostring(table, encoding="utf-8", xml_declaration=True)
+
+
+def _raw_power_pivot_data_model_relationship_state(path: Path) -> dict[str, Any] | None:
+    """Read WCAB's one relationship-backed Power Pivot/Data Model declaration.
+
+    ``xl/model/item.data`` is an opaque Analysis Services payload.  This
+    reader establishes its bounded package identity and fixed digest without
+    parsing it, then reads only the one explicit x15 relationship declaration.
+    It never executes DAX, refreshes a model, or opens a client report.
+    """
+
+    workbook_member = "xl/workbook.xml"
+    workbook_relationships_member = "xl/_rels/workbook.xml.rels"
+    relationship_id = "rIdWCABPowerPivotData"
+    try:
+        with ZipFile(path) as archive:
+            workbook = ElementTree.fromstring(archive.read(workbook_member))
+            workbook_relationships = ElementTree.fromstring(
+                archive.read(workbook_relationships_member)
+            )
+            content_types = ElementTree.fromstring(archive.read("[Content_Types].xml"))
+            relationship_tag = f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationship"
+            relationship_matches = [
+                relationship
+                for relationship in workbook_relationships.findall(relationship_tag)
+                if relationship.get("Id") == relationship_id
+                and relationship.get("Type") == _POWER_PIVOT_DATA_RELATIONSHIP
+                and relationship.get("TargetMode") is None
+            ]
+            if (
+                len(relationship_matches) != 1
+                or sum(
+                    relationship.get("Type") == _POWER_PIVOT_DATA_RELATIONSHIP
+                    for relationship in workbook_relationships.findall(relationship_tag)
+                )
+                != 1
+            ):
+                return None
+            data_model_member = _relationship_part_member(
+                workbook_relationships,
+                relationship_id,
+                workbook_member,
+                relationship_type=_POWER_PIVOT_DATA_RELATIONSHIP,
+            )
+            if data_model_member is None:
+                return None
+            payload_info = archive.getinfo(data_model_member)
+            if payload_info.file_size != len(_POWER_PIVOT_DATA_PAYLOAD):
+                return None
+            payload = archive.read(data_model_member)
+            data_model_members = tuple(
+                sorted(
+                    member
+                    for member in archive.namelist()
+                    if member.startswith("xl/model/")
+                    and not member.startswith("xl/model/_rels/")
+                    and not member.endswith("/")
+                )
+            )
+            data_model_relationship_members = tuple(
+                sorted(
+                    member for member in archive.namelist() if member.startswith("xl/model/_rels/")
+                )
+            )
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError, ValueError):
+        return None
+
+    ext_list_tag = f"{{{_SPREADSHEETML_NS}}}extLst"
+    extension_tag = f"{{{_SPREADSHEETML_NS}}}ext"
+    data_model_tag = f"{{{_OFFICE_2013_SPREADSHEET_NS}}}dataModel"
+    model_tables_tag = f"{{{_OFFICE_2013_SPREADSHEET_NS}}}modelTables"
+    model_table_tag = f"{{{_OFFICE_2013_SPREADSHEET_NS}}}modelTable"
+    model_relationships_tag = f"{{{_OFFICE_2013_SPREADSHEET_NS}}}modelRelationships"
+    model_relationship_tag = f"{{{_OFFICE_2013_SPREADSHEET_NS}}}modelRelationship"
+    default_tag = f"{{{_CONTENT_TYPES_NS}}}Default"
+    ext_lists = workbook.findall(ext_list_tag)
+    data_models = list(workbook.iter(data_model_tag))
+    if (
+        workbook_relationships.tag != f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationships"
+        or content_types.tag != f"{{{_CONTENT_TYPES_NS}}}Types"
+        or len(ext_lists) != 1
+        or ext_lists[0].attrib
+        or len(ext_lists[0]) != 1
+        or ext_lists[0][0].tag != extension_tag
+        or ext_lists[0][0].attrib != {"uri": "{FCE2AD5D-F65C-4FA6-A056-5C36A1767C68}"}
+        or len(ext_lists[0][0]) != 1
+        or ext_lists[0][0][0].tag != data_model_tag
+        or len(data_models) != 1
+        or data_models[0] is not ext_lists[0][0][0]
+    ):
+        return None
+    data_model = data_models[0]
+    model_tables = data_model.findall(model_tables_tag)
+    model_relationships = data_model.findall(model_relationships_tag)
+    if (
+        data_model.attrib != {"minVersionLoad": "5"}
+        or len(data_model) != 2
+        or len(model_tables) != 1
+        or model_tables[0].attrib
+        or len(model_tables[0]) != 2
+        or any(table.tag != model_table_tag or len(table) for table in model_tables[0])
+        or len(model_relationships) != 1
+        or model_relationships[0].attrib
+        or len(model_relationships[0]) != 1
+        or model_relationships[0][0].tag != model_relationship_tag
+        or len(model_relationships[0][0])
+    ):
+        return None
+    data_model_content_types = [
+        content_type
+        for content_type in content_types.findall(default_tag)
+        if content_type.get("Extension") == "data"
+    ]
+    if len(data_model_content_types) != 1:
+        return None
+    return {
+        "workbook_member": workbook_member,
+        "workbook_relationships_member": workbook_relationships_member,
+        "data_model_member": data_model_member,
+        "workbook_relationship_attributes": tuple(sorted(relationship_matches[0].attrib.items())),
+        "data_model_content_type_attributes": tuple(
+            sorted(data_model_content_types[0].attrib.items())
+        ),
+        "extension_attributes": tuple(sorted(ext_lists[0][0].attrib.items())),
+        "data_model_attributes": tuple(sorted(data_model.attrib.items())),
+        "model_table_attributes": tuple(
+            tuple(sorted(table.attrib.items())) for table in model_tables[0]
+        ),
+        "model_relationship_attributes": tuple(sorted(model_relationships[0][0].attrib.items())),
+        "data_model_members": data_model_members,
+        "data_model_relationship_members": data_model_relationship_members,
+        "data_model_payload_sha256": sha256(payload).hexdigest(),
+        "data_model_payload_size": len(payload),
+    }
+
+
+def _workbook_without_power_pivot_data_model_to_column(path: Path) -> bytes | None:
+    """Return WCAB's workbook XML with only its model target key removed."""
+
+    if _raw_power_pivot_data_model_relationship_state(path) is None:
+        return None
+    try:
+        with ZipFile(path) as archive:
+            workbook = ElementTree.fromstring(archive.read("xl/workbook.xml"))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    relationship_tag = f"{{{_OFFICE_2013_SPREADSHEET_NS}}}modelRelationship"
+    relationships = list(workbook.iter(relationship_tag))
+    if len(relationships) != 1 or "toColumn" not in relationships[0].attrib:
+        return None
+    relationships[0].attrib.pop("toColumn")
+    return ElementTree.tostring(workbook, encoding="utf-8", xml_declaration=True)
 
 
 def _sheet_protection_sort_state(
@@ -7119,6 +7278,108 @@ def _validate_fact(
             and (formula_sheet, formula_cell) in _reachable(graph, (input_sheet, rate_cell))
             and (dashboard_sheet, dashboard_cell) in _reachable(graph, (input_sheet, amount_cell)),
             f"{truth['id']}: expected one local named LAMBDA body change with stable inputs, formulas, and package boundary",
+            errors,
+        )
+        return
+
+    if kind == "power_pivot_data_model_relationship_changed":
+        before_state = _raw_power_pivot_data_model_relationship_state(baseline_path)
+        after_state = _raw_power_pivot_data_model_relationship_state(candidate_path)
+        expected_common_state = {
+            "workbook_member": "xl/workbook.xml",
+            "workbook_relationships_member": "xl/_rels/workbook.xml.rels",
+            "data_model_member": "xl/model/item.data",
+            "workbook_relationship_attributes": (
+                ("Id", "rIdWCABPowerPivotData"),
+                ("Target", "model/item.data"),
+                ("Type", _POWER_PIVOT_DATA_RELATIONSHIP),
+            ),
+            "data_model_content_type_attributes": (
+                ("ContentType", _POWER_PIVOT_DATA_CONTENT_TYPE),
+                ("Extension", "data"),
+            ),
+            "extension_attributes": (("uri", "{FCE2AD5D-F65C-4FA6-A056-5C36A1767C68}"),),
+            "data_model_attributes": (("minVersionLoad", "5"),),
+            "model_table_attributes": (
+                (
+                    ("connection", "SalesModel"),
+                    ("id", "SalesModel_{11111111-1111-1111-1111-111111111111}"),
+                    ("name", "SalesModel"),
+                ),
+                (
+                    ("connection", "CalendarModel"),
+                    ("id", "CalendarModel_{22222222-2222-2222-2222-222222222222}"),
+                    ("name", "CalendarModel"),
+                ),
+            ),
+            "data_model_members": ("xl/model/item.data",),
+            "data_model_relationship_members": (),
+            "data_model_payload_sha256": sha256(_POWER_PIVOT_DATA_PAYLOAD).hexdigest(),
+            "data_model_payload_size": len(_POWER_PIVOT_DATA_PAYLOAD),
+        }
+        expected_before_relationship = (
+            ("fromColumn", "CalendarKey"),
+            ("fromTable", "SalesModel"),
+            ("toColumn", "DateKey"),
+            ("toTable", "CalendarModel"),
+        )
+        expected_after_relationship = (
+            ("fromColumn", "CalendarKey"),
+            ("fromTable", "SalesModel"),
+            ("toColumn", "FiscalDateKey"),
+            ("toTable", "CalendarModel"),
+        )
+        expected_sheets = ["Sales", "Calendar", "Dashboard"]
+        _assert(
+            fact.get("workbook_member") == "xl/workbook.xml"
+            and fact.get("workbook_relationships_member") == "xl/_rels/workbook.xml.rels"
+            and fact.get("data_model_member") == "xl/model/item.data"
+            and fact.get("workbook_relationship_id") == "rIdWCABPowerPivotData"
+            and fact.get("workbook_relationship_type") == _POWER_PIVOT_DATA_RELATIONSHIP
+            and fact.get("workbook_relationship_target") == "model/item.data"
+            and fact.get("data_model_content_type") == _POWER_PIVOT_DATA_CONTENT_TYPE
+            and fact.get("extension_uri") == "{FCE2AD5D-F65C-4FA6-A056-5C36A1767C68}"
+            and fact.get("min_version_load") == "5"
+            and fact.get("model_tables") == ["SalesModel", "CalendarModel"]
+            and fact.get("from_table") == "SalesModel"
+            and fact.get("from_column") == "CalendarKey"
+            and fact.get("to_table") == "CalendarModel"
+            and fact.get("baseline_to_column") == "DateKey"
+            and fact.get("candidate_to_column") == "FiscalDateKey"
+            and fact.get("data_model_payload_sha256")
+            == sha256(_POWER_PIVOT_DATA_PAYLOAD).hexdigest()
+            and fact.get("data_model_payload_size") == len(_POWER_PIVOT_DATA_PAYLOAD)
+            and baseline.sheetnames == expected_sheets
+            and candidate.sheetnames == expected_sheets
+            and "SalesModel" in baseline["Sales"].tables
+            and "SalesModel" in candidate["Sales"].tables
+            and baseline["Sales"].tables["SalesModel"].ref == "A1:B3"
+            and candidate["Sales"].tables["SalesModel"].ref == "A1:B3"
+            and baseline["Sales"]["A1"].value == "CalendarKey"
+            and candidate["Sales"]["A1"].value == "CalendarKey"
+            and "CalendarModel" in baseline["Calendar"].tables
+            and "CalendarModel" in candidate["Calendar"].tables
+            and baseline["Calendar"].tables["CalendarModel"].ref == "A1:B3"
+            and candidate["Calendar"].tables["CalendarModel"].ref == "A1:B3"
+            and baseline["Calendar"]["A1"].value == "DateKey"
+            and candidate["Calendar"]["A1"].value == "DateKey"
+            and baseline["Calendar"]["B1"].value == "FiscalDateKey"
+            and candidate["Calendar"]["B1"].value == "FiscalDateKey"
+            and before_state
+            == {
+                **expected_common_state,
+                "model_relationship_attributes": expected_before_relationship,
+            }
+            and after_state
+            == {
+                **expected_common_state,
+                "model_relationship_attributes": expected_after_relationship,
+            }
+            and _workbook_without_power_pivot_data_model_to_column(baseline_path)
+            == _workbook_without_power_pivot_data_model_to_column(candidate_path)
+            and _xlsx_member_differences(baseline_path, candidate_path) == {"xl/workbook.xml"}
+            and _calculation_properties(baseline_path) == _calculation_properties(candidate_path),
+            f"{truth['id']}: expected one Power Pivot Data Model relationship target-key change with a fixed opaque payload and package boundary",
             errors,
         )
         return

@@ -73,6 +73,7 @@ _FACT_TO_CHANGE: dict[str, tuple[str, str | None]] = {
         None,
     ),
     "named_lambda_definition_changed": ("defined_name_changed", None),
+    "power_pivot_data_model_relationship_changed": ("power_pivot_data_model_changed", None),
     "static_cycle_introduced": ("formula_changed", None),
     "three_d_scope_changed": ("three_d_reference_scope_changed", "formula_location"),
     "structured_table_scope_changed": ("table_definition_changed", None),
@@ -657,6 +658,90 @@ def _table_calculated_column_formula_finding_observed(
 
     return finding.get("rule_id") == "FF013" and _table_calculated_column_formula_details_observed(
         finding.get("details"), fact
+    )
+
+
+def _power_pivot_data_model_relationship_fact_is_expected(fact: dict[str, Any]) -> bool:
+    """Check WCAB's compact, opaque Data Model relationship contract first."""
+
+    return (
+        fact.get("workbook_member") == "xl/workbook.xml"
+        and fact.get("workbook_relationships_member") == "xl/_rels/workbook.xml.rels"
+        and fact.get("data_model_member") == "xl/model/item.data"
+        and fact.get("workbook_relationship_id") == "rIdWCABPowerPivotData"
+        and fact.get("workbook_relationship_type")
+        == "http://schemas.openxmlformats.org/officeDocument/2006/relationships/powerPivotData"
+        and fact.get("workbook_relationship_target") == "model/item.data"
+        and fact.get("data_model_content_type")
+        == "application/vnd.openxmlformats-officedocument.model+data"
+        and fact.get("extension_uri") == "{FCE2AD5D-F65C-4FA6-A056-5C36A1767C68}"
+        and fact.get("min_version_load") == "5"
+        and fact.get("model_tables") == ["SalesModel", "CalendarModel"]
+        and fact.get("from_table") == "SalesModel"
+        and fact.get("from_column") == "CalendarKey"
+        and fact.get("to_table") == "CalendarModel"
+        and fact.get("baseline_to_column") == "DateKey"
+        and fact.get("candidate_to_column") == "FiscalDateKey"
+        and fact.get("data_model_payload_sha256")
+        == "97fa2a7df8643711934e7cbfc44b360d9faa0f8000211536d24d7454b1354302"
+        and fact.get("data_model_payload_size") == 86
+    )
+
+
+def _power_pivot_data_model_relationship_details_observed(
+    details: Any, fact: dict[str, Any]
+) -> bool:
+    """Require FormulaFence's exact redacted Data Model declaration evidence.
+
+    FormulaFence deliberately reports counts rather than Data Model names,
+    keys, DAX, relationship targets, or raw payload material. WCAB's raw
+    validator establishes the stored relationship separately; this adapter
+    requires FormulaFence's declaration-change signal and matching FF033.
+    """
+
+    if not _power_pivot_data_model_relationship_fact_is_expected(fact):
+        return False
+    profile = {
+        "present": True,
+        "data_model_part_count": 1,
+        "workbook_binding_count": 1,
+        "data_model_declaration_count": 1,
+        "model_table_count": 2,
+        "model_relationship_count": 1,
+        "related_relationship_count": 0,
+        "external_relationship_count": 0,
+        "fingerprinted_data_part_count": 1,
+        "uninspected_data_part_count": 0,
+        "unrecognized_part_count": 0,
+    }
+    return details == {
+        "before": dict(profile),
+        "after": dict(profile),
+        "workbook_data_model_declaration_changed": True,
+    }
+
+
+def _power_pivot_data_model_relationship_observed(
+    change: dict[str, Any], fact: dict[str, Any]
+) -> bool:
+    """Match FormulaFence's high-severity Data Model change record."""
+
+    return (
+        change.get("kind") == "power_pivot_data_model_changed"
+        and change.get("severity") == "high"
+        and _power_pivot_data_model_relationship_details_observed(change.get("details"), fact)
+    )
+
+
+def _power_pivot_data_model_relationship_finding_observed(
+    finding: dict[str, Any], fact: dict[str, Any]
+) -> bool:
+    """Require FormulaFence's corresponding FF033 finding."""
+
+    return (
+        finding.get("rule_id") == "FF033"
+        and finding.get("severity") == "high"
+        and _power_pivot_data_model_relationship_details_observed(finding.get("details"), fact)
     )
 
 
@@ -2355,6 +2440,16 @@ def evaluate_diff_case(case_dir: str | Path, *, executable: str = "formulafence"
                 if isinstance(change, dict)
             ) and any(
                 _named_lambda_definition_finding_observed(finding, fact)
+                for finding in findings
+                if isinstance(finding, dict)
+            )
+        if kind == "power_pivot_data_model_relationship_changed":
+            observed = any(
+                _power_pivot_data_model_relationship_observed(change, fact)
+                for change in changes
+                if isinstance(change, dict)
+            ) and any(
+                _power_pivot_data_model_relationship_finding_observed(finding, fact)
                 for finding in findings
                 if isinstance(finding, dict)
             )

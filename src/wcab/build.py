@@ -14,6 +14,7 @@ import re
 import struct
 from collections.abc import Callable
 from datetime import date, datetime, timezone
+from hashlib import sha256
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Any
@@ -41,6 +42,7 @@ _SPREADSHEETML_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 _PACKAGE_RELATIONSHIPS_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
 _DOCUMENT_RELATIONSHIPS_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 _CONTENT_TYPES_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
+_OFFICE_2013_SPREADSHEET_NS = "http://schemas.microsoft.com/office/spreadsheetml/2010/11/main"
 _DYNAMIC_ARRAY_NS = "http://schemas.microsoft.com/office/spreadsheetml/2017/dynamicarray"
 _EXTERNAL_WORKBOOK_LINK_FORMULA = "='[WCABSource.xlsx]Inputs'!$B$2"
 _EXTERNAL_WORKBOOK_LINK_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/externalLink"
@@ -395,6 +397,34 @@ _TABLE_CALCULATED_COLUMN_STABLE_FORMULA_CELLS = ("C2", "C3", "C4")
 _TABLE_CALCULATED_COLUMN_DASHBOARD_SHEET = "Dashboard"
 _TABLE_CALCULATED_COLUMN_DASHBOARD_CELL = "B4"
 _TABLE_CALCULATED_COLUMN_DASHBOARD_FORMULA = "=SUM(ScenarioLedger[Calculated amount])"
+_POWER_PIVOT_DATA_WORKBOOK_MEMBER = "xl/workbook.xml"
+_POWER_PIVOT_DATA_WORKBOOK_RELATIONSHIPS_MEMBER = "xl/_rels/workbook.xml.rels"
+_POWER_PIVOT_DATA_MEMBER = "xl/model/item.data"
+_POWER_PIVOT_DATA_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/powerPivotData"
+_POWER_PIVOT_DATA_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.model+data"
+_POWER_PIVOT_DATA_WORKBOOK_RELATIONSHIP_ID = "rIdWCABPowerPivotData"
+_POWER_PIVOT_DATA_EXTENSION_URI = "{FCE2AD5D-F65C-4FA6-A056-5C36A1767C68}"
+_POWER_PIVOT_DATA_MIN_VERSION_LOAD = "5"
+_POWER_PIVOT_DATA_FROM_TABLE = "SalesModel"
+_POWER_PIVOT_DATA_FROM_COLUMN = "CalendarKey"
+_POWER_PIVOT_DATA_TO_TABLE = "CalendarModel"
+_POWER_PIVOT_DATA_BASELINE_TO_COLUMN = "DateKey"
+_POWER_PIVOT_DATA_CANDIDATE_TO_COLUMN = "FiscalDateKey"
+_POWER_PIVOT_DATA_MODEL_TABLES = (
+    {
+        "id": "SalesModel_{11111111-1111-1111-1111-111111111111}",
+        "name": _POWER_PIVOT_DATA_FROM_TABLE,
+        "connection": "SalesModel",
+    },
+    {
+        "id": "CalendarModel_{22222222-2222-2222-2222-222222222222}",
+        "name": _POWER_PIVOT_DATA_TO_TABLE,
+        "connection": "CalendarModel",
+    },
+)
+_POWER_PIVOT_DATA_PAYLOAD = (
+    b"WCAB opaque synthetic Power Pivot Data Model payload v1; never deserialized or opened."
+)
 _CHART_SERIES_SOURCE_SHEET = "Source"
 _CHART_SERIES_DASHBOARD_SHEET = "Dashboard"
 _CHART_SERIES_ANCHOR = "D2"
@@ -1601,6 +1631,36 @@ def _table_calculated_column_formula_workbook() -> Workbook:
     dashboard = workbook.create_sheet(_TABLE_CALCULATED_COLUMN_DASHBOARD_SHEET)
     dashboard["A1"] = "Table calculated-column total"
     dashboard[_TABLE_CALCULATED_COLUMN_DASHBOARD_CELL] = _TABLE_CALCULATED_COLUMN_DASHBOARD_FORMULA
+    return workbook
+
+
+def _power_pivot_data_model_workbook() -> Workbook:
+    """Build stable local source Tables for a raw Data Model declaration.
+
+    The relationship declaration and its opaque model payload are attached
+    after openpyxl writes this ordinary workbook.  The local Tables make the
+    relationship names concrete review context, but WCAB never asks a client
+    to load them into a Data Model, execute DAX, or materialize a Pivot result.
+    """
+
+    workbook = Workbook()
+    _configure_workbook(workbook, title="WCAB Power Pivot Data Model relationship fixture")
+
+    sales = workbook.active
+    sales.title = "Sales"
+    sales.append([_POWER_PIVOT_DATA_FROM_COLUMN, "Amount"])
+    sales.append([20240101, 100])
+    sales.append([20240102, 125])
+    sales.add_table(Table(displayName=_POWER_PIVOT_DATA_FROM_TABLE, ref="A1:B3"))
+
+    calendar = workbook.create_sheet("Calendar")
+    calendar.append([_POWER_PIVOT_DATA_BASELINE_TO_COLUMN, _POWER_PIVOT_DATA_CANDIDATE_TO_COLUMN])
+    calendar.append([20240101, "FY24-P01"])
+    calendar.append([20240102, "FY24-P01"])
+    calendar.add_table(Table(displayName=_POWER_PIVOT_DATA_TO_TABLE, ref="A1:B3"))
+
+    dashboard = workbook.create_sheet("Dashboard")
+    dashboard["A1"] = "Data Model report outputs are intentionally not materialized."
     return workbook
 
 
@@ -3519,6 +3579,108 @@ def _set_table_calculated_column_formula(path: Path, *, formula: str) -> None:
         members[_TABLE_CALCULATED_COLUMN_MEMBER] = ElementTree.tostring(
             table, encoding="utf-8", xml_declaration=True
         )
+
+    _rewrite_xlsx_parts(path, mutate)
+
+
+def _attach_power_pivot_data_model(path: Path, *, to_column: str) -> None:
+    """Attach WCAB's one relationship-backed, opaque Data Model package.
+
+    Excel's embedded Data Model stream is an Analysis Services payload.  This
+    fixture deliberately leaves it as fixed inert bytes and writes only the
+    compact workbook-level x15 declaration needed to express one relationship.
+    No Data Model is opened, deserialized, refreshed, or calculated here.
+    """
+
+    if to_column not in {
+        _POWER_PIVOT_DATA_BASELINE_TO_COLUMN,
+        _POWER_PIVOT_DATA_CANDIDATE_TO_COLUMN,
+    }:
+        raise ValueError(f"unsupported Power Pivot Data Model target column {to_column!r}")
+
+    def serialize(element: ElementTree.Element) -> bytes:
+        return ElementTree.tostring(element, encoding="utf-8", xml_declaration=True)
+
+    def mutate(members: dict[str, bytes]) -> None:
+        try:
+            workbook = ElementTree.fromstring(members[_POWER_PIVOT_DATA_WORKBOOK_MEMBER])
+            workbook_relationships = ElementTree.fromstring(
+                members[_POWER_PIVOT_DATA_WORKBOOK_RELATIONSHIPS_MEMBER]
+            )
+            content_types = ElementTree.fromstring(members["[Content_Types].xml"])
+        except (KeyError, ElementTree.ParseError) as error:
+            raise ValueError("Power Pivot Data Model fixture has no base OOXML package") from error
+
+        ext_list_tag = f"{{{_SPREADSHEETML_NS}}}extLst"
+        extension_tag = f"{{{_SPREADSHEETML_NS}}}ext"
+        data_model_tag = f"{{{_OFFICE_2013_SPREADSHEET_NS}}}dataModel"
+        model_tables_tag = f"{{{_OFFICE_2013_SPREADSHEET_NS}}}modelTables"
+        model_table_tag = f"{{{_OFFICE_2013_SPREADSHEET_NS}}}modelTable"
+        model_relationships_tag = f"{{{_OFFICE_2013_SPREADSHEET_NS}}}modelRelationships"
+        model_relationship_tag = f"{{{_OFFICE_2013_SPREADSHEET_NS}}}modelRelationship"
+        relationship_tag = f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationship"
+        default_tag = f"{{{_CONTENT_TYPES_NS}}}Default"
+
+        if workbook.findall(ext_list_tag):
+            raise ValueError("Power Pivot Data Model fixture has unexpected workbook extensions")
+        extensions = ElementTree.SubElement(workbook, ext_list_tag)
+        extension = ElementTree.SubElement(
+            extensions,
+            extension_tag,
+            {"uri": _POWER_PIVOT_DATA_EXTENSION_URI},
+        )
+        data_model = ElementTree.SubElement(
+            extension,
+            data_model_tag,
+            {"minVersionLoad": _POWER_PIVOT_DATA_MIN_VERSION_LOAD},
+        )
+        model_tables = ElementTree.SubElement(data_model, model_tables_tag)
+        for table in _POWER_PIVOT_DATA_MODEL_TABLES:
+            ElementTree.SubElement(model_tables, model_table_tag, table)
+        model_relationships = ElementTree.SubElement(data_model, model_relationships_tag)
+        ElementTree.SubElement(
+            model_relationships,
+            model_relationship_tag,
+            {
+                "fromTable": _POWER_PIVOT_DATA_FROM_TABLE,
+                "fromColumn": _POWER_PIVOT_DATA_FROM_COLUMN,
+                "toTable": _POWER_PIVOT_DATA_TO_TABLE,
+                "toColumn": to_column,
+            },
+        )
+
+        if (
+            any(
+                relationship.get("Id") == _POWER_PIVOT_DATA_WORKBOOK_RELATIONSHIP_ID
+                or relationship.get("Type") == _POWER_PIVOT_DATA_RELATIONSHIP
+                for relationship in workbook_relationships.findall(relationship_tag)
+            )
+            or any(
+                content_type.get("Extension") == "data"
+                for content_type in content_types.findall(default_tag)
+            )
+            or _POWER_PIVOT_DATA_MEMBER in members
+        ):
+            raise ValueError("Power Pivot Data Model fixture already has a Data Model package")
+        ElementTree.SubElement(
+            workbook_relationships,
+            relationship_tag,
+            {
+                "Id": _POWER_PIVOT_DATA_WORKBOOK_RELATIONSHIP_ID,
+                "Type": _POWER_PIVOT_DATA_RELATIONSHIP,
+                "Target": "model/item.data",
+            },
+        )
+        ElementTree.SubElement(
+            content_types,
+            default_tag,
+            {"Extension": "data", "ContentType": _POWER_PIVOT_DATA_CONTENT_TYPE},
+        )
+
+        members[_POWER_PIVOT_DATA_WORKBOOK_MEMBER] = serialize(workbook)
+        members[_POWER_PIVOT_DATA_WORKBOOK_RELATIONSHIPS_MEMBER] = serialize(workbook_relationships)
+        members["[Content_Types].xml"] = serialize(content_types)
+        members[_POWER_PIVOT_DATA_MEMBER] = _POWER_PIVOT_DATA_PAYLOAD
 
     _rewrite_xlsx_parts(path, mutate)
 
@@ -5580,6 +5742,63 @@ def _build_structural_named_lambda_definition(root: Path) -> None:
     )
 
 
+def _build_structural_power_pivot_data_model_relationship(root: Path) -> None:
+    """Build a pair whose stored Data Model relationship retargets one key."""
+
+    directory = root / "structural" / "power_pivot_data_model_relationship_changed"
+    directory.mkdir(parents=True, exist_ok=True)
+    baseline = directory / "baseline.xlsx"
+    candidate = directory / "candidate.xlsx"
+    _save_workbook(_power_pivot_data_model_workbook(), baseline)
+    _save_workbook(_power_pivot_data_model_workbook(), candidate)
+    _attach_power_pivot_data_model(
+        baseline,
+        to_column=_POWER_PIVOT_DATA_BASELINE_TO_COLUMN,
+    )
+    _attach_power_pivot_data_model(
+        candidate,
+        to_column=_POWER_PIVOT_DATA_CANDIDATE_TO_COLUMN,
+    )
+    _write_json(
+        directory / "truth.json",
+        _truth(
+            case_id="structural.power_pivot_data_model_relationship_changed",
+            title="A Power Pivot Data Model relationship retargets its key column",
+            family="structural",
+            review_expectation="block",
+            facts=[
+                {
+                    "kind": "power_pivot_data_model_relationship_changed",
+                    "workbook_member": _POWER_PIVOT_DATA_WORKBOOK_MEMBER,
+                    "workbook_relationships_member": (
+                        _POWER_PIVOT_DATA_WORKBOOK_RELATIONSHIPS_MEMBER
+                    ),
+                    "data_model_member": _POWER_PIVOT_DATA_MEMBER,
+                    "workbook_relationship_id": _POWER_PIVOT_DATA_WORKBOOK_RELATIONSHIP_ID,
+                    "workbook_relationship_type": _POWER_PIVOT_DATA_RELATIONSHIP,
+                    "workbook_relationship_target": "model/item.data",
+                    "data_model_content_type": _POWER_PIVOT_DATA_CONTENT_TYPE,
+                    "extension_uri": _POWER_PIVOT_DATA_EXTENSION_URI,
+                    "min_version_load": _POWER_PIVOT_DATA_MIN_VERSION_LOAD,
+                    "model_tables": [table["name"] for table in _POWER_PIVOT_DATA_MODEL_TABLES],
+                    "from_table": _POWER_PIVOT_DATA_FROM_TABLE,
+                    "from_column": _POWER_PIVOT_DATA_FROM_COLUMN,
+                    "to_table": _POWER_PIVOT_DATA_TO_TABLE,
+                    "baseline_to_column": _POWER_PIVOT_DATA_BASELINE_TO_COLUMN,
+                    "candidate_to_column": _POWER_PIVOT_DATA_CANDIDATE_TO_COLUMN,
+                    "data_model_payload_sha256": sha256(_POWER_PIVOT_DATA_PAYLOAD).hexdigest(),
+                    "data_model_payload_size": len(_POWER_PIVOT_DATA_PAYLOAD),
+                }
+            ],
+            coverage=[
+                "The pair changes only the x15:modelRelationship/@toColumn value in xl/workbook.xml, from CalendarModel.DateKey to CalendarModel.FiscalDateKey. The workbook-to-model relationship, content type, local Tables, opaque xl/model/item.data bytes, calculation properties, and every other package member remain unchanged.",
+                "The stored model relationship binds the declared foreign-key SalesModel.CalendarKey to a named primary key on CalendarModel. It is relationship-definition evidence only: WCAB does not treat either local Excel Table as loaded Data Model content or claim that the fixed opaque payload is a complete executable model.",
+                "WCAB does not deserialize the Analysis Services payload, evaluate DAX, refresh a model, calculate or render a PivotTable or chart, infer model-to-cell impact, or fetch an external target. The raw declaration is deliberately outside the ordinary A1 dependency graph, so this case has no formula reachability assertion.",
+            ],
+        ),
+    )
+
+
 def _build_structural_chart_series_reference(root: Path) -> None:
     """Build a dashboard chart whose local value-series binding changes."""
 
@@ -5999,6 +6218,7 @@ _BUILDERS: tuple[Callable[[Path], None], ...] = (
     _build_governance_external_workbook_link_source,
     _build_governance_external_defined_name_source,
     _build_structural_named_lambda_definition,
+    _build_structural_power_pivot_data_model_relationship,
     _build_structural_pivot_data_field_aggregation,
     _build_structural_pivot_slicer_selection,
     _build_structural_power_query_m_filter,
@@ -6052,6 +6272,7 @@ CASE_IDS = (
     "governance.external_workbook_link_source_changed",
     "governance.external_defined_name_source_changed",
     "structural.named_lambda_definition_changed",
+    "structural.power_pivot_data_model_relationship_changed",
     "structural.pivot_data_field_aggregation_changed",
     "structural.pivot_slicer_selection_changed",
     "structural.power_query_m_filter_changed",

@@ -34,7 +34,7 @@ gates, static analyzers, and agent workflows that propose workbook edits.
 
 ## Scope and non-goals
 
-Version `0.34` covers formula-to-value replacements, formula reference drift,
+Version `0.35` covers formula-to-value replacements, formula reference drift,
 value changes with downstream effects, external formula references, named
 ranges, data validation, conditional formatting, sheet visibility, direct cell
 and workbook-structure protection, calculation settings, static cycles,
@@ -46,7 +46,14 @@ row formulas, structured-reference dashboard formula, calculation properties,
 and every package member except `xl/tables/table1.xml` remain fixed. It records
 the stored master only: it does not fill a column, reconcile a master with row
 formulas, evaluate a structured reference, infer a total, or claim client
-behavior. It also covers one workbook-scoped reusable `ScenarioValue` named
+behavior. It also covers one embedded Power Pivot/Data Model whose sole raw
+`x15:modelRelationship/@toColumn` moves from `CalendarModel.DateKey` to
+`CalendarModel.FiscalDateKey` while its workbook-to-model relationship, content
+type, local Tables, calculation properties, and opaque `xl/model/item.data`
+payload remain fixed. It records a stored relationship declaration only: it
+does not deserialize the Analysis Services payload, evaluate DAX, refresh a
+model, calculate or render a PivotTable or chart, infer model-to-cell impact,
+or claim client behavior. It also covers one workbook-scoped reusable `ScenarioValue` named
 `LAMBDA` whose stored calculation body changes while input cells, its calling
 `Model!B2` formula, dashboard consumer, calculation properties, workbook
 relationships, and every package member except `xl/workbook.xml` remain fixed.
@@ -371,6 +378,16 @@ does not expose the formula-master text; WCAB independently proves the exact
 `A2*B2` to `A2*(B2+1)` Table declaration, stable row/dashboard formulas, local
 relationship binding, and Table-part-only boundary. Neither layer fills a
 column, evaluates a structured reference, or claims a client result. For the
+Power Pivot/Data Model relationship case, it requires FormulaFence's exact
+redacted `power_pivot_data_model_changed` profile and high-severity `FF033`.
+The profile retains one internal data part, one workbook binding, one
+declaration, two model tables, one model relationship, and no coverage gaps;
+only FormulaFence's declaration-change flag may differ. FormulaFence does not
+expose model names, relationship keys, DAX, targets, or payload bytes. WCAB's
+raw validator independently proves the exact `toColumn` transition, fixed
+opaque payload, and workbook-XML-only boundary. Neither layer deserializes a
+model, evaluates DAX, refreshes it, renders a report, infers model-to-cell
+impact, or claims client behavior. For the
 sheet-protection sort case, it requires FormulaFence's exact
 `sheet_protection_changed` profile and high-severity `FF022`: one protected
 `Controls` worksheet retains every locked action except `sort`. WCAB's raw
