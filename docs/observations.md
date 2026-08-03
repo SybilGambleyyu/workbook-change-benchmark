@@ -252,6 +252,20 @@ exact `DateKey`-to-`FiscalDateKey` declaration transition, fixed opaque payload,
 and workbook-XML-only package difference. Neither layer deserializes a model,
 evaluates DAX, refreshes it, calculates or renders a report, infers model-to-cell
 impact, or claims client behavior.
+For the XLM Auto_Open binding case, the adapter requires one exact
+high-severity `xlm_automatic_macro_bindings_changed` record and `FF076`. Its
+redacted before/after profile must retain exactly one automatic-macro binding,
+one `Auto_Open` binding, and no `Auto_Close`, `Auto_Activate`, or
+`Auto_Deactivate` binding; only
+`automatic_macro_binding_material_changed=true` is accepted. FormulaFence does
+not expose the macro-sheet name, cell targets, XML, package-member boundary, or
+macro instructions. WCAB's raw validator independently proves the
+`$A$1`-to-`$A$2` stored target transition, fixed byte-identical two-`HALT()`
+macro sheet, very-hidden state, fixed relationship/content types, and
+workbook-XML-only difference. Neither layer opens Excel, enables or executes
+XLM code, parses or emulates macro instructions, resolves a dynamic name,
+inspects security or trust state, infers dispatch behavior, calculates a
+workbook, or claims client behavior.
 For the sheet-protection sort-permission case, it requires one exact
 `sheet_protection_changed` record with high-severity `FF022`: the protected
 `Controls` profile must retain every action lock except `sort`, which moves from

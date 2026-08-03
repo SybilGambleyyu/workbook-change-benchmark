@@ -178,6 +178,28 @@ of the opaque payload. It does not deserialize the Analysis Services stream,
 evaluate DAX, load or refresh a model, calculate or render a PivotTable or
 chart, infer model-to-cell impact, or claim Excel-client behavior.
 
+## XLM automatic-macro declarations remain a review surface
+
+Microsoft's [Excel 4.0 macro guidance](https://support.microsoft.com/en-au/office/working-with-excel-4-0-macros-ba8924d4-e157-4bb2-8d76-2c07ff02e0b8)
+states that Excel continues to support Excel 4.0 (XLM) macros and documents
+their security controls. Its [`XlRunAutoMacro` reference](https://learn.microsoft.com/en-us/office/vba/api/excel.xlrunautomacro)
+names `Auto_Open`, `Auto_Close`, `Auto_Activate`, and `Auto_Deactivate` as the
+automatic macro events. This makes a stored automatic-macro binding materially
+different from an ordinary worksheet formula: a reviewer may need to see that
+the event's stored target changed even when the macro-sheet bytes did not.
+
+WCAB 0.36 therefore uses a real macro-enabled `.xlsm` pair with one
+very-hidden XLM macro sheet and one workbook-scoped `_xlnm.Auto_Open` name.
+Only that raw defined-name text changes, from `'Macro Automation'!$A$1` to
+`'Macro Automation'!$A$2`; the raw macro-sheet payload is byte-identical and
+contains only two static `HALT()` formula cells. Its macro-sheet relationship,
+content types, ordinary local formula context, calculation properties, and
+every other package member stay fixed. The fixture is designed to test review
+of a stored dispatch declaration, not macro execution: WCAB never opens Excel,
+enables or executes XLM code, parses or emulates instructions, resolves a
+dynamic name, inspects security/trust state, or claims an event dispatch result
+or client behavior.
+
 ## Iterative calculation and intentional circular models
 
 Microsoft's [circular-reference guidance](https://support.microsoft.com/en-US/Excel/remove-or-allow-a-circular-reference-in-excel)

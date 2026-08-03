@@ -425,6 +425,39 @@ _POWER_PIVOT_DATA_MODEL_TABLES = (
 _POWER_PIVOT_DATA_PAYLOAD = (
     b"WCAB opaque synthetic Power Pivot Data Model payload v1; never deserialized or opened."
 )
+_XLM_AUTO_OPEN_WORKBOOK_MEMBER = "xl/workbook.xml"
+_XLM_AUTO_OPEN_WORKBOOK_RELATIONSHIPS_MEMBER = "xl/_rels/workbook.xml.rels"
+_XLM_AUTO_OPEN_MACRO_SHEET_MEMBER = "xl/macrosheets/sheet1.xml"
+_XLM_AUTO_OPEN_MACRO_SHEET_NS = "http://schemas.microsoft.com/office/excel/2006/main"
+_XLM_AUTO_OPEN_MACRO_SHEET_RELATIONSHIP = (
+    "http://schemas.microsoft.com/office/2006/relationships/xlMacrosheet"
+)
+_XLM_AUTO_OPEN_MACRO_SHEET_CONTENT_TYPE = "application/vnd.ms-excel.macrosheet+xml"
+_XLM_AUTO_OPEN_WORKBOOK_CONTENT_TYPE = "application/vnd.ms-excel.sheet.macroEnabled.main+xml"
+_XLM_AUTO_OPEN_MACRO_SHEET_RELATIONSHIP_ID = "rIdWCABXlmMacroSheet"
+_XLM_AUTO_OPEN_MACRO_SHEET_NAME = "Macro Automation"
+_XLM_AUTO_OPEN_MACRO_SHEET_ID = "4"
+_XLM_AUTO_OPEN_MACRO_SHEET_STATE = "veryHidden"
+_XLM_AUTO_OPEN_DEFINED_NAME = "_xlnm.Auto_Open"
+_XLM_AUTO_OPEN_EVENT = "Auto_Open"
+_XLM_AUTO_OPEN_BASELINE_TARGET = "'Macro Automation'!$A$1"
+_XLM_AUTO_OPEN_CANDIDATE_TARGET = "'Macro Automation'!$A$2"
+_XLM_AUTO_OPEN_MACRO_FORMULA = "HALT()"
+_XLM_AUTO_OPEN_MACRO_SHEET_PAYLOAD = (
+    b'<?xml version="1.0" encoding="UTF-8"?>'
+    b'<macrosheet xmlns="http://schemas.microsoft.com/office/excel/2006/main">'
+    b'<sheetData><row r="1"><c r="A1"><f>HALT()</f></c></row>'
+    b'<row r="2"><c r="A2"><f>HALT()</f></c></row></sheetData></macrosheet>'
+)
+_XLM_AUTO_OPEN_INPUT_SHEET = "Inputs"
+_XLM_AUTO_OPEN_INPUT_CELL = "B2"
+_XLM_AUTO_OPEN_INPUT_VALUE = 10
+_XLM_AUTO_OPEN_MODEL_SHEET = "Model"
+_XLM_AUTO_OPEN_MODEL_CELL = "B2"
+_XLM_AUTO_OPEN_MODEL_FORMULA = "=Inputs!$B$2*2"
+_XLM_AUTO_OPEN_DASHBOARD_SHEET = "Dashboard"
+_XLM_AUTO_OPEN_DASHBOARD_CELL = "B4"
+_XLM_AUTO_OPEN_DASHBOARD_FORMULA = "=Model!$B$2"
 _CHART_SERIES_SOURCE_SHEET = "Source"
 _CHART_SERIES_DASHBOARD_SHEET = "Dashboard"
 _CHART_SERIES_ANCHOR = "D2"
@@ -1661,6 +1694,32 @@ def _power_pivot_data_model_workbook() -> Workbook:
 
     dashboard = workbook.create_sheet("Dashboard")
     dashboard["A1"] = "Data Model report outputs are intentionally not materialized."
+    return workbook
+
+
+def _xlm_auto_open_binding_workbook() -> Workbook:
+    """Build ordinary workbook context for a raw XLM automatic-macro binding.
+
+    The XLM macro sheet is attached after openpyxl writes this normal workbook.
+    Its two fixed ``HALT()`` cells are deliberately inert fixture material, and
+    neither the generator nor the validator ever opens the pair in Excel.
+    """
+
+    workbook = Workbook()
+    _configure_workbook(workbook, title="WCAB XLM Auto_Open binding fixture")
+
+    inputs = workbook.active
+    inputs.title = _XLM_AUTO_OPEN_INPUT_SHEET
+    inputs["A1"] = "Stable input"
+    inputs[_XLM_AUTO_OPEN_INPUT_CELL] = _XLM_AUTO_OPEN_INPUT_VALUE
+
+    model = workbook.create_sheet(_XLM_AUTO_OPEN_MODEL_SHEET)
+    model["A1"] = "Stable ordinary formula"
+    model[_XLM_AUTO_OPEN_MODEL_CELL] = _XLM_AUTO_OPEN_MODEL_FORMULA
+
+    dashboard = workbook.create_sheet(_XLM_AUTO_OPEN_DASHBOARD_SHEET)
+    dashboard["A1"] = "XLM dispatch is intentionally not executed."
+    dashboard[_XLM_AUTO_OPEN_DASHBOARD_CELL] = _XLM_AUTO_OPEN_DASHBOARD_FORMULA
     return workbook
 
 
@@ -3685,6 +3744,116 @@ def _attach_power_pivot_data_model(path: Path, *, to_column: str) -> None:
     _rewrite_xlsx_parts(path, mutate)
 
 
+def _attach_xlm_auto_open_binding(path: Path, *, target: str) -> None:
+    """Attach one fixed XLM macro sheet and a workbook-scoped Auto_Open name.
+
+    The macro sheet is a tiny raw OOXML payload containing only two identical
+    ``HALT()`` cells. The candidate changes the special workbook defined-name
+    target only; WCAB never interprets a macro formula, opens Excel, or permits
+    a macro to run while building the pair.
+    """
+
+    if target not in {_XLM_AUTO_OPEN_BASELINE_TARGET, _XLM_AUTO_OPEN_CANDIDATE_TARGET}:
+        raise ValueError(f"unsupported XLM Auto_Open target {target!r}")
+
+    def serialize(element: ElementTree.Element) -> bytes:
+        return ElementTree.tostring(element, encoding="utf-8", xml_declaration=True)
+
+    def mutate(members: dict[str, bytes]) -> None:
+        try:
+            workbook = ElementTree.fromstring(members[_XLM_AUTO_OPEN_WORKBOOK_MEMBER])
+            workbook_relationships = ElementTree.fromstring(
+                members[_XLM_AUTO_OPEN_WORKBOOK_RELATIONSHIPS_MEMBER]
+            )
+            content_types = ElementTree.fromstring(members["[Content_Types].xml"])
+        except (KeyError, ElementTree.ParseError) as error:
+            raise ValueError("XLM Auto_Open fixture has no base OOXML package") from error
+
+        sheets_tag = f"{{{_SPREADSHEETML_NS}}}sheets"
+        sheet_tag = f"{{{_SPREADSHEETML_NS}}}sheet"
+        defined_names_tag = f"{{{_SPREADSHEETML_NS}}}definedNames"
+        defined_name_tag = f"{{{_SPREADSHEETML_NS}}}definedName"
+        relationship_tag = f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationship"
+        override_tag = f"{{{_CONTENT_TYPES_NS}}}Override"
+        sheets = workbook.findall(sheets_tag)
+        defined_names = workbook.findall(defined_names_tag)
+        if (
+            len(sheets) != 1
+            or len(defined_names) != 1
+            or defined_names[0].attrib
+            or len(defined_names[0])
+            or any(sheet.get("name") == _XLM_AUTO_OPEN_MACRO_SHEET_NAME for sheet in sheets[0])
+            or any(sheet.tag != sheet_tag for sheet in sheets[0])
+            or workbook_relationships.tag != f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationships"
+            or content_types.tag != f"{{{_CONTENT_TYPES_NS}}}Types"
+        ):
+            raise ValueError("XLM Auto_Open fixture has an unexpected base workbook shape")
+        sheet_ids = [sheet.get("sheetId") for sheet in sheets[0]]
+        if sheet_ids != ["1", "2", "3"]:
+            raise ValueError("XLM Auto_Open fixture has unexpected ordinary sheet IDs")
+        if any(
+            relationship.get("Id") == _XLM_AUTO_OPEN_MACRO_SHEET_RELATIONSHIP_ID
+            or relationship.get("Type") == _XLM_AUTO_OPEN_MACRO_SHEET_RELATIONSHIP
+            for relationship in workbook_relationships.findall(relationship_tag)
+        ):
+            raise ValueError("XLM Auto_Open fixture already has a macro-sheet binding")
+        if _XLM_AUTO_OPEN_MACRO_SHEET_MEMBER in members:
+            raise ValueError("XLM Auto_Open fixture already has a macro sheet")
+
+        ElementTree.SubElement(
+            sheets[0],
+            sheet_tag,
+            {
+                "name": _XLM_AUTO_OPEN_MACRO_SHEET_NAME,
+                "sheetId": _XLM_AUTO_OPEN_MACRO_SHEET_ID,
+                "state": _XLM_AUTO_OPEN_MACRO_SHEET_STATE,
+                f"{{{_DOCUMENT_RELATIONSHIPS_NS}}}id": _XLM_AUTO_OPEN_MACRO_SHEET_RELATIONSHIP_ID,
+            },
+        )
+        ElementTree.SubElement(
+            defined_names[0],
+            defined_name_tag,
+            {"name": _XLM_AUTO_OPEN_DEFINED_NAME},
+        ).text = target
+
+        ElementTree.SubElement(
+            workbook_relationships,
+            relationship_tag,
+            {
+                "Id": _XLM_AUTO_OPEN_MACRO_SHEET_RELATIONSHIP_ID,
+                "Type": _XLM_AUTO_OPEN_MACRO_SHEET_RELATIONSHIP,
+                "Target": "macrosheets/sheet1.xml",
+            },
+        )
+
+        workbook_overrides = [
+            override
+            for override in content_types.findall(override_tag)
+            if override.get("PartName") == "/xl/workbook.xml"
+        ]
+        if len(workbook_overrides) != 1 or any(
+            override.get("PartName") == f"/{_XLM_AUTO_OPEN_MACRO_SHEET_MEMBER}"
+            for override in content_types.findall(override_tag)
+        ):
+            raise ValueError("XLM Auto_Open fixture has unexpected content types")
+        workbook_overrides[0].set("ContentType", _XLM_AUTO_OPEN_WORKBOOK_CONTENT_TYPE)
+        ElementTree.SubElement(
+            content_types,
+            override_tag,
+            {
+                "PartName": f"/{_XLM_AUTO_OPEN_MACRO_SHEET_MEMBER}",
+                "ContentType": _XLM_AUTO_OPEN_MACRO_SHEET_CONTENT_TYPE,
+            },
+        )
+
+        members[_XLM_AUTO_OPEN_WORKBOOK_MEMBER] = serialize(workbook)
+        members[_XLM_AUTO_OPEN_WORKBOOK_RELATIONSHIPS_MEMBER] = serialize(workbook_relationships)
+        members["[Content_Types].xml"] = serialize(content_types)
+        members[_XLM_AUTO_OPEN_MACRO_SHEET_MEMBER] = _XLM_AUTO_OPEN_MACRO_SHEET_PAYLOAD
+
+    _rewrite_xlsx_parts(path, mutate)
+
+
 def _set_external_workbook_link_update_policy(path: Path, *, update_links: str) -> None:
     """Set the stored workbook-open policy for external-workbook links.
 
@@ -5647,6 +5816,96 @@ def _build_governance_external_defined_name_source(root: Path) -> None:
     )
 
 
+def _build_governance_xlm_auto_open_binding(root: Path) -> None:
+    """Build a macro-enabled pair whose Auto_Open dispatch target changes."""
+
+    directory = root / "governance" / "xlm_auto_open_binding_retargeted"
+    directory.mkdir(parents=True, exist_ok=True)
+    baseline = directory / "baseline.xlsm"
+    candidate = directory / "candidate.xlsm"
+    _save_workbook(_xlm_auto_open_binding_workbook(), baseline)
+    _save_workbook(_xlm_auto_open_binding_workbook(), candidate)
+    _attach_xlm_auto_open_binding(baseline, target=_XLM_AUTO_OPEN_BASELINE_TARGET)
+    _attach_xlm_auto_open_binding(candidate, target=_XLM_AUTO_OPEN_CANDIDATE_TARGET)
+    _write_json(
+        directory / "truth.json",
+        _truth(
+            case_id="governance.xlm_auto_open_binding_retargeted",
+            title="A hidden XLM Auto_Open binding retargets a macro-sheet cell",
+            family="governance",
+            review_expectation="block",
+            facts=[
+                {
+                    "kind": "xlm_auto_open_binding_retargeted",
+                    "workbook_member": _XLM_AUTO_OPEN_WORKBOOK_MEMBER,
+                    "workbook_relationships_member": (_XLM_AUTO_OPEN_WORKBOOK_RELATIONSHIPS_MEMBER),
+                    "macro_sheet_member": _XLM_AUTO_OPEN_MACRO_SHEET_MEMBER,
+                    "macro_sheet_relationship_id": (_XLM_AUTO_OPEN_MACRO_SHEET_RELATIONSHIP_ID),
+                    "macro_sheet_relationship_type": _XLM_AUTO_OPEN_MACRO_SHEET_RELATIONSHIP,
+                    "macro_sheet_relationship_target": "macrosheets/sheet1.xml",
+                    "macro_sheet_content_type": _XLM_AUTO_OPEN_MACRO_SHEET_CONTENT_TYPE,
+                    "workbook_content_type": _XLM_AUTO_OPEN_WORKBOOK_CONTENT_TYPE,
+                    "macro_sheet_name": _XLM_AUTO_OPEN_MACRO_SHEET_NAME,
+                    "macro_sheet_sheet_id": _XLM_AUTO_OPEN_MACRO_SHEET_ID,
+                    "macro_sheet_state": _XLM_AUTO_OPEN_MACRO_SHEET_STATE,
+                    "automatic_macro_name": _XLM_AUTO_OPEN_DEFINED_NAME,
+                    "automatic_macro_event": _XLM_AUTO_OPEN_EVENT,
+                    "baseline_target": _XLM_AUTO_OPEN_BASELINE_TARGET,
+                    "candidate_target": _XLM_AUTO_OPEN_CANDIDATE_TARGET,
+                    "macro_sheet_formula": _XLM_AUTO_OPEN_MACRO_FORMULA,
+                    "macro_sheet_formula_cells": ["A1", "A2"],
+                    "macro_sheet_sha256": sha256(_XLM_AUTO_OPEN_MACRO_SHEET_PAYLOAD).hexdigest(),
+                    "macro_sheet_size": len(_XLM_AUTO_OPEN_MACRO_SHEET_PAYLOAD),
+                    "input_sheet": _XLM_AUTO_OPEN_INPUT_SHEET,
+                    "input_cell": _XLM_AUTO_OPEN_INPUT_CELL,
+                    "input_value": _XLM_AUTO_OPEN_INPUT_VALUE,
+                    "model_sheet": _XLM_AUTO_OPEN_MODEL_SHEET,
+                    "model_cell": _XLM_AUTO_OPEN_MODEL_CELL,
+                    "model_formula": _XLM_AUTO_OPEN_MODEL_FORMULA,
+                    "dashboard_sheet": _XLM_AUTO_OPEN_DASHBOARD_SHEET,
+                    "dashboard_cell": _XLM_AUTO_OPEN_DASHBOARD_CELL,
+                    "dashboard_formula": _XLM_AUTO_OPEN_DASHBOARD_FORMULA,
+                }
+            ],
+            must_reach=[
+                {
+                    "source": {
+                        "sheet": _XLM_AUTO_OPEN_INPUT_SHEET,
+                        "cell": _XLM_AUTO_OPEN_INPUT_CELL,
+                    },
+                    "targets": [
+                        {
+                            "sheet": _XLM_AUTO_OPEN_MODEL_SHEET,
+                            "cell": _XLM_AUTO_OPEN_MODEL_CELL,
+                        },
+                        {
+                            "sheet": _XLM_AUTO_OPEN_DASHBOARD_SHEET,
+                            "cell": _XLM_AUTO_OPEN_DASHBOARD_CELL,
+                        },
+                    ],
+                },
+                {
+                    "source": {
+                        "sheet": _XLM_AUTO_OPEN_MODEL_SHEET,
+                        "cell": _XLM_AUTO_OPEN_MODEL_CELL,
+                    },
+                    "targets": [
+                        {
+                            "sheet": _XLM_AUTO_OPEN_DASHBOARD_SHEET,
+                            "cell": _XLM_AUTO_OPEN_DASHBOARD_CELL,
+                        }
+                    ],
+                },
+            ],
+            coverage=[
+                "The macro-enabled pair changes only the one workbook-scoped _xlnm.Auto_Open definedName text in xl/workbook.xml, from Macro Automation!$A$1 to Macro Automation!$A$2. The raw XLM macro-sheet part, macro-sheet relationship, macro-enabled workbook and macro-sheet content types, ordinary cells/formulas, calculation properties, and every other package member remain unchanged.",
+                "Both direct targets name cells on one very-hidden xlMacrosheet relationship. That fixed part contains only two identical HALT() formula cells and no VBA project, related payload, or external target. The ordinary Inputs!B2-to-Model!B2-to-Dashboard!B4 path is stable local review context; it is not a macro dependency claim.",
+                "WCAB does not open Excel, enable or execute XLM code, parse or emulate macro instructions, resolve a dynamic name, inspect macro-security/trust settings, infer a dispatch result, calculate a workbook, or claim client behavior. It records only the stored workbook dispatch declaration and bounded raw package shape.",
+            ],
+        ),
+    )
+
+
 def _build_structural_named_lambda_definition(root: Path) -> None:
     """Build a pair whose reusable named-function body changes in isolation."""
 
@@ -6217,6 +6476,7 @@ _BUILDERS: tuple[Callable[[Path], None], ...] = (
     _build_governance_external_workbook_link_update_policy,
     _build_governance_external_workbook_link_source,
     _build_governance_external_defined_name_source,
+    _build_governance_xlm_auto_open_binding,
     _build_structural_named_lambda_definition,
     _build_structural_power_pivot_data_model_relationship,
     _build_structural_pivot_data_field_aggregation,
@@ -6271,6 +6531,7 @@ CASE_IDS = (
     "governance.external_workbook_link_update_on_open",
     "governance.external_workbook_link_source_changed",
     "governance.external_defined_name_source_changed",
+    "governance.xlm_auto_open_binding_retargeted",
     "structural.named_lambda_definition_changed",
     "structural.power_pivot_data_model_relationship_changed",
     "structural.pivot_data_field_aggregation_changed",

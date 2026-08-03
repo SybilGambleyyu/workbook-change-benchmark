@@ -66,6 +66,18 @@ _POWER_PIVOT_DATA_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.
 _POWER_PIVOT_DATA_PAYLOAD = (
     b"WCAB opaque synthetic Power Pivot Data Model payload v1; never deserialized or opened."
 )
+_XLM_AUTO_OPEN_MACRO_SHEET_RELATIONSHIP = (
+    "http://schemas.microsoft.com/office/2006/relationships/xlMacrosheet"
+)
+_XLM_AUTO_OPEN_MACRO_SHEET_CONTENT_TYPE = "application/vnd.ms-excel.macrosheet+xml"
+_XLM_AUTO_OPEN_WORKBOOK_CONTENT_TYPE = "application/vnd.ms-excel.sheet.macroEnabled.main+xml"
+_XLM_AUTO_OPEN_MACRO_SHEET_NS = "http://schemas.microsoft.com/office/excel/2006/main"
+_XLM_AUTO_OPEN_MACRO_SHEET_PAYLOAD = (
+    b'<?xml version="1.0" encoding="UTF-8"?>'
+    b'<macrosheet xmlns="http://schemas.microsoft.com/office/excel/2006/main">'
+    b'<sheetData><row r="1"><c r="A1"><f>HALT()</f></c></row>'
+    b'<row r="2"><c r="A2"><f>HALT()</f></c></row></sheetData></macrosheet>'
+)
 _CELL_HYPERLINK_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/hyperlink"
 _EXTERNAL_WORKBOOK_LINK_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/externalLink"
 _EXTERNAL_WORKBOOK_LINK_PATH_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/externalLinkPath"
@@ -90,6 +102,7 @@ _POWER_QUERY_M_FILTER = re.compile(
     r"in\n"
     r"    FilteredRows;\n\Z"
 )
+_PAIR_WORKBOOK_EXTENSIONS = ("xlsx", "xlsm")
 
 
 class FixtureValidationError(ValueError):
@@ -3277,6 +3290,189 @@ def _workbook_without_power_pivot_data_model_to_column(path: Path) -> bytes | No
     return ElementTree.tostring(workbook, encoding="utf-8", xml_declaration=True)
 
 
+def _raw_xlm_auto_open_binding_state(path: Path) -> dict[str, Any] | None:
+    """Read WCAB's one raw XLM Auto_Open dispatch declaration.
+
+    The generated macro sheet has a fixed, tiny XML payload. This reader
+    validates only its package wiring, direct A1 target, and exact inert
+    formula cells; it never opens Excel, evaluates an XLM instruction, or
+    follows a relationship target beyond the local package member.
+    """
+
+    workbook_member = "xl/workbook.xml"
+    workbook_relationships_member = "xl/_rels/workbook.xml.rels"
+    macro_sheet_member = "xl/macrosheets/sheet1.xml"
+    relationship_id = "rIdWCABXlmMacroSheet"
+    try:
+        with ZipFile(path) as archive:
+            workbook = ElementTree.fromstring(archive.read(workbook_member))
+            workbook_relationships = ElementTree.fromstring(
+                archive.read(workbook_relationships_member)
+            )
+            content_types = ElementTree.fromstring(archive.read("[Content_Types].xml"))
+            macro_sheet_payload = archive.read(macro_sheet_member)
+            macro_sheet = ElementTree.fromstring(macro_sheet_payload)
+            macro_sheet_members = tuple(
+                sorted(
+                    member
+                    for member in archive.namelist()
+                    if member.startswith("xl/macrosheets/")
+                    and not member.startswith("xl/macrosheets/_rels/")
+                    and not member.endswith("/")
+                )
+            )
+            macro_sheet_relationship_members = tuple(
+                sorted(
+                    member
+                    for member in archive.namelist()
+                    if member.startswith("xl/macrosheets/_rels/")
+                )
+            )
+            vba_project_members = tuple(
+                sorted(
+                    member for member in archive.namelist() if member.startswith("xl/vbaProject")
+                )
+            )
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+
+    relationship_tag = f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationship"
+    sheets_tag = f"{{{_SPREADSHEETML_NS}}}sheets"
+    sheet_tag = f"{{{_SPREADSHEETML_NS}}}sheet"
+    defined_names_tag = f"{{{_SPREADSHEETML_NS}}}definedNames"
+    defined_name_tag = f"{{{_SPREADSHEETML_NS}}}definedName"
+    override_tag = f"{{{_CONTENT_TYPES_NS}}}Override"
+    macro_sheet_tag = f"{{{_XLM_AUTO_OPEN_MACRO_SHEET_NS}}}macrosheet"
+    sheet_data_tag = f"{{{_XLM_AUTO_OPEN_MACRO_SHEET_NS}}}sheetData"
+    row_tag = f"{{{_XLM_AUTO_OPEN_MACRO_SHEET_NS}}}row"
+    cell_tag = f"{{{_XLM_AUTO_OPEN_MACRO_SHEET_NS}}}c"
+    formula_tag = f"{{{_XLM_AUTO_OPEN_MACRO_SHEET_NS}}}f"
+    sheets = workbook.findall(sheets_tag)
+    defined_names = workbook.findall(defined_names_tag)
+    if (
+        workbook_relationships.tag != f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationships"
+        or content_types.tag != f"{{{_CONTENT_TYPES_NS}}}Types"
+        or len(sheets) != 1
+        or sheets[0].attrib
+        or [sheet.get("name") for sheet in sheets[0]]
+        != ["Inputs", "Model", "Dashboard", "Macro Automation"]
+        or any(sheet.tag != sheet_tag for sheet in sheets[0])
+        or len(defined_names) != 1
+        or defined_names[0].attrib
+        or len(defined_names[0]) != 1
+        or defined_names[0][0].tag != defined_name_tag
+        or defined_names[0][0].attrib != {"name": "_xlnm.Auto_Open"}
+        or len(defined_names[0][0])
+        or not isinstance(defined_names[0][0].text, str)
+        or not defined_names[0][0].text
+    ):
+        return None
+    macro_sheets = [sheet for sheet in sheets[0] if sheet.get("name") == "Macro Automation"]
+    if len(macro_sheets) != 1:
+        return None
+    macro_sheet_declaration = macro_sheets[0]
+    relationship_matches = [
+        relationship
+        for relationship in workbook_relationships.findall(relationship_tag)
+        if relationship.get("Id") == relationship_id
+        and relationship.get("Type") == _XLM_AUTO_OPEN_MACRO_SHEET_RELATIONSHIP
+        and relationship.get("TargetMode") is None
+    ]
+    if (
+        len(relationship_matches) != 1
+        or sum(
+            relationship.get("Type") == _XLM_AUTO_OPEN_MACRO_SHEET_RELATIONSHIP
+            for relationship in workbook_relationships.findall(relationship_tag)
+        )
+        != 1
+        or relationship_matches[0].get("Target") != "macrosheets/sheet1.xml"
+        or macro_sheet_members != (macro_sheet_member,)
+        or macro_sheet_relationship_members
+        or vba_project_members
+    ):
+        return None
+    workbook_content_types = [
+        override
+        for override in content_types.findall(override_tag)
+        if override.get("PartName") == "/xl/workbook.xml"
+    ]
+    macro_sheet_content_types = [
+        override
+        for override in content_types.findall(override_tag)
+        if override.get("PartName") == "/xl/macrosheets/sheet1.xml"
+    ]
+    if (
+        len(workbook_content_types) != 1
+        or len(macro_sheet_content_types) != 1
+        or macro_sheet.tag != macro_sheet_tag
+        or macro_sheet.attrib
+        or len(macro_sheet) != 1
+        or macro_sheet[0].tag != sheet_data_tag
+        or macro_sheet[0].attrib
+        or len(macro_sheet[0]) != 2
+    ):
+        return None
+    macro_formulas: list[tuple[str, str]] = []
+    for row_number, coordinate, row in zip(("1", "2"), ("A1", "A2"), macro_sheet[0], strict=True):
+        if (
+            row.tag != row_tag
+            or row.attrib != {"r": row_number}
+            or len(row) != 1
+            or row[0].tag != cell_tag
+            or row[0].attrib != {"r": coordinate}
+            or len(row[0]) != 1
+            or row[0][0].tag != formula_tag
+            or row[0][0].attrib
+            or len(row[0][0])
+            or row[0][0].text != "HALT()"
+        ):
+            return None
+        macro_formulas.append((coordinate, row[0][0].text))
+    return {
+        "workbook_member": workbook_member,
+        "workbook_relationships_member": workbook_relationships_member,
+        "macro_sheet_member": macro_sheet_member,
+        "macro_sheet_relationship_attributes": tuple(
+            sorted(relationship_matches[0].attrib.items())
+        ),
+        "workbook_content_type_attributes": tuple(sorted(workbook_content_types[0].attrib.items())),
+        "macro_sheet_content_type_attributes": tuple(
+            sorted(macro_sheet_content_types[0].attrib.items())
+        ),
+        "macro_sheet_declaration_attributes": tuple(sorted(macro_sheet_declaration.attrib.items())),
+        "automatic_macro_attributes": tuple(sorted(defined_names[0][0].attrib.items())),
+        "automatic_macro_target": defined_names[0][0].text,
+        "macro_sheet_formulas": tuple(macro_formulas),
+        "macro_sheet_members": macro_sheet_members,
+        "macro_sheet_relationship_members": macro_sheet_relationship_members,
+        "vba_project_members": vba_project_members,
+        "macro_sheet_sha256": sha256(macro_sheet_payload).hexdigest(),
+        "macro_sheet_size": len(macro_sheet_payload),
+    }
+
+
+def _workbook_without_xlm_auto_open_target(path: Path) -> bytes | None:
+    """Return WCAB's workbook XML with its Auto_Open target text erased."""
+
+    if _raw_xlm_auto_open_binding_state(path) is None:
+        return None
+    try:
+        with ZipFile(path) as archive:
+            workbook = ElementTree.fromstring(archive.read("xl/workbook.xml"))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    defined_name_tag = f"{{{_SPREADSHEETML_NS}}}definedName"
+    automatic_names = [
+        name
+        for name in workbook.iter(defined_name_tag)
+        if name.attrib == {"name": "_xlnm.Auto_Open"}
+    ]
+    if len(automatic_names) != 1 or not automatic_names[0].text:
+        return None
+    automatic_names[0].text = None
+    return ElementTree.tostring(workbook, encoding="utf-8", xml_declaration=True)
+
+
 def _sheet_protection_sort_state(
     path: Path, sheet_name: str
 ) -> tuple[str, bool, bool, tuple[tuple[str, str], ...]] | None:
@@ -3535,7 +3731,21 @@ def _workbook_pair(
             raise FixtureValidationError(
                 f"{case_dir}: pair fixture unexpectedly names workbook {workbook!r}"
             )
-        return case_dir / "baseline.xlsx", case_dir / "candidate.xlsx"
+        pairs = [
+            (case_dir / f"baseline.{extension}", case_dir / f"candidate.{extension}")
+            for extension in _PAIR_WORKBOOK_EXTENSIONS
+            if (case_dir / f"baseline.{extension}").is_file()
+            and (case_dir / f"candidate.{extension}").is_file()
+        ]
+        if len(pairs) != 1:
+            expected = " or ".join(
+                f"baseline.{extension}/candidate.{extension}"
+                for extension in _PAIR_WORKBOOK_EXTENSIONS
+            )
+            raise FixtureValidationError(
+                f"{case_dir}: expected exactly one paired workbook set ({expected})"
+            )
+        return pairs[0]
     if topology == "portfolio":
         if not workbook:
             raise FixtureValidationError(f"{case_dir}: portfolio fact must name a workbook")
@@ -7384,6 +7594,156 @@ def _validate_fact(
         )
         return
 
+    if kind == "xlm_auto_open_binding_retargeted":
+        input_sheet = fact.get("input_sheet")
+        input_cell = fact.get("input_cell")
+        model_sheet = fact.get("model_sheet")
+        model_cell = fact.get("model_cell")
+        dashboard_sheet = fact.get("dashboard_sheet")
+        dashboard_cell = fact.get("dashboard_cell")
+        before_state = _raw_xlm_auto_open_binding_state(baseline_path)
+        after_state = _raw_xlm_auto_open_binding_state(candidate_path)
+        before_input = (
+            _raw_cell_state(baseline_path, input_sheet, input_cell)
+            if isinstance(input_sheet, str) and isinstance(input_cell, str)
+            else None
+        )
+        after_input = (
+            _raw_cell_state(candidate_path, input_sheet, input_cell)
+            if isinstance(input_sheet, str) and isinstance(input_cell, str)
+            else None
+        )
+        before_model = (
+            _raw_cell_state(baseline_path, model_sheet, model_cell)
+            if isinstance(model_sheet, str) and isinstance(model_cell, str)
+            else None
+        )
+        after_model = (
+            _raw_cell_state(candidate_path, model_sheet, model_cell)
+            if isinstance(model_sheet, str) and isinstance(model_cell, str)
+            else None
+        )
+        before_dashboard = (
+            _raw_cell_state(baseline_path, dashboard_sheet, dashboard_cell)
+            if isinstance(dashboard_sheet, str) and isinstance(dashboard_cell, str)
+            else None
+        )
+        after_dashboard = (
+            _raw_cell_state(candidate_path, dashboard_sheet, dashboard_cell)
+            if isinstance(dashboard_sheet, str) and isinstance(dashboard_cell, str)
+            else None
+        )
+        expected_common_state = {
+            "workbook_member": "xl/workbook.xml",
+            "workbook_relationships_member": "xl/_rels/workbook.xml.rels",
+            "macro_sheet_member": "xl/macrosheets/sheet1.xml",
+            "macro_sheet_relationship_attributes": (
+                ("Id", "rIdWCABXlmMacroSheet"),
+                ("Target", "macrosheets/sheet1.xml"),
+                (
+                    "Type",
+                    "http://schemas.microsoft.com/office/2006/relationships/xlMacrosheet",
+                ),
+            ),
+            "workbook_content_type_attributes": (
+                (
+                    "ContentType",
+                    "application/vnd.ms-excel.sheet.macroEnabled.main+xml",
+                ),
+                ("PartName", "/xl/workbook.xml"),
+            ),
+            "macro_sheet_content_type_attributes": (
+                ("ContentType", "application/vnd.ms-excel.macrosheet+xml"),
+                ("PartName", "/xl/macrosheets/sheet1.xml"),
+            ),
+            "macro_sheet_declaration_attributes": tuple(
+                sorted(
+                    {
+                        "name": "Macro Automation",
+                        "sheetId": "4",
+                        "state": "veryHidden",
+                        f"{{{_DOCUMENT_RELATIONSHIPS_NS}}}id": "rIdWCABXlmMacroSheet",
+                    }.items()
+                )
+            ),
+            "automatic_macro_attributes": (("name", "_xlnm.Auto_Open"),),
+            "macro_sheet_formulas": (("A1", "HALT()"), ("A2", "HALT()")),
+            "macro_sheet_members": ("xl/macrosheets/sheet1.xml",),
+            "macro_sheet_relationship_members": (),
+            "vba_project_members": (),
+            "macro_sheet_sha256": sha256(_XLM_AUTO_OPEN_MACRO_SHEET_PAYLOAD).hexdigest(),
+            "macro_sheet_size": len(_XLM_AUTO_OPEN_MACRO_SHEET_PAYLOAD),
+        }
+        expected_sheets = ["Inputs", "Model", "Dashboard", "Macro Automation"]
+        graph = _direct_graph(candidate)
+        _assert(
+            fact.get("workbook_member") == "xl/workbook.xml"
+            and fact.get("workbook_relationships_member") == "xl/_rels/workbook.xml.rels"
+            and fact.get("macro_sheet_member") == "xl/macrosheets/sheet1.xml"
+            and fact.get("macro_sheet_relationship_id") == "rIdWCABXlmMacroSheet"
+            and fact.get("macro_sheet_relationship_type")
+            == "http://schemas.microsoft.com/office/2006/relationships/xlMacrosheet"
+            and fact.get("macro_sheet_relationship_target") == "macrosheets/sheet1.xml"
+            and fact.get("macro_sheet_content_type") == "application/vnd.ms-excel.macrosheet+xml"
+            and fact.get("workbook_content_type")
+            == "application/vnd.ms-excel.sheet.macroEnabled.main+xml"
+            and fact.get("macro_sheet_name") == "Macro Automation"
+            and fact.get("macro_sheet_sheet_id") == "4"
+            and fact.get("macro_sheet_state") == "veryHidden"
+            and fact.get("automatic_macro_name") == "_xlnm.Auto_Open"
+            and fact.get("automatic_macro_event") == "Auto_Open"
+            and fact.get("baseline_target") == "'Macro Automation'!$A$1"
+            and fact.get("candidate_target") == "'Macro Automation'!$A$2"
+            and fact.get("macro_sheet_formula") == "HALT()"
+            and fact.get("macro_sheet_formula_cells") == ["A1", "A2"]
+            and fact.get("macro_sheet_sha256")
+            == sha256(_XLM_AUTO_OPEN_MACRO_SHEET_PAYLOAD).hexdigest()
+            and fact.get("macro_sheet_size") == len(_XLM_AUTO_OPEN_MACRO_SHEET_PAYLOAD)
+            and input_sheet == "Inputs"
+            and input_cell == "B2"
+            and fact.get("input_value") == 10
+            and model_sheet == "Model"
+            and model_cell == "B2"
+            and fact.get("model_formula") == "=Inputs!$B$2*2"
+            and dashboard_sheet == "Dashboard"
+            and dashboard_cell == "B4"
+            and fact.get("dashboard_formula") == "=Model!$B$2"
+            and baseline.sheetnames == expected_sheets
+            and candidate.sheetnames == expected_sheets
+            and before_state
+            == {
+                **expected_common_state,
+                "automatic_macro_target": "'Macro Automation'!$A$1",
+            }
+            and after_state
+            == {
+                **expected_common_state,
+                "automatic_macro_target": "'Macro Automation'!$A$2",
+            }
+            and before_input is not None
+            and before_input == after_input
+            and before_input[0] == "xl/worksheets/sheet1.xml"
+            and before_input[4] == "10"
+            and before_model is not None
+            and before_model == after_model
+            and before_model[0] == "xl/worksheets/sheet2.xml"
+            and before_model[3] == "=Inputs!$B$2*2"
+            and before_dashboard is not None
+            and before_dashboard == after_dashboard
+            and before_dashboard[0] == "xl/worksheets/sheet3.xml"
+            and before_dashboard[3] == "=Model!$B$2"
+            and _workbook_without_xlm_auto_open_target(baseline_path)
+            == _workbook_without_xlm_auto_open_target(candidate_path)
+            and _xlsx_member_differences(baseline_path, candidate_path) == {"xl/workbook.xml"}
+            and _calculation_properties(baseline_path) == _calculation_properties(candidate_path)
+            and (model_sheet, model_cell) in _reachable(graph, (input_sheet, input_cell))
+            and (dashboard_sheet, dashboard_cell) in _reachable(graph, (input_sheet, input_cell))
+            and (dashboard_sheet, dashboard_cell) in _reachable(graph, (model_sheet, model_cell)),
+            f"{truth['id']}: expected one raw XLM Auto_Open target change with fixed macro-sheet and ordinary-formula context",
+            errors,
+        )
+        return
+
     if kind == "array_formula_mode_changed":
         sheet_name = fact.get("sheet")
         coordinate = fact.get("cell")
@@ -7751,7 +8111,8 @@ def _validate_coverage_expectations(
 def _validate_impacts(case_dir: Path, truth: dict[str, Any], errors: list[str]) -> None:
     if truth.get("topology") != "pair":
         return
-    candidate = _load_workbook(case_dir / "candidate.xlsx")
+    _baseline_path, candidate_path = _workbook_pair(case_dir, truth)
+    candidate = _load_workbook(candidate_path)
     graph = _direct_graph(candidate)
     for impact in truth.get("must_reach", []):
         source = impact.get("source", {})
@@ -7794,10 +8155,11 @@ def validate_case(case_dir: str | Path) -> list[str]:
         errors,
     )
     if truth.get("topology") == "pair":
-        for filename in ("baseline.xlsx", "candidate.xlsx"):
-            _assert(
-                (directory / filename).is_file(), f"{truth.get('id')}: missing {filename}", errors
-            )
+        try:
+            _workbook_pair(directory, truth)
+        except FixtureValidationError as error:
+            errors.append(str(error))
+            return errors
     elif truth.get("topology") == "portfolio":
         _assert(
             (directory / "baseline").is_dir(),

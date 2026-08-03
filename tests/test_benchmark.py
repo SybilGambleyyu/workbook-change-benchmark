@@ -9,9 +9,11 @@ from pathlib import Path
 from xml.etree import ElementTree
 from zipfile import ZIP_DEFLATED, ZipFile
 
+import pytest
+
 from wcab.adapters import formulafence
 from wcab.build import CASE_IDS, build_all
-from wcab.manifest import case_rows, manifest_text
+from wcab.manifest import ManifestError, case_rows, manifest_text
 from wcab.validate import validate_all, validate_case
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -334,6 +336,22 @@ def _power_pivot_data_model_relationship_details() -> dict[str, object]:
         "before": dict(profile),
         "after": dict(profile),
         "workbook_data_model_declaration_changed": True,
+    }
+
+
+def _xlm_auto_open_binding_details() -> dict[str, object]:
+    profile = {
+        "present": True,
+        "automatic_macro_binding_count": 1,
+        "auto_open_binding_count": 1,
+        "auto_close_binding_count": 0,
+        "auto_activate_binding_count": 0,
+        "auto_deactivate_binding_count": 0,
+    }
+    return {
+        "before": dict(profile),
+        "after": dict(profile),
+        "automatic_macro_binding_material_changed": True,
     }
 
 
@@ -1372,6 +1390,52 @@ def test_committed_manifest_matches_fixture_tree() -> None:
             "data_model_payload_size": 86,
         }
     ]
+    xlm_auto_open_row = next(
+        row for row in rows if row["id"] == "governance.xlm_auto_open_binding_retargeted"
+    )
+    assert xlm_auto_open_row["baseline_files"][0]["path"] == (
+        "governance/xlm_auto_open_binding_retargeted/baseline.xlsm"
+    )
+    assert xlm_auto_open_row["candidate_files"][0]["path"] == (
+        "governance/xlm_auto_open_binding_retargeted/candidate.xlsm"
+    )
+    assert xlm_auto_open_row["facts"] == [
+        {
+            "kind": "xlm_auto_open_binding_retargeted",
+            "workbook_member": "xl/workbook.xml",
+            "workbook_relationships_member": "xl/_rels/workbook.xml.rels",
+            "macro_sheet_member": "xl/macrosheets/sheet1.xml",
+            "macro_sheet_relationship_id": "rIdWCABXlmMacroSheet",
+            "macro_sheet_relationship_type": (
+                "http://schemas.microsoft.com/office/2006/relationships/xlMacrosheet"
+            ),
+            "macro_sheet_relationship_target": "macrosheets/sheet1.xml",
+            "macro_sheet_content_type": "application/vnd.ms-excel.macrosheet+xml",
+            "workbook_content_type": "application/vnd.ms-excel.sheet.macroEnabled.main+xml",
+            "macro_sheet_name": "Macro Automation",
+            "macro_sheet_sheet_id": "4",
+            "macro_sheet_state": "veryHidden",
+            "automatic_macro_name": "_xlnm.Auto_Open",
+            "automatic_macro_event": "Auto_Open",
+            "baseline_target": "'Macro Automation'!$A$1",
+            "candidate_target": "'Macro Automation'!$A$2",
+            "macro_sheet_formula": "HALT()",
+            "macro_sheet_formula_cells": ["A1", "A2"],
+            "macro_sheet_sha256": (
+                "41c42af5521da4dd51a8d5a0a271e4ef0fd82040de229fe2461333dfd10d8ba7"
+            ),
+            "macro_sheet_size": 234,
+            "input_sheet": "Inputs",
+            "input_cell": "B2",
+            "input_value": 10,
+            "model_sheet": "Model",
+            "model_cell": "B2",
+            "model_formula": "=Inputs!$B$2*2",
+            "dashboard_sheet": "Dashboard",
+            "dashboard_cell": "B4",
+            "dashboard_formula": "=Model!$B$2",
+        }
+    ]
     table_calculated_column_row = next(
         row for row in rows if row["id"] == "structural.table_calculated_column_formula_changed"
     )
@@ -1499,6 +1563,15 @@ def test_manifest_is_reproducible_with_fixture_build(tmp_path: Path) -> None:
     first = (fixture_root / "manifest.jsonl").read_text(encoding="utf-8")
     build_all(fixture_root)
     assert (fixture_root / "manifest.jsonl").read_text(encoding="utf-8") == first
+
+
+def test_manifest_rejects_a_mixed_extension_workbook_pair(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "governance" / "xlm_auto_open_binding_retargeted"
+    (case / "candidate.xlsm").replace(case / "candidate.xlsx")
+    with pytest.raises(ManifestError, match="matching baseline/candidate"):
+        case_rows(fixture_root, expected_ids=CASE_IDS)
 
 
 def test_validator_rejects_a_false_fact(tmp_path: Path) -> None:
@@ -3101,6 +3174,95 @@ def test_power_pivot_data_model_relationship_pair_changes_only_workbook_xml(
     build_all(fixture_root)
     case = fixture_root / "structural" / "power_pivot_data_model_relationship_changed"
     with ZipFile(case / "baseline.xlsx") as baseline, ZipFile(case / "candidate.xlsx") as candidate:
+        baseline_members = {
+            entry.filename: baseline.read(entry.filename) for entry in baseline.infolist()
+        }
+        candidate_members = {
+            entry.filename: candidate.read(entry.filename) for entry in candidate.infolist()
+        }
+    assert set(baseline_members) == set(candidate_members)
+    assert [
+        member
+        for member in sorted(baseline_members)
+        if baseline_members[member] != candidate_members[member]
+    ] == ["xl/workbook.xml"]
+
+
+def test_validator_rejects_a_false_xlm_auto_open_binding_fact(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "governance" / "xlm_auto_open_binding_retargeted"
+    truth_path = case / "truth.json"
+    truth = json.loads(truth_path.read_text(encoding="utf-8"))
+    truth["facts"][0]["candidate_target"] = "'Macro Automation'!$A$1"
+    truth_path.write_text(json.dumps(truth), encoding="utf-8")
+    assert validate_case(case)
+
+
+def test_validator_rejects_a_corrupted_xlm_auto_open_binding(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = fixture_root / "governance" / "xlm_auto_open_binding_retargeted" / "candidate.xlsm"
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    members["xl/workbook.xml"] = members["xl/workbook.xml"].replace(
+        b"'Macro Automation'!$A$2", b"'Macro Automation'!$A$1", 1
+    )
+    staging = candidate.with_suffix(".corrupt.xlsm")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_validator_rejects_xlm_auto_open_macro_sheet_payload_drift(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = fixture_root / "governance" / "xlm_auto_open_binding_retargeted" / "candidate.xlsm"
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    members["xl/macrosheets/sheet1.xml"] = members["xl/macrosheets/sheet1.xml"].replace(
+        b"HALT()", b"HALT( )", 1
+    )
+    staging = candidate.with_suffix(".corrupt.xlsm")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_validator_rejects_an_unrelated_xlm_auto_open_declaration_change(
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = fixture_root / "governance" / "xlm_auto_open_binding_retargeted" / "candidate.xlsm"
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    workbook = ElementTree.fromstring(members["xl/workbook.xml"])
+    sheet_tag = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}sheet"
+    macro_sheet = next(
+        sheet for sheet in workbook.iter(sheet_tag) if sheet.get("name") == "Macro Automation"
+    )
+    macro_sheet.set("state", "hidden")
+    members["xl/workbook.xml"] = ElementTree.tostring(
+        workbook, encoding="utf-8", xml_declaration=True
+    )
+    staging = candidate.with_suffix(".corrupt.xlsm")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_xlm_auto_open_binding_pair_changes_only_workbook_xml(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "governance" / "xlm_auto_open_binding_retargeted"
+    with ZipFile(case / "baseline.xlsm") as baseline, ZipFile(case / "candidate.xlsm") as candidate:
         baseline_members = {
             entry.filename: baseline.read(entry.filename) for entry in baseline.infolist()
         }
@@ -4732,6 +4894,95 @@ def test_formulafence_adapter_requires_power_pivot_data_model_finding(
     assert result["status"] == "missed"
     assert result["matched"] == []
     assert result["missed"] == ["power_pivot_data_model_relationship_changed"]
+
+
+def test_formulafence_adapter_maps_the_exact_xlm_auto_open_binding(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _xlm_auto_open_binding_details()
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "xlm_automatic_macro_bindings_changed",
+                    "location": None,
+                    "severity": "high",
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF076", "severity": "high", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "xlm_auto_open_binding_retargeted"
+    )
+    assert result["status"] == "matched"
+    assert result["matched"] == ["xlm_auto_open_binding_retargeted"]
+
+
+def test_formulafence_adapter_rejects_an_inexact_xlm_auto_open_binding(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _xlm_auto_open_binding_details()
+        details["automatic_macro_binding_material_changed"] = False
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "xlm_automatic_macro_bindings_changed",
+                    "location": None,
+                    "severity": "high",
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF076", "severity": "high", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "xlm_auto_open_binding_retargeted"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["xlm_auto_open_binding_retargeted"]
+
+
+def test_formulafence_adapter_requires_xlm_auto_open_binding_finding(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "xlm_automatic_macro_bindings_changed",
+                    "location": None,
+                    "severity": "high",
+                    "details": _xlm_auto_open_binding_details(),
+                }
+            ],
+            "findings": [],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "xlm_auto_open_binding_retargeted"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["xlm_auto_open_binding_retargeted"]
 
 
 def test_formulafence_adapter_maps_the_exact_table_calculated_column_formula(

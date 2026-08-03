@@ -1,6 +1,6 @@
 # Validation record
 
-This record describes the WCAB 0.35.0 / schema-version-3 validation run. It is
+This record describes the WCAB 0.36.0 / schema-version-3 validation run. It is
 reproducible from this repository; no network service or private workbook is
 required.
 
@@ -32,16 +32,16 @@ wcab validate --fixtures fixtures
 
 Results:
 
-- 52 cases: 51 paired-workbook cases and one directory portfolio case.
-- 54 observable truth facts across 42 `block` and 10 `review` cases.
+- 53 cases: 52 paired-workbook cases and one directory portfolio case.
+- 55 observable truth facts across 43 `block` and 10 `review` cases.
 - Three scoreable coverage expectations: one newly introduced `INDIRECT`
   boundary and two unchanged-formula selector changes (`INDIRECT` address text
   and `OFFSET` column displacement).
-- 159 generated fixture files: 106 workbooks, 52 truth manifests, and one JSONL
+- 162 generated fixture files: 108 workbooks, 53 truth manifests, and one JSONL
   case catalogue, all generated from source.
-- Two hundred thirty-nine unit tests passed locally under Python 3.13, including
+- Two hundred forty-eight unit tests passed locally under Python 3.13, including
   independent regeneration and byte-for-byte fixture-tree equality.
-- The fixture validator accepted all 52 cases.
+- The fixture validator accepted all 53 cases.
 - The external-data pair has identical package members except for
   `xl/connections.xml`; both archives pass ZIP integrity checks and remain
   readable by openpyxl. Its relationship-backed source is a non-routable
@@ -120,6 +120,20 @@ Results:
   unchanged. The validation run read the local declaration and payload digest
   only: it did not deserialize a model, evaluate DAX, refresh it, calculate or
   render a report, infer model-to-cell impact, or claim client behavior.
+- The XLM Auto_Open binding pair is a real macro-enabled `.xlsm` pair with
+  identical package members except for `xl/workbook.xml`; both archives pass
+  ZIP integrity checks and remain readable by openpyxl. Its one
+  workbook-scoped `_xlnm.Auto_Open` defined name moves exactly from
+  `'Macro Automation'!$A$1` to `'Macro Automation'!$A$2`, while its one
+  very-hidden `Macro Automation` macro-sheet declaration, workbook
+  relationship, macro-enabled workbook and macro-sheet content types, raw
+  234-byte `xl/macrosheets/sheet1.xml` payload, and ordinary
+  `Inputs!B2 → Model!B2 → Dashboard!B4` formula context remain unchanged. The
+  payload contains only `A1=HALT()` and `A2=HALT()`. The validation run read
+  local OOXML only: it did not open Excel, enable or execute XLM code, parse or
+  emulate macro instructions, resolve a dynamic name, inspect macro-security
+  or trust state, infer an automatic dispatch result, calculate a workbook, or
+  claim client behavior.
 - The sheet-protection sort-permission pair has identical package members
   except for `xl/worksheets/sheet1.xml`; both archives pass ZIP integrity
   checks and remain readable by openpyxl. Its `Controls` worksheet remains
@@ -314,7 +328,7 @@ Results:
 
 ## Distribution supplement
 
-The 0.35.0 release retains the one-row-per-case `manifest.jsonl` catalogue and
+The 0.36.0 release retains the one-row-per-case `manifest.jsonl` catalogue and
 the tool-neutral observation protocol at version 2. Each catalogue row retains
 the schema-version-3 truth contract and includes byte counts and SHA-256
 digests for the workbooks it names.
@@ -322,24 +336,24 @@ digests for the workbooks it names.
 Commands:
 
 ```bash
-python -m build --outdir /tmp/wcab-v035-dist
-twine check /tmp/wcab-v035-dist/*
-python -m venv /tmp/wcab-v035-wheel-test
-/tmp/wcab-v035-wheel-test/bin/python -m pip install \
-  /tmp/wcab-v035-dist/workbook_change_benchmark-0.35.0-py3-none-any.whl
-/tmp/wcab-v035-wheel-test/bin/python -c 'import wcab; print(wcab.__version__)'
-/tmp/wcab-v035-wheel-test/bin/wcab validate --fixtures fixtures
-/tmp/wcab-v035-wheel-test/bin/wcab manifest --fixtures fixtures --output /tmp/wcab-v035-wheel-manifest.jsonl
-cmp fixtures/manifest.jsonl /tmp/wcab-v035-wheel-manifest.jsonl
-/tmp/wcab-v035-wheel-test/bin/wcab observation-template --fixtures fixtures \
-  --output /tmp/wcab-v035-wheel-observations.json
-/tmp/wcab-v035-wheel-test/bin/wcab score --fixtures fixtures \
-  --observations /tmp/wcab-v035-wheel-observations.json
-python -m venv /tmp/wcab-v035-sdist-test
-/tmp/wcab-v035-sdist-test/bin/python -m pip install \
-  /tmp/wcab-v035-dist/workbook_change_benchmark-0.35.0.tar.gz
-/tmp/wcab-v035-sdist-test/bin/python -c 'import wcab; print(wcab.__version__)'
-/tmp/wcab-v035-sdist-test/bin/wcab validate --fixtures fixtures
+python -m build --outdir /tmp/wcab-v036-dist
+twine check /tmp/wcab-v036-dist/*
+python -m venv /tmp/wcab-v036-wheel-test
+/tmp/wcab-v036-wheel-test/bin/python -m pip install \
+  /tmp/wcab-v036-dist/workbook_change_benchmark-0.36.0-py3-none-any.whl
+/tmp/wcab-v036-wheel-test/bin/python -c 'import wcab; print(wcab.__version__)'
+/tmp/wcab-v036-wheel-test/bin/wcab validate --fixtures fixtures
+/tmp/wcab-v036-wheel-test/bin/wcab manifest --fixtures fixtures --output /tmp/wcab-v036-wheel-manifest.jsonl
+cmp fixtures/manifest.jsonl /tmp/wcab-v036-wheel-manifest.jsonl
+/tmp/wcab-v036-wheel-test/bin/wcab observation-template --fixtures fixtures \
+  --output /tmp/wcab-v036-wheel-observations.json
+/tmp/wcab-v036-wheel-test/bin/wcab score --fixtures fixtures \
+  --observations /tmp/wcab-v036-wheel-observations.json
+python -m venv /tmp/wcab-v036-sdist-test
+/tmp/wcab-v036-sdist-test/bin/python -m pip install \
+  /tmp/wcab-v036-dist/workbook_change_benchmark-0.36.0.tar.gz
+/tmp/wcab-v036-sdist-test/bin/python -c 'import wcab; print(wcab.__version__)'
+/tmp/wcab-v036-sdist-test/bin/wcab validate --fixtures fixtures
 ```
 
 Results:
@@ -349,14 +363,14 @@ Results:
   their uploaded assets in the GitHub release, avoiding a self-referential
   source-distribution checksum in this record.
 - Fresh Python 3.13 wheel and source-distribution installations both reported
-  version 0.35.0 and validated all 52 fixtures; both emitted byte-identical
+  version 0.36.0 and validated all 53 fixtures; both emitted byte-identical
   JSONL output.
-- The full 239-test suite, lint, and format checks passed locally under Python
+- The full 248-test suite, lint, and format checks passed locally under Python
   3.13.
 - The generated unsupported template scored as zero analyzed coverage, zero
   expected-fact recall, and zero coverage-disclosure recall, confirming that
   unsupported cases cannot become a pass.
-- The FormulaFence normalizer emitted 53 matched facts, one intentionally
+- The FormulaFence normalizer emitted 54 matched facts, one intentionally
   unmapped fact, three matched coverage declarations, and no invented review
   disposition.
 
@@ -371,9 +385,9 @@ wcab formulafence --fixtures fixtures --strict
 
 Results:
 
-- All 53 currently mappable diff/portfolio facts were observed.
+- All 54 currently mappable diff/portfolio facts were observed.
 - All three mappable coverage expectations were matched; no mapped fact,
-  coverage expectation, or targeted lint rule was missed across all 52 cases.
+  coverage expectation, or targeted lint rule was missed across all 53 cases.
 - The schema-version-2 structured Table scope case was observed as a
   `table_definition_changed` diff, even though its summary formula text stays
   unchanged.
@@ -404,6 +418,18 @@ Results:
   workbook-XML-only difference. Neither report deserialized a model, evaluated
   DAX, refreshed it, rendered a report, inferred model-to-cell impact, or
   claimed client behavior.
+- The WCAB 0.36 XLM Auto_Open binding case was observed as one exact
+  high-severity `xlm_automatic_macro_bindings_changed` record and `FF076`.
+  FormulaFence's redacted profile retained one automatic-macro binding and one
+  `Auto_Open` binding, with no close/activate/deactivate binding; only its
+  material-change flag differed. It did not expose macro-sheet names, target
+  cells, XML, byte payloads, or package-member boundaries. WCAB independently
+  established the exact `$A$1`-to-`$A$2` stored target transition, fixed
+  byte-identical two-`HALT()` macro sheet, very-hidden state, fixed
+  relationship/content types, and workbook-XML-only difference. Neither report
+  opened Excel, enabled or executed XLM code, parsed or emulated macro
+  instructions, resolved a dynamic name, inferred dispatch behavior,
+  calculated a workbook, or claimed client behavior.
 - The schema-version-3 introduced-dynamic case was observed as both a
   `dynamic_formula_reference_added` diff and `FF012` coverage warning.
 - The two WCAB 0.5 dynamic-driver cases were observed as an `Inputs!E12`

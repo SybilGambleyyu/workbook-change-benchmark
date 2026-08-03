@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.36.0 — 2026-08-02
+
+- Add a deterministic macro-enabled `.xlsm` case for a workbook-scoped
+  `_xlnm.Auto_Open` XLM automatic-macro binding that moves from the very-hidden
+  `Macro Automation!A1` cell to `Macro Automation!A2`. The raw macro-sheet
+  part stays byte-identical and contains only two static `HALT()` formula
+  cells; the workbook-to-macro-sheet relationship, content types, ordinary
+  formula context, calculation properties, and every package member except
+  `xl/workbook.xml` remain fixed.
+- Extend paired-workbook discovery and the integrity-addressed manifest to
+  support exactly one same-extension `.xlsx` or `.xlsm` pair per case.
+- Add exact raw-OOXML validation, package-isolation and corruption regressions,
+  plus a narrow FormulaFence mapping requiring the exact high-severity
+  `xlm_automatic_macro_bindings_changed` record and `FF076`. WCAB records a
+  stored dispatch declaration only: it never opens Excel, enables or executes
+  XLM code, parses or emulates macro instructions, resolves a dynamic name,
+  or claims client behavior.
+
 ## 0.35.0 — 2026-08-03
 
 - Add a deterministic Power Pivot/Data Model relationship-definition case. Its

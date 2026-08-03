@@ -1,0 +1,80 @@
+{
+  "coverage": [
+    "The macro-enabled pair changes only the one workbook-scoped _xlnm.Auto_Open definedName text in xl/workbook.xml, from Macro Automation!$A$1 to Macro Automation!$A$2. The raw XLM macro-sheet part, macro-sheet relationship, macro-enabled workbook and macro-sheet content types, ordinary cells/formulas, calculation properties, and every other package member remain unchanged.",
+    "Both direct targets name cells on one very-hidden xlMacrosheet relationship. That fixed part contains only two identical HALT() formula cells and no VBA project, related payload, or external target. The ordinary Inputs!B2-to-Model!B2-to-Dashboard!B4 path is stable local review context; it is not a macro dependency claim.",
+    "WCAB does not open Excel, enable or execute XLM code, parse or emulate macro instructions, resolve a dynamic name, inspect macro-security/trust settings, infer a dispatch result, calculate a workbook, or claim client behavior. It records only the stored workbook dispatch declaration and bounded raw package shape."
+  ],
+  "coverage_expectations": [],
+  "facts": [
+    {
+      "automatic_macro_event": "Auto_Open",
+      "automatic_macro_name": "_xlnm.Auto_Open",
+      "baseline_target": "'Macro Automation'!$A$1",
+      "candidate_target": "'Macro Automation'!$A$2",
+      "dashboard_cell": "B4",
+      "dashboard_formula": "=Model!$B$2",
+      "dashboard_sheet": "Dashboard",
+      "input_cell": "B2",
+      "input_sheet": "Inputs",
+      "input_value": 10,
+      "kind": "xlm_auto_open_binding_retargeted",
+      "macro_sheet_content_type": "application/vnd.ms-excel.macrosheet+xml",
+      "macro_sheet_formula": "HALT()",
+      "macro_sheet_formula_cells": [
+        "A1",
+        "A2"
+      ],
+      "macro_sheet_member": "xl/macrosheets/sheet1.xml",
+      "macro_sheet_name": "Macro Automation",
+      "macro_sheet_relationship_id": "rIdWCABXlmMacroSheet",
+      "macro_sheet_relationship_target": "macrosheets/sheet1.xml",
+      "macro_sheet_relationship_type": "http://schemas.microsoft.com/office/2006/relationships/xlMacrosheet",
+      "macro_sheet_sha256": "41c42af5521da4dd51a8d5a0a271e4ef0fd82040de229fe2461333dfd10d8ba7",
+      "macro_sheet_sheet_id": "4",
+      "macro_sheet_size": 234,
+      "macro_sheet_state": "veryHidden",
+      "model_cell": "B2",
+      "model_formula": "=Inputs!$B$2*2",
+      "model_sheet": "Model",
+      "workbook_content_type": "application/vnd.ms-excel.sheet.macroEnabled.main+xml",
+      "workbook_member": "xl/workbook.xml",
+      "workbook_relationships_member": "xl/_rels/workbook.xml.rels"
+    }
+  ],
+  "family": "governance",
+  "id": "governance.xlm_auto_open_binding_retargeted",
+  "must_reach": [
+    {
+      "source": {
+        "cell": "B2",
+        "sheet": "Inputs"
+      },
+      "targets": [
+        {
+          "cell": "B2",
+          "sheet": "Model"
+        },
+        {
+          "cell": "B4",
+          "sheet": "Dashboard"
+        }
+      ]
+    },
+    {
+      "source": {
+        "cell": "B2",
+        "sheet": "Model"
+      },
+      "targets": [
+        {
+          "cell": "B4",
+          "sheet": "Dashboard"
+        }
+      ]
+    }
+  ],
+  "review_expectation": "block",
+  "schema_version": 3,
+  "title": "A hidden XLM Auto_Open binding retargets a macro-sheet cell",
+  "topology": "pair"
+}

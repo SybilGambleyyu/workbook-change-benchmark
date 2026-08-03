@@ -13,6 +13,9 @@ class ManifestError(ValueError):
     """The fixture tree cannot be represented as a complete WCAB manifest."""
 
 
+_PAIR_WORKBOOK_EXTENSIONS = ("xlsx", "xlsm")
+
+
 def _load_truth(path: Path) -> dict[str, Any]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
@@ -38,7 +41,24 @@ def _role_files(
     case_dir: Path, fixture_root: Path, topology: str, role: str
 ) -> list[dict[str, Any]]:
     if topology == "pair":
-        return [_file_record(case_dir / f"{role}.xlsx", fixture_root)]
+        pairs = [
+            (
+                case_dir / f"baseline.{extension}",
+                case_dir / f"candidate.{extension}",
+            )
+            for extension in _PAIR_WORKBOOK_EXTENSIONS
+            if (case_dir / f"baseline.{extension}").is_file()
+            and (case_dir / f"candidate.{extension}").is_file()
+        ]
+        if len(pairs) != 1:
+            raise ManifestError(
+                f"expected exactly one matching baseline/candidate .xlsx or .xlsm pair in {case_dir}, "
+                f"found {len(pairs)}"
+            )
+        role_index = {"baseline": 0, "candidate": 1}.get(role)
+        if role_index is None:
+            raise ManifestError(f"{case_dir}: unsupported pair role {role!r}")
+        return [_file_record(pairs[0][role_index], fixture_root)]
     if topology == "portfolio":
         role_root = case_dir / role
         if not role_root.is_dir():

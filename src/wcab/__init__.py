@@ -13,4 +13,4 @@ __all__ = [
     "validate_all",
 ]
 
-__version__ = "0.35.0"
+__version__ = "0.36.0"

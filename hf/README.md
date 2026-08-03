@@ -22,7 +22,7 @@ configs:
 # Workbook Change Assurance Benchmark (WCAB)
 
 WCAB is an open, deterministic benchmark for tools that review changes to
-Excel workbooks. Each of its 52 synthetic cases supplies baseline/candidate
+Excel workbooks. Each of its 53 synthetic cases supplies baseline/candidate
 fixtures, explicit observable change facts, a reference review
 disposition, documented coverage boundaries, and—in relevant cases—a
 machine-matchable coverage expectation.
@@ -109,6 +109,13 @@ relationship target moves between reserved `example.invalid` URLs, and a small
 multi-workbook
 portfolio.
 
+It also includes a real macro-enabled `.xlsm` pair whose workbook-scoped
+`_xlnm.Auto_Open` binding moves from one cell to another on a fixed
+very-hidden XLM macro sheet. The raw macro-sheet payload, macro relationship,
+content types, ordinary formula context, calculation properties, and every
+other package member remain fixed, so the case isolates the stored dispatch
+declaration rather than macro content.
+
 The benchmark does **not** evaluate Excel formula execution or claim that
 candidate numerical results are correct. `review_expectation` is a transparent
 benchmark convention, not a universal business policy. Consumers should retain
@@ -161,6 +168,11 @@ The Power Pivot/Data Model case records a raw relationship declaration only:
 it does not deserialize the Analysis Services payload, evaluate DAX, refresh a
 model, calculate or render a report, infer model-to-cell impact, or claim
 client behavior.
+
+The XLM Auto_Open case records a stored dispatch declaration only: it does not
+open Excel, enable or execute XLM code, parse or emulate macro instructions,
+resolve a dynamic name, inspect macro-security or trust settings, infer a
+dispatch result, calculate a workbook, or claim client behavior.
 
 The sheet-protection sort case records a stored action permission only: it does
 not test a password, encryption, authorization, editable ranges, an actual

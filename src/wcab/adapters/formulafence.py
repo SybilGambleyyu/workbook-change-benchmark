@@ -74,6 +74,7 @@ _FACT_TO_CHANGE: dict[str, tuple[str, str | None]] = {
     ),
     "named_lambda_definition_changed": ("defined_name_changed", None),
     "power_pivot_data_model_relationship_changed": ("power_pivot_data_model_changed", None),
+    "xlm_auto_open_binding_retargeted": ("xlm_automatic_macro_bindings_changed", None),
     "static_cycle_introduced": ("formula_changed", None),
     "three_d_scope_changed": ("three_d_reference_scope_changed", "formula_location"),
     "structured_table_scope_changed": ("table_definition_changed", None),
@@ -742,6 +743,89 @@ def _power_pivot_data_model_relationship_finding_observed(
         finding.get("rule_id") == "FF033"
         and finding.get("severity") == "high"
         and _power_pivot_data_model_relationship_details_observed(finding.get("details"), fact)
+    )
+
+
+def _xlm_auto_open_binding_fact_is_expected(fact: dict[str, Any]) -> bool:
+    """Check WCAB's narrow, declaration-only XLM Auto_Open contract."""
+
+    return (
+        fact.get("workbook_member") == "xl/workbook.xml"
+        and fact.get("workbook_relationships_member") == "xl/_rels/workbook.xml.rels"
+        and fact.get("macro_sheet_member") == "xl/macrosheets/sheet1.xml"
+        and fact.get("macro_sheet_relationship_id") == "rIdWCABXlmMacroSheet"
+        and fact.get("macro_sheet_relationship_type")
+        == "http://schemas.microsoft.com/office/2006/relationships/xlMacrosheet"
+        and fact.get("macro_sheet_relationship_target") == "macrosheets/sheet1.xml"
+        and fact.get("macro_sheet_content_type") == "application/vnd.ms-excel.macrosheet+xml"
+        and fact.get("workbook_content_type")
+        == "application/vnd.ms-excel.sheet.macroEnabled.main+xml"
+        and fact.get("macro_sheet_name") == "Macro Automation"
+        and fact.get("macro_sheet_sheet_id") == "4"
+        and fact.get("macro_sheet_state") == "veryHidden"
+        and fact.get("automatic_macro_name") == "_xlnm.Auto_Open"
+        and fact.get("automatic_macro_event") == "Auto_Open"
+        and fact.get("baseline_target") == "'Macro Automation'!$A$1"
+        and fact.get("candidate_target") == "'Macro Automation'!$A$2"
+        and fact.get("macro_sheet_formula") == "HALT()"
+        and fact.get("macro_sheet_formula_cells") == ["A1", "A2"]
+        and fact.get("macro_sheet_sha256")
+        == "41c42af5521da4dd51a8d5a0a271e4ef0fd82040de229fe2461333dfd10d8ba7"
+        and fact.get("macro_sheet_size") == 234
+        and fact.get("input_sheet") == "Inputs"
+        and fact.get("input_cell") == "B2"
+        and fact.get("input_value") == 10
+        and fact.get("model_sheet") == "Model"
+        and fact.get("model_cell") == "B2"
+        and fact.get("model_formula") == "=Inputs!$B$2*2"
+        and fact.get("dashboard_sheet") == "Dashboard"
+        and fact.get("dashboard_cell") == "B4"
+        and fact.get("dashboard_formula") == "=Model!$B$2"
+    )
+
+
+def _xlm_auto_open_binding_details_observed(details: Any, fact: dict[str, Any]) -> bool:
+    """Require FormulaFence's exact redacted automatic-binding evidence.
+
+    FormulaFence deliberately withholds the automatic name, macro-sheet title,
+    cell targets, and macro program. WCAB validates that raw package contract
+    itself, while the adapter requires the specialized high-severity signal.
+    """
+
+    if not _xlm_auto_open_binding_fact_is_expected(fact):
+        return False
+    profile = {
+        "present": True,
+        "automatic_macro_binding_count": 1,
+        "auto_open_binding_count": 1,
+        "auto_close_binding_count": 0,
+        "auto_activate_binding_count": 0,
+        "auto_deactivate_binding_count": 0,
+    }
+    return details == {
+        "before": dict(profile),
+        "after": dict(profile),
+        "automatic_macro_binding_material_changed": True,
+    }
+
+
+def _xlm_auto_open_binding_observed(change: dict[str, Any], fact: dict[str, Any]) -> bool:
+    """Match FormulaFence's high-severity XLM automatic-binding record."""
+
+    return (
+        change.get("kind") == "xlm_automatic_macro_bindings_changed"
+        and change.get("severity") == "high"
+        and _xlm_auto_open_binding_details_observed(change.get("details"), fact)
+    )
+
+
+def _xlm_auto_open_binding_finding_observed(finding: dict[str, Any], fact: dict[str, Any]) -> bool:
+    """Require FormulaFence's corresponding FF076 finding."""
+
+    return (
+        finding.get("rule_id") == "FF076"
+        and finding.get("severity") == "high"
+        and _xlm_auto_open_binding_details_observed(finding.get("details"), fact)
     )
 
 
@@ -2318,6 +2402,22 @@ def _evaluate_portfolio_case(
     }
 
 
+def _pair_paths(directory: Path) -> tuple[Path, Path]:
+    """Return WCAB's one matching .xlsx or macro-enabled .xlsm pair."""
+
+    pairs = [
+        (directory / f"baseline.{extension}", directory / f"candidate.{extension}")
+        for extension in ("xlsx", "xlsm")
+        if (directory / f"baseline.{extension}").is_file()
+        and (directory / f"candidate.{extension}").is_file()
+    ]
+    if len(pairs) != 1:
+        raise FormulaFenceAdapterError(
+            f"{directory}: expected exactly one baseline/candidate .xlsx or .xlsm pair"
+        )
+    return pairs[0]
+
+
 def evaluate_diff_case(case_dir: str | Path, *, executable: str = "formulafence") -> dict[str, Any]:
     """Compare FormulaFence's diff evidence with mappable WCAB facts.
 
@@ -2335,7 +2435,8 @@ def evaluate_diff_case(case_dir: str | Path, *, executable: str = "formulafence"
             f"{directory}: unsupported topology {truth.get('topology')!r}"
         )
 
-    report = diff(directory / "baseline.xlsx", directory / "candidate.xlsx", executable=executable)
+    baseline_path, candidate_path = _pair_paths(directory)
+    report = diff(baseline_path, candidate_path, executable=executable)
     changes = report.get("changes", [])
     if not isinstance(changes, list):
         raise FormulaFenceAdapterError("FormulaFence report has no changes list")
@@ -2450,6 +2551,16 @@ def evaluate_diff_case(case_dir: str | Path, *, executable: str = "formulafence"
                 if isinstance(change, dict)
             ) and any(
                 _power_pivot_data_model_relationship_finding_observed(finding, fact)
+                for finding in findings
+                if isinstance(finding, dict)
+            )
+        if kind == "xlm_auto_open_binding_retargeted":
+            observed = any(
+                _xlm_auto_open_binding_observed(change, fact)
+                for change in changes
+                if isinstance(change, dict)
+            ) and any(
+                _xlm_auto_open_binding_finding_observed(finding, fact)
                 for finding in findings
                 if isinstance(finding, dict)
             )
@@ -2718,7 +2829,7 @@ def evaluate_diff_case(case_dir: str | Path, *, executable: str = "formulafence"
                 unmapped_coverage_expectations.append(expectation)
                 continue
             if candidate_profile is None:
-                candidate_profile = profile(directory / "candidate.xlsx", executable=executable)
+                candidate_profile = profile(candidate_path, executable=executable)
             features = candidate_profile.get("features")
             if not isinstance(features, dict):
                 raise FormulaFenceAdapterError("FormulaFence profile has no features object")
@@ -2773,7 +2884,8 @@ def evaluate_reference_suite(
         cases.append(case_result)
         expected_rule = _LINT_EXPECTATIONS.get(str(case_result["case_id"]))
         if expected_rule is not None:
-            report = lint(case_dir / "candidate.xlsx", executable=executable)
+            _baseline_path, candidate_path = _pair_paths(case_dir)
+            report = lint(candidate_path, executable=executable)
             findings = report.get("findings", [])
             observed_rules = {
                 finding.get("rule_id") for finding in findings if isinstance(finding, dict)

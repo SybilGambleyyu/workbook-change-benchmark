@@ -34,7 +34,7 @@ gates, static analyzers, and agent workflows that propose workbook edits.
 
 ## Scope and non-goals
 
-Version `0.35` covers formula-to-value replacements, formula reference drift,
+Version `0.36` covers formula-to-value replacements, formula reference drift,
 value changes with downstream effects, external formula references, named
 ranges, data validation, conditional formatting, sheet visibility, direct cell
 and workbook-structure protection, calculation settings, static cycles,
@@ -82,6 +82,16 @@ while protection remains enabled and all cells, formulas, styles, calculation
 properties, and workbook-level protection remain fixed. It records a stored
 permission only: it does not test a password, authorization, an editable range,
 whether a client permits a sort, or what a sort would change.
+It also covers one macro-enabled `.xlsm` workbook whose workbook-scoped
+`_xlnm.Auto_Open` binding moves from the very-hidden `Macro Automation!A1`
+cell to `Macro Automation!A2` while the XLM macro sheet remains byte-identical
+with only two static `HALT()` formulas. Its macro-sheet relationship, content
+types, ordinary `Inputs!B2 → Model!B2 → Dashboard!B4` formula context,
+calculation properties, and every package member except `xl/workbook.xml`
+remain fixed. WCAB records a stored dispatch declaration only: it never opens
+Excel, enables or executes XLM code, parses or emulates macro instructions,
+resolves a dynamic name, inspects macro-security or trust settings, or claims
+client behavior.
 It also covers
 one relationship-backed QueryTable whose own `refreshOnLoad` request moves from
 false to true while its fixed connection-level refresh control remains false,
@@ -255,7 +265,10 @@ fixtures/
 Every row preserves the truth contract and records the relative path, byte
 count, and SHA-256 digest for its baseline and candidate workbooks. It lets
 benchmark runners enumerate exactly what they consumed without relying on
-directory-name conventions.
+directory-name conventions. A pair case uses exactly one matching
+`baseline.xlsx` / `candidate.xlsx` or `baseline.xlsm` / `candidate.xlsm` pair;
+the macro-enabled extension is explicit in the catalogue rather than inferred
+from a case name.
 
 The release is also mirrored as a
 [Hugging Face dataset](https://huggingface.co/datasets/SybilGambleyyu/workbook-change-benchmark),
@@ -388,6 +401,18 @@ raw validator independently proves the exact `toColumn` transition, fixed
 opaque payload, and workbook-XML-only boundary. Neither layer deserializes a
 model, evaluates DAX, refreshes it, renders a report, infers model-to-cell
 impact, or claims client behavior. For the
+XLM Auto_Open binding case, it requires FormulaFence's exact high-severity
+`xlm_automatic_macro_bindings_changed` profile and `FF076`: one automatic
+binding and one `Auto_Open` binding remain present, with no
+close/activate/deactivate binding, while only its material-change flag differs.
+FormulaFence deliberately does not expose macro-sheet names, target cells, XML,
+payload bytes, or package-member boundaries. WCAB's raw validator independently
+proves the exact `$A$1`-to-`$A$2` stored target transition, fixed byte-identical
+two-`HALT()` macro sheet, very-hidden state, fixed relationship/content types,
+and workbook-XML-only difference. Neither layer opens Excel, enables or
+executes XLM code, parses or emulates macro instructions, resolves a dynamic
+name, inspects macro-security or trust state, infers dispatch behavior,
+calculates a workbook, or claims client behavior. For the
 sheet-protection sort case, it requires FormulaFence's exact
 `sheet_protection_changed` profile and high-severity `FF022`: one protected
 `Controls` worksheet retains every locked action except `sort`. WCAB's raw
