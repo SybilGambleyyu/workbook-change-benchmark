@@ -1,0 +1,52 @@
+{
+  "coverage": [
+    "The pair changes only xl/externalLinks/_rels/externalLink1.xml.rels Relationship/@Target. It does not edit formula text, stored cells, calculation properties, workbook XML, workbook relationships, the externalLink declaration, or content types.",
+    "Each package has one workbook externalReferences binding to one externalLink/externalBook declaration with one externalLinkPath relationship. The external workbook name and worksheet declaration remain fixed; only the reserved example.invalid source target changes.",
+    "WCAB reads local OOXML only. It does not resolve, open, fetch, authenticate to, trust, refresh, calculate, or otherwise interact with either source, and does not claim that a client updates the link or returns a value."
+  ],
+  "coverage_expectations": [],
+  "facts": [
+    {
+      "baseline_target": "https://approved.example.invalid/wcab-external-workbook/WCABSource.xlsx",
+      "candidate_target": "https://review.example.invalid/wcab-external-workbook/WCABSource.xlsx",
+      "cell": "B2",
+      "dashboard_cell": "B4",
+      "dashboard_formula": "=LinkedModel!$B$2",
+      "dashboard_sheet": "Dashboard",
+      "external_link_content_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.externalLink+xml",
+      "external_link_member": "xl/externalLinks/externalLink1.xml",
+      "external_link_relationship_id": "rIdWCABExternalLinkPath",
+      "external_link_relationship_type": "http://schemas.openxmlformats.org/officeDocument/2006/relationships/externalLinkPath",
+      "external_link_relationships_member": "xl/externalLinks/_rels/externalLink1.xml.rels",
+      "external_sheet": "Inputs",
+      "formula": "='[WCABSource.xlsx]Inputs'!$B$2",
+      "kind": "external_workbook_link_source_changed",
+      "sheet": "LinkedModel",
+      "target_mode": "External",
+      "workbook_member": "xl/workbook.xml",
+      "workbook_relationship_id": "rIdWCABExternalLink",
+      "workbook_relationship_type": "http://schemas.openxmlformats.org/officeDocument/2006/relationships/externalLink",
+      "workbook_relationships_member": "xl/_rels/workbook.xml.rels"
+    }
+  ],
+  "family": "governance",
+  "id": "governance.external_workbook_link_source_changed",
+  "must_reach": [
+    {
+      "source": {
+        "cell": "B2",
+        "sheet": "LinkedModel"
+      },
+      "targets": [
+        {
+          "cell": "B4",
+          "sheet": "Dashboard"
+        }
+      ]
+    }
+  ],
+  "review_expectation": "block",
+  "schema_version": 3,
+  "title": "An external-workbook link points to a different source",
+  "topology": "pair"
+}

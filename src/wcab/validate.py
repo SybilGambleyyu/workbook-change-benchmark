@@ -59,6 +59,11 @@ _QUERY_TABLE_CONNECTIONS_CONTENT_TYPE = (
     "application/vnd.openxmlformats-officedocument.spreadsheetml.connections+xml"
 )
 _CELL_HYPERLINK_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/hyperlink"
+_EXTERNAL_WORKBOOK_LINK_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/externalLink"
+_EXTERNAL_WORKBOOK_LINK_PATH_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/externalLinkPath"
+_EXTERNAL_WORKBOOK_LINK_CONTENT_TYPE = (
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.externalLink+xml"
+)
 _SLICER_CACHE_RELATIONSHIP = "http://schemas.microsoft.com/office/2007/relationships/slicerCache"
 _DATA_MASHUP_NS = "http://schemas.microsoft.com/DataMashup"
 _POWER_QUERY_CUSTOM_XML_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/customXml"
@@ -396,6 +401,175 @@ def _cell_hyperlink_relationship_without_target(
         for relationship in relationships.findall(relationship_tag)
         if relationship.get("Id") == state["relationship_id"]
         and relationship.get("Type") == _CELL_HYPERLINK_RELATIONSHIP
+    ]
+    if len(matches) != 1 or "Target" not in matches[0].attrib:
+        return None
+    matches[0].attrib.pop("Target")
+    return ElementTree.tostring(relationships, encoding="utf-8", xml_declaration=True)
+
+
+def _raw_external_workbook_link_source_state(path: Path) -> dict[str, Any] | None:
+    """Read WCAB's one compact external-workbook link package locally.
+
+    The validator follows only the two in-package relationships required to
+    reach the ``externalLink`` XML and its relationships part. The final path
+    is retained as stored text only: it is never resolved, opened, fetched,
+    authenticated, trusted, refreshed, or otherwise interacted with.
+    """
+
+    workbook_member = "xl/workbook.xml"
+    workbook_relationships_member = "xl/_rels/workbook.xml.rels"
+    try:
+        with ZipFile(path) as archive:
+            workbook = ElementTree.fromstring(archive.read(workbook_member))
+            workbook_relationships = ElementTree.fromstring(
+                archive.read(workbook_relationships_member)
+            )
+            content_types = ElementTree.fromstring(archive.read("[Content_Types].xml"))
+
+            external_references_tag = f"{{{_SPREADSHEETML_NS}}}externalReferences"
+            external_reference_tag = f"{{{_SPREADSHEETML_NS}}}externalReference"
+            relationship_id_attribute = f"{{{_DOCUMENT_RELATIONSHIPS_NS}}}id"
+            reference_sets = workbook.findall(external_references_tag)
+            if (
+                workbook.tag != f"{{{_SPREADSHEETML_NS}}}workbook"
+                or len(reference_sets) != 1
+                or reference_sets[0].attrib
+                or len(reference_sets[0]) != 1
+                or reference_sets[0][0].tag != external_reference_tag
+                or set(reference_sets[0][0].attrib) != {relationship_id_attribute}
+            ):
+                return None
+            workbook_relationship_id = reference_sets[0][0].get(relationship_id_attribute)
+            if not isinstance(workbook_relationship_id, str):
+                return None
+
+            relationship_tag = f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationship"
+            workbook_link_relationships = [
+                relationship
+                for relationship in workbook_relationships.findall(relationship_tag)
+                if relationship.get("Type") == _EXTERNAL_WORKBOOK_LINK_RELATIONSHIP
+            ]
+            if (
+                len(workbook_link_relationships) != 1
+                or workbook_link_relationships[0].get("Id") != workbook_relationship_id
+                or set(workbook_link_relationships[0].attrib) != {"Id", "Type", "Target"}
+            ):
+                return None
+            external_link_member = _relationship_part_member(
+                workbook_relationships,
+                workbook_relationship_id,
+                workbook_member,
+                relationship_type=_EXTERNAL_WORKBOOK_LINK_RELATIONSHIP,
+            )
+            if external_link_member is None:
+                return None
+            external_link = ElementTree.fromstring(archive.read(external_link_member))
+            external_link_directory, external_link_filename = external_link_member.rsplit(
+                "/", maxsplit=1
+            )
+            external_link_relationships_member = (
+                f"{external_link_directory}/_rels/{external_link_filename}.rels"
+            )
+            external_link_relationships = ElementTree.fromstring(
+                archive.read(external_link_relationships_member)
+            )
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError, ValueError):
+        return None
+
+    external_link_tag = f"{{{_SPREADSHEETML_NS}}}externalLink"
+    external_book_tag = f"{{{_SPREADSHEETML_NS}}}externalBook"
+    sheet_names_tag = f"{{{_SPREADSHEETML_NS}}}sheetNames"
+    sheet_name_tag = f"{{{_SPREADSHEETML_NS}}}sheetName"
+    if (
+        external_link.tag != external_link_tag
+        or external_link.attrib
+        or len(external_link) != 1
+        or external_link[0].tag != external_book_tag
+        or set(external_link[0].attrib) != {relationship_id_attribute}
+        or len(external_link[0]) != 1
+        or external_link[0][0].tag != sheet_names_tag
+        or external_link[0][0].attrib
+        or len(external_link[0][0]) != 1
+        or external_link[0][0][0].tag != sheet_name_tag
+        or set(external_link[0][0][0].attrib) != {"val"}
+    ):
+        return None
+    external_link_relationship_id = external_link[0].get(relationship_id_attribute)
+    external_sheet = external_link[0][0][0].get("val")
+    if (
+        not isinstance(external_link_relationship_id, str)
+        or not isinstance(external_sheet, str)
+        or not external_sheet
+    ):
+        return None
+
+    if (
+        external_link_relationships.tag != f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationships"
+        or external_link_relationships.attrib
+        or len(external_link_relationships) != 1
+        or external_link_relationships[0].tag != relationship_tag
+        or len(external_link_relationships[0])
+        or set(external_link_relationships[0].attrib) != {"Id", "Type", "Target", "TargetMode"}
+        or external_link_relationships[0].get("Id") != external_link_relationship_id
+        or external_link_relationships[0].get("Type") != _EXTERNAL_WORKBOOK_LINK_PATH_RELATIONSHIP
+        or external_link_relationships[0].get("TargetMode") != "External"
+    ):
+        return None
+    target = external_link_relationships[0].get("Target")
+    if not isinstance(target, str) or not target:
+        return None
+
+    override_tag = f"{{{_CONTENT_TYPES_NS}}}Override"
+    content_type_overrides = [
+        override
+        for override in content_types.findall(override_tag)
+        if override.get("PartName") == f"/{external_link_member}"
+    ]
+    if len(content_type_overrides) != 1 or set(content_type_overrides[0].attrib) != {
+        "PartName",
+        "ContentType",
+    }:
+        return None
+    return {
+        "workbook_member": workbook_member,
+        "workbook_relationships_member": workbook_relationships_member,
+        "workbook_relationship_id": workbook_relationship_id,
+        "workbook_relationship_attributes": tuple(
+            sorted(workbook_link_relationships[0].attrib.items())
+        ),
+        "external_link_member": external_link_member,
+        "external_link_relationships_member": external_link_relationships_member,
+        "external_book_attributes": tuple(sorted(external_link[0].attrib.items())),
+        "external_sheet": external_sheet,
+        "external_link_relationship_id": external_link_relationship_id,
+        "external_link_relationship_attributes": tuple(
+            sorted(external_link_relationships[0].attrib.items())
+        ),
+        "content_type_attributes": tuple(sorted(content_type_overrides[0].attrib.items())),
+        "target": target,
+    }
+
+
+def _external_workbook_link_relationship_without_target(path: Path) -> bytes | None:
+    """Return WCAB's external-link relationship part with only ``Target`` erased."""
+
+    state = _raw_external_workbook_link_source_state(path)
+    if state is None:
+        return None
+    try:
+        with ZipFile(path) as archive:
+            relationships = ElementTree.fromstring(
+                archive.read(state["external_link_relationships_member"])
+            )
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    relationship_tag = f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationship"
+    matches = [
+        relationship
+        for relationship in relationships.findall(relationship_tag)
+        if relationship.get("Id") == state["external_link_relationship_id"]
+        and relationship.get("Type") == _EXTERNAL_WORKBOOK_LINK_PATH_RELATIONSHIP
     ]
     if len(matches) != 1 or "Target" not in matches[0].attrib:
         return None
@@ -6223,6 +6397,149 @@ def _validate_fact(
             and after_properties.get("updateLinks") == fact.get("candidate_update_links")
             and before_without_policy == after_without_policy,
             f"{truth['id']}: expected unchanged {sheet_name}!{coordinate} external formula and workbook updateLinks never -> always only",
+            errors,
+        )
+        return
+
+    if kind == "external_workbook_link_source_changed":
+        sheet_name = fact.get("sheet")
+        coordinate = fact.get("cell")
+        dashboard_sheet = fact.get("dashboard_sheet")
+        dashboard_cell = fact.get("dashboard_cell")
+        before_state = _raw_external_workbook_link_source_state(baseline_path)
+        after_state = _raw_external_workbook_link_source_state(candidate_path)
+        before_formula = (
+            baseline[sheet_name][coordinate]
+            if isinstance(sheet_name, str)
+            and isinstance(coordinate, str)
+            and sheet_name in baseline.sheetnames
+            else None
+        )
+        after_formula = (
+            candidate[sheet_name][coordinate]
+            if isinstance(sheet_name, str)
+            and isinstance(coordinate, str)
+            and sheet_name in candidate.sheetnames
+            else None
+        )
+        before_dashboard = (
+            _raw_cell_state(baseline_path, dashboard_sheet, dashboard_cell)
+            if isinstance(dashboard_sheet, str) and isinstance(dashboard_cell, str)
+            else None
+        )
+        after_dashboard = (
+            _raw_cell_state(candidate_path, dashboard_sheet, dashboard_cell)
+            if isinstance(dashboard_sheet, str) and isinstance(dashboard_cell, str)
+            else None
+        )
+        expected_common_state = {
+            "workbook_member": "xl/workbook.xml",
+            "workbook_relationships_member": "xl/_rels/workbook.xml.rels",
+            "workbook_relationship_id": "rIdWCABExternalLink",
+            "workbook_relationship_attributes": (
+                ("Id", "rIdWCABExternalLink"),
+                ("Target", "externalLinks/externalLink1.xml"),
+                (
+                    "Type",
+                    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/externalLink",
+                ),
+            ),
+            "external_link_member": "xl/externalLinks/externalLink1.xml",
+            "external_link_relationships_member": ("xl/externalLinks/_rels/externalLink1.xml.rels"),
+            "external_book_attributes": (
+                (
+                    f"{{{_DOCUMENT_RELATIONSHIPS_NS}}}id",
+                    "rIdWCABExternalLinkPath",
+                ),
+            ),
+            "external_sheet": "Inputs",
+            "external_link_relationship_id": "rIdWCABExternalLinkPath",
+            "content_type_attributes": (
+                (
+                    "ContentType",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.externalLink+xml",
+                ),
+                ("PartName", "/xl/externalLinks/externalLink1.xml"),
+            ),
+        }
+        expected_before_state = {
+            **expected_common_state,
+            "external_link_relationship_attributes": (
+                ("Id", "rIdWCABExternalLinkPath"),
+                (
+                    "Target",
+                    "https://approved.example.invalid/wcab-external-workbook/WCABSource.xlsx",
+                ),
+                ("TargetMode", "External"),
+                (
+                    "Type",
+                    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/externalLinkPath",
+                ),
+            ),
+            "target": "https://approved.example.invalid/wcab-external-workbook/WCABSource.xlsx",
+        }
+        expected_after_state = {
+            **expected_common_state,
+            "external_link_relationship_attributes": (
+                ("Id", "rIdWCABExternalLinkPath"),
+                (
+                    "Target",
+                    "https://review.example.invalid/wcab-external-workbook/WCABSource.xlsx",
+                ),
+                ("TargetMode", "External"),
+                (
+                    "Type",
+                    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/externalLinkPath",
+                ),
+            ),
+            "target": "https://review.example.invalid/wcab-external-workbook/WCABSource.xlsx",
+        }
+        graph = _direct_graph(candidate)
+        _assert(
+            sheet_name == "LinkedModel"
+            and coordinate == "B2"
+            and fact.get("formula") == "='[WCABSource.xlsx]Inputs'!$B$2"
+            and fact.get("workbook_member") == "xl/workbook.xml"
+            and fact.get("workbook_relationships_member") == "xl/_rels/workbook.xml.rels"
+            and fact.get("workbook_relationship_id") == "rIdWCABExternalLink"
+            and fact.get("workbook_relationship_type")
+            == "http://schemas.openxmlformats.org/officeDocument/2006/relationships/externalLink"
+            and fact.get("external_link_member") == "xl/externalLinks/externalLink1.xml"
+            and fact.get("external_link_relationships_member")
+            == "xl/externalLinks/_rels/externalLink1.xml.rels"
+            and fact.get("external_link_content_type")
+            == "application/vnd.openxmlformats-officedocument.spreadsheetml.externalLink+xml"
+            and fact.get("external_link_relationship_id") == "rIdWCABExternalLinkPath"
+            and fact.get("external_link_relationship_type")
+            == "http://schemas.openxmlformats.org/officeDocument/2006/relationships/externalLinkPath"
+            and fact.get("external_sheet") == "Inputs"
+            and fact.get("target_mode") == "External"
+            and fact.get("baseline_target")
+            == "https://approved.example.invalid/wcab-external-workbook/WCABSource.xlsx"
+            and fact.get("candidate_target")
+            == "https://review.example.invalid/wcab-external-workbook/WCABSource.xlsx"
+            and dashboard_sheet == "Dashboard"
+            and dashboard_cell == "B4"
+            and fact.get("dashboard_formula") == "=LinkedModel!$B$2"
+            and before_state == expected_before_state
+            and after_state == expected_after_state
+            and before_formula is not None
+            and after_formula is not None
+            and _cell_kind(before_formula) == "formula"
+            and _cell_kind(after_formula) == "formula"
+            and before_formula.value == fact.get("formula")
+            and after_formula.value == fact.get("formula")
+            and before_dashboard is not None
+            and after_dashboard is not None
+            and before_dashboard == after_dashboard
+            and before_dashboard[3] == fact.get("dashboard_formula")
+            and _external_workbook_link_relationship_without_target(baseline_path)
+            == _external_workbook_link_relationship_without_target(candidate_path)
+            and _xlsx_member_differences(baseline_path, candidate_path)
+            == {"xl/externalLinks/_rels/externalLink1.xml.rels"}
+            and _calculation_properties(baseline_path) == _calculation_properties(candidate_path)
+            and (dashboard_sheet, dashboard_cell) in _reachable(graph, (sheet_name, coordinate)),
+            f"{truth['id']}: expected one external-workbook source target change only with stable formulas and package graph",
             errors,
         )
         return

@@ -66,6 +66,7 @@ _FACT_TO_CHANGE: dict[str, tuple[str, str | None]] = {
         "external_data_refresh_settings_changed",
         None,
     ),
+    "external_workbook_link_source_changed": ("external_link_packages_changed", None),
     "static_cycle_introduced": ("formula_changed", None),
     "three_d_scope_changed": ("three_d_reference_scope_changed", "formula_location"),
     "structured_table_scope_changed": ("table_definition_changed", None),
@@ -354,6 +355,88 @@ def _cell_hyperlink_target_finding_observed(finding: dict[str, Any], fact: dict[
     """Require FormulaFence's matching high-severity hyperlink finding."""
 
     return finding.get("rule_id") == "FF047" and _cell_hyperlink_target_details_observed(
+        finding.get("details"), fact
+    )
+
+
+def _external_workbook_link_source_details_observed(details: Any, fact: dict[str, Any]) -> bool:
+    """Require FormulaFence's exact one-external-workbook-package profile.
+
+    FormulaFence intentionally redacts the external target and relationship
+    IDs. WCAB independently validates those raw OOXML details, then maps only
+    the tool's precise external-link package evidence and matching finding.
+    """
+
+    if (
+        fact.get("sheet") != "LinkedModel"
+        or fact.get("cell") != "B2"
+        or fact.get("formula") != "='[WCABSource.xlsx]Inputs'!$B$2"
+        or fact.get("workbook_member") != "xl/workbook.xml"
+        or fact.get("workbook_relationships_member") != "xl/_rels/workbook.xml.rels"
+        or fact.get("workbook_relationship_id") != "rIdWCABExternalLink"
+        or fact.get("workbook_relationship_type")
+        != "http://schemas.openxmlformats.org/officeDocument/2006/relationships/externalLink"
+        or fact.get("external_link_member") != "xl/externalLinks/externalLink1.xml"
+        or fact.get("external_link_relationships_member")
+        != "xl/externalLinks/_rels/externalLink1.xml.rels"
+        or fact.get("external_link_content_type")
+        != "application/vnd.openxmlformats-officedocument.spreadsheetml.externalLink+xml"
+        or fact.get("external_link_relationship_id") != "rIdWCABExternalLinkPath"
+        or fact.get("external_link_relationship_type")
+        != "http://schemas.openxmlformats.org/officeDocument/2006/relationships/externalLinkPath"
+        or fact.get("external_sheet") != "Inputs"
+        or fact.get("target_mode") != "External"
+        or fact.get("baseline_target")
+        != "https://approved.example.invalid/wcab-external-workbook/WCABSource.xlsx"
+        or fact.get("candidate_target")
+        != "https://review.example.invalid/wcab-external-workbook/WCABSource.xlsx"
+        or not isinstance(details, dict)
+    ):
+        return False
+    profile = {
+        "present": True,
+        "external_link_count": 1,
+        "external_workbook_count": 1,
+        "dde_link_count": 0,
+        "ole_link_count": 0,
+        "unrecognized_link_count": 0,
+        "external_workbook_sheet_count": 1,
+        "external_defined_name_count": 0,
+        "external_workbook_cached_sheet_count": 0,
+        "external_workbook_cached_cell_count": 0,
+        "external_workbook_cached_refresh_error_count": 0,
+        "dde_item_count": 0,
+        "dde_advise_item_count": 0,
+        "dde_ole_item_count": 0,
+        "dde_prefer_picture_item_count": 0,
+        "dde_cached_value_count": 0,
+        "ole_item_count": 0,
+        "ole_advise_item_count": 0,
+        "ole_icon_item_count": 0,
+        "ole_prefer_picture_item_count": 0,
+        "opaque_metadata": {"present": False, "count": 0},
+    }
+    return details == {
+        "before": profile,
+        "after": profile,
+        "source_material_changed": True,
+    }
+
+
+def _external_workbook_link_source_observed(change: dict[str, Any], fact: dict[str, Any]) -> bool:
+    """Match FormulaFence's dedicated external-link-package record."""
+
+    return change.get("kind") == "external_link_packages_changed" and (
+        _external_workbook_link_source_details_observed(change.get("details"), fact)
+    )
+
+
+def _external_workbook_link_source_finding_observed(
+    finding: dict[str, Any], fact: dict[str, Any]
+) -> bool:
+    """Require FormulaFence's matching high-severity external-link finding."""
+
+    return finding.get("rule_id") == "FF025" and _external_workbook_link_source_details_observed(
         finding.get("details"), fact
     )
 
@@ -1928,6 +2011,16 @@ def evaluate_diff_case(case_dir: str | Path, *, executable: str = "formulafence"
                 _external_workbook_link_update_policy_observed(change, fact)
                 for change in changes
                 if isinstance(change, dict)
+            )
+        if kind == "external_workbook_link_source_changed":
+            observed = any(
+                _external_workbook_link_source_observed(change, fact)
+                for change in changes
+                if isinstance(change, dict)
+            ) and any(
+                _external_workbook_link_source_finding_observed(finding, fact)
+                for finding in findings
+                if isinstance(finding, dict)
             )
         if kind == "iterative_calculation_enabled":
             observed = any(

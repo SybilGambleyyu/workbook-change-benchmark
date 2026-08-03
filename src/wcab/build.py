@@ -43,6 +43,27 @@ _DOCUMENT_RELATIONSHIPS_NS = "http://schemas.openxmlformats.org/officeDocument/2
 _CONTENT_TYPES_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
 _DYNAMIC_ARRAY_NS = "http://schemas.microsoft.com/office/spreadsheetml/2017/dynamicarray"
 _EXTERNAL_WORKBOOK_LINK_FORMULA = "='[WCABSource.xlsx]Inputs'!$B$2"
+_EXTERNAL_WORKBOOK_LINK_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/externalLink"
+_EXTERNAL_WORKBOOK_LINK_PATH_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/externalLinkPath"
+_EXTERNAL_WORKBOOK_LINK_CONTENT_TYPE = (
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.externalLink+xml"
+)
+_EXTERNAL_WORKBOOK_LINK_MEMBER = "xl/externalLinks/externalLink1.xml"
+_EXTERNAL_WORKBOOK_LINK_RELATIONSHIPS_MEMBER = "xl/externalLinks/_rels/externalLink1.xml.rels"
+_EXTERNAL_WORKBOOK_LINK_WORKBOOK_RELATIONSHIP_ID = "rIdWCABExternalLink"
+_EXTERNAL_WORKBOOK_LINK_PATH_RELATIONSHIP_ID = "rIdWCABExternalLinkPath"
+_EXTERNAL_WORKBOOK_LINK_HOST_SHEET = "LinkedModel"
+_EXTERNAL_WORKBOOK_LINK_HOST_CELL = "B2"
+_EXTERNAL_WORKBOOK_LINK_EXTERNAL_SHEET = "Inputs"
+_EXTERNAL_WORKBOOK_LINK_DASHBOARD_SHEET = "Dashboard"
+_EXTERNAL_WORKBOOK_LINK_DASHBOARD_CELL = "B4"
+_EXTERNAL_WORKBOOK_LINK_DASHBOARD_FORMULA = "=LinkedModel!$B$2"
+_EXTERNAL_WORKBOOK_LINK_BASELINE_TARGET = (
+    "https://approved.example.invalid/wcab-external-workbook/WCABSource.xlsx"
+)
+_EXTERNAL_WORKBOOK_LINK_CANDIDATE_TARGET = (
+    "https://review.example.invalid/wcab-external-workbook/WCABSource.xlsx"
+)
 _ITERATIVE_CALCULATION_FORMULA = "=(B2+Inputs!$B$2)/2"
 _ITERATION_COUNT = 100
 _ITERATION_DELTA = 0.001
@@ -3303,6 +3324,135 @@ def _set_external_workbook_link_update_policy(path: Path, *, update_links: str) 
     _rewrite_xlsx_parts(path, mutate)
 
 
+def _add_external_workbook_link_source(path: Path, *, target: str) -> None:
+    """Attach one compact external-workbook package with a stored source target.
+
+    The generated source is represented only by the standard ``externalLink``
+    relationship graph. It deliberately has no local source workbook, cached
+    source cells, defined names, DDE/OLE material, credentials, or executable
+    content. This routine never resolves, opens, fetches, or refreshes the
+    external target.
+    """
+
+    if not isinstance(target, str) or not target:
+        raise ValueError("external-workbook source target must be a non-empty string")
+
+    def serialize(element: ElementTree.Element) -> bytes:
+        return ElementTree.tostring(element, encoding="utf-8", xml_declaration=True)
+
+    def mutate(members: dict[str, bytes]) -> None:
+        try:
+            workbook = ElementTree.fromstring(members["xl/workbook.xml"])
+            workbook_relationships = ElementTree.fromstring(members["xl/_rels/workbook.xml.rels"])
+            content_types = ElementTree.fromstring(members["[Content_Types].xml"])
+        except (KeyError, ElementTree.ParseError) as error:
+            raise ValueError("external-workbook-link fixture has no base OOXML package") from error
+
+        external_references_tag = f"{{{_SPREADSHEETML_NS}}}externalReferences"
+        external_reference_tag = f"{{{_SPREADSHEETML_NS}}}externalReference"
+        relationship_tag = f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationship"
+        relationship_id_attribute = f"{{{_DOCUMENT_RELATIONSHIPS_NS}}}id"
+        override_tag = f"{{{_CONTENT_TYPES_NS}}}Override"
+        if workbook.findall(external_references_tag):
+            raise ValueError("external-workbook-link fixture already has external references")
+        if any(
+            relationship.get("Id") == _EXTERNAL_WORKBOOK_LINK_WORKBOOK_RELATIONSHIP_ID
+            or relationship.get("Type") == _EXTERNAL_WORKBOOK_LINK_RELATIONSHIP
+            for relationship in workbook_relationships.findall(relationship_tag)
+        ):
+            raise ValueError(
+                "external-workbook-link fixture already has an external-link relationship"
+            )
+        if any(
+            override.get("PartName") == f"/{_EXTERNAL_WORKBOOK_LINK_MEMBER}"
+            for override in content_types.findall(override_tag)
+        ):
+            raise ValueError("external-workbook-link fixture already has an external-link part")
+        if (
+            _EXTERNAL_WORKBOOK_LINK_MEMBER in members
+            or _EXTERNAL_WORKBOOK_LINK_RELATIONSHIPS_MEMBER in members
+        ):
+            raise ValueError("external-workbook-link fixture already has external-link payload")
+
+        external_references = ElementTree.Element(external_references_tag)
+        ElementTree.SubElement(
+            external_references,
+            external_reference_tag,
+            {
+                relationship_id_attribute: _EXTERNAL_WORKBOOK_LINK_WORKBOOK_RELATIONSHIP_ID,
+            },
+        )
+        calculation_properties = workbook.find(f"{{{_SPREADSHEETML_NS}}}calcPr")
+        workbook.insert(
+            (
+                list(workbook).index(calculation_properties)
+                if calculation_properties is not None
+                else len(workbook)
+            ),
+            external_references,
+        )
+        members["xl/workbook.xml"] = serialize(workbook)
+
+        ElementTree.SubElement(
+            workbook_relationships,
+            relationship_tag,
+            {
+                "Id": _EXTERNAL_WORKBOOK_LINK_WORKBOOK_RELATIONSHIP_ID,
+                "Type": _EXTERNAL_WORKBOOK_LINK_RELATIONSHIP,
+                "Target": "externalLinks/externalLink1.xml",
+            },
+        )
+        members["xl/_rels/workbook.xml.rels"] = serialize(workbook_relationships)
+
+        ElementTree.SubElement(
+            content_types,
+            override_tag,
+            {
+                "PartName": f"/{_EXTERNAL_WORKBOOK_LINK_MEMBER}",
+                "ContentType": _EXTERNAL_WORKBOOK_LINK_CONTENT_TYPE,
+            },
+        )
+        members["[Content_Types].xml"] = serialize(content_types)
+
+        external_link = ElementTree.Element(f"{{{_SPREADSHEETML_NS}}}externalLink")
+        external_book = ElementTree.SubElement(
+            external_link,
+            f"{{{_SPREADSHEETML_NS}}}externalBook",
+            {
+                relationship_id_attribute: _EXTERNAL_WORKBOOK_LINK_PATH_RELATIONSHIP_ID,
+            },
+        )
+        sheet_names = ElementTree.SubElement(
+            external_book,
+            f"{{{_SPREADSHEETML_NS}}}sheetNames",
+        )
+        ElementTree.SubElement(
+            sheet_names,
+            f"{{{_SPREADSHEETML_NS}}}sheetName",
+            {"val": _EXTERNAL_WORKBOOK_LINK_EXTERNAL_SHEET},
+        )
+        members[_EXTERNAL_WORKBOOK_LINK_MEMBER] = serialize(external_link)
+
+        external_link_relationships = ElementTree.Element(
+            f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationships"
+        )
+        ElementTree.SubElement(
+            external_link_relationships,
+            relationship_tag,
+            {
+                "Id": _EXTERNAL_WORKBOOK_LINK_PATH_RELATIONSHIP_ID,
+                "Type": _EXTERNAL_WORKBOOK_LINK_PATH_RELATIONSHIP,
+                "Target": target,
+                "TargetMode": "External",
+            },
+        )
+        members[_EXTERNAL_WORKBOOK_LINK_RELATIONSHIPS_MEMBER] = serialize(
+            external_link_relationships
+        )
+
+    _rewrite_xlsx_parts(path, mutate)
+
+
 def _portfolio_workbook(*, driver_value: int) -> tuple[Workbook, Workbook]:
     drivers = Workbook()
     _configure_workbook(drivers, title="WCAB portfolio drivers")
@@ -4934,6 +5084,71 @@ def _build_governance_external_workbook_link_update_policy(root: Path) -> None:
     )
 
 
+def _build_governance_external_workbook_link_source(root: Path) -> None:
+    """Build a pair whose external-workbook source target moves invisibly."""
+
+    directory = root / "governance" / "external_workbook_link_source_changed"
+    directory.mkdir(parents=True, exist_ok=True)
+    baseline = directory / "baseline.xlsx"
+    candidate = directory / "candidate.xlsx"
+    _save_workbook(_external_workbook_link_policy_workbook(), baseline)
+    _save_workbook(_external_workbook_link_policy_workbook(), candidate)
+    _add_external_workbook_link_source(baseline, target=_EXTERNAL_WORKBOOK_LINK_BASELINE_TARGET)
+    _add_external_workbook_link_source(candidate, target=_EXTERNAL_WORKBOOK_LINK_CANDIDATE_TARGET)
+    _write_json(
+        directory / "truth.json",
+        _truth(
+            case_id="governance.external_workbook_link_source_changed",
+            title="An external-workbook link points to a different source",
+            family="governance",
+            review_expectation="block",
+            facts=[
+                {
+                    "kind": "external_workbook_link_source_changed",
+                    "sheet": _EXTERNAL_WORKBOOK_LINK_HOST_SHEET,
+                    "cell": _EXTERNAL_WORKBOOK_LINK_HOST_CELL,
+                    "formula": _EXTERNAL_WORKBOOK_LINK_FORMULA,
+                    "workbook_member": "xl/workbook.xml",
+                    "workbook_relationships_member": "xl/_rels/workbook.xml.rels",
+                    "workbook_relationship_id": _EXTERNAL_WORKBOOK_LINK_WORKBOOK_RELATIONSHIP_ID,
+                    "workbook_relationship_type": _EXTERNAL_WORKBOOK_LINK_RELATIONSHIP,
+                    "external_link_member": _EXTERNAL_WORKBOOK_LINK_MEMBER,
+                    "external_link_relationships_member": _EXTERNAL_WORKBOOK_LINK_RELATIONSHIPS_MEMBER,
+                    "external_link_content_type": _EXTERNAL_WORKBOOK_LINK_CONTENT_TYPE,
+                    "external_link_relationship_id": _EXTERNAL_WORKBOOK_LINK_PATH_RELATIONSHIP_ID,
+                    "external_link_relationship_type": _EXTERNAL_WORKBOOK_LINK_PATH_RELATIONSHIP,
+                    "external_sheet": _EXTERNAL_WORKBOOK_LINK_EXTERNAL_SHEET,
+                    "target_mode": "External",
+                    "baseline_target": _EXTERNAL_WORKBOOK_LINK_BASELINE_TARGET,
+                    "candidate_target": _EXTERNAL_WORKBOOK_LINK_CANDIDATE_TARGET,
+                    "dashboard_sheet": _EXTERNAL_WORKBOOK_LINK_DASHBOARD_SHEET,
+                    "dashboard_cell": _EXTERNAL_WORKBOOK_LINK_DASHBOARD_CELL,
+                    "dashboard_formula": _EXTERNAL_WORKBOOK_LINK_DASHBOARD_FORMULA,
+                }
+            ],
+            must_reach=[
+                {
+                    "source": {
+                        "sheet": _EXTERNAL_WORKBOOK_LINK_HOST_SHEET,
+                        "cell": _EXTERNAL_WORKBOOK_LINK_HOST_CELL,
+                    },
+                    "targets": [
+                        {
+                            "sheet": _EXTERNAL_WORKBOOK_LINK_DASHBOARD_SHEET,
+                            "cell": _EXTERNAL_WORKBOOK_LINK_DASHBOARD_CELL,
+                        }
+                    ],
+                }
+            ],
+            coverage=[
+                "The pair changes only xl/externalLinks/_rels/externalLink1.xml.rels Relationship/@Target. It does not edit formula text, stored cells, calculation properties, workbook XML, workbook relationships, the externalLink declaration, or content types.",
+                "Each package has one workbook externalReferences binding to one externalLink/externalBook declaration with one externalLinkPath relationship. The external workbook name and worksheet declaration remain fixed; only the reserved example.invalid source target changes.",
+                "WCAB reads local OOXML only. It does not resolve, open, fetch, authenticate to, trust, refresh, calculate, or otherwise interact with either source, and does not claim that a client updates the link or returns a value.",
+            ],
+        ),
+    )
+
+
 def _build_structural_chart_series_reference(root: Path) -> None:
     """Build a dashboard chart whose local value-series binding changes."""
 
@@ -5299,6 +5514,7 @@ _BUILDERS: tuple[Callable[[Path], None], ...] = (
     _build_governance_cell_hyperlink_target,
     _build_governance_pivot_cache_refresh,
     _build_governance_external_workbook_link_update_policy,
+    _build_governance_external_workbook_link_source,
     _build_structural_pivot_data_field_aggregation,
     _build_structural_pivot_slicer_selection,
     _build_structural_power_query_m_filter,
@@ -5347,6 +5563,7 @@ CASE_IDS = (
     "governance.cell_hyperlink_target_changed",
     "governance.pivot_cache_refresh_on_open",
     "governance.external_workbook_link_update_on_open",
+    "governance.external_workbook_link_source_changed",
     "structural.pivot_data_field_aggregation_changed",
     "structural.pivot_slicer_selection_changed",
     "structural.power_query_m_filter_changed",

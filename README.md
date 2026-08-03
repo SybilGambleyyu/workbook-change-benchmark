@@ -34,7 +34,7 @@ gates, static analyzers, and agent workflows that propose workbook edits.
 
 ## Scope and non-goals
 
-Version `0.31` covers formula-to-value replacements, formula reference drift,
+Version `0.32` covers formula-to-value replacements, formula reference drift,
 value changes with downstream effects, external formula references, named
 ranges, data validation, conditional formatting, sheet visibility, direct cell
 and workbook-structure protection, calculation settings, static cycles,
@@ -45,6 +45,12 @@ unchanged `INDIRECT` and `OFFSET` formulas whose address or displacement driver
 changes, an external-data connection whose refresh-on-open behavior changes
 without any worksheet-cell edit, and an external-workbook link policy that
 switches from never to always updating when the workbook opens. It also covers
+an unchanged external-workbook formula whose local `externalLink` package
+relationship moves to a different reserved source while its formula text and
+local downstream dependency remain fixed. It records that stored relationship
+only: it does not resolve, open, fetch, authenticate to, trust, refresh,
+calculate, or otherwise interact with either source, and does not claim that a
+client updates a link or returns a value. It also covers
 one relationship-backed QueryTable whose own `refreshOnLoad` request moves from
 false to true while its fixed connection-level refresh control remains false,
 its synthetic non-routable endpoint, saved cells, and
@@ -308,6 +314,18 @@ or relationship ID; WCAB's raw validator independently proves their exact
 transition, stable visible cells/formulas, and relationship-part-only package
 change. Neither layer resolves, opens, fetches, visits, or otherwise interacts
 with the target, or claims that a client follows it.
+For the external-workbook source case, it separately requires FormulaFence's
+exact redacted `external_link_packages_changed` profile and matching
+high-severity `FF025`, including one external workbook, one declared external
+sheet, no DDE/OLE links or cached external data, no opaque metadata, and only
+`source_material_changed`. FormulaFence deliberately does not expose the raw
+source target or relationship IDs; WCAB's raw validator independently proves
+their exact reserved-target transition, fixed external-reference graph, stable
+formula context, and externalLink-relationship-part-only package change. A
+generic external-relationship diff is deliberately not mapped to this precise
+fact. Neither layer resolves, opens, fetches, authenticates to, trusts,
+refreshes, calculates, or otherwise interacts with a source, or claims that a
+client updates a link or returns a value.
 It separately requires FormulaFence's `pivot_cache_refresh_controls_changed`
 record and matching `FF023` for the local worksheet-backed PivotCache case.
 FormulaFence safely reports cache-level source/control metadata rather than

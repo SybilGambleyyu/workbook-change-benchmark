@@ -220,6 +220,37 @@ def _cell_hyperlink_target_details() -> dict[str, object]:
     }
 
 
+def _external_workbook_link_source_details() -> dict[str, object]:
+    profile = {
+        "present": True,
+        "external_link_count": 1,
+        "external_workbook_count": 1,
+        "dde_link_count": 0,
+        "ole_link_count": 0,
+        "unrecognized_link_count": 0,
+        "external_workbook_sheet_count": 1,
+        "external_defined_name_count": 0,
+        "external_workbook_cached_sheet_count": 0,
+        "external_workbook_cached_cell_count": 0,
+        "external_workbook_cached_refresh_error_count": 0,
+        "dde_item_count": 0,
+        "dde_advise_item_count": 0,
+        "dde_ole_item_count": 0,
+        "dde_prefer_picture_item_count": 0,
+        "dde_cached_value_count": 0,
+        "ole_item_count": 0,
+        "ole_advise_item_count": 0,
+        "ole_icon_item_count": 0,
+        "ole_prefer_picture_item_count": 0,
+        "opaque_metadata": {"present": False, "count": 0},
+    }
+    return {
+        "before": dict(profile),
+        "after": dict(profile),
+        "source_material_changed": True,
+    }
+
+
 def _chart_series_reference_details() -> dict[str, object]:
     profile = {
         "present": True,
@@ -1079,6 +1110,43 @@ def test_committed_manifest_matches_fixture_tree() -> None:
             "formula": "='[WCABSource.xlsx]Inputs'!$B$2",
             "baseline_update_links": "never",
             "candidate_update_links": "always",
+        }
+    ]
+    external_link_source_row = next(
+        row for row in rows if row["id"] == "governance.external_workbook_link_source_changed"
+    )
+    assert external_link_source_row["facts"] == [
+        {
+            "kind": "external_workbook_link_source_changed",
+            "sheet": "LinkedModel",
+            "cell": "B2",
+            "formula": "='[WCABSource.xlsx]Inputs'!$B$2",
+            "workbook_member": "xl/workbook.xml",
+            "workbook_relationships_member": "xl/_rels/workbook.xml.rels",
+            "workbook_relationship_id": "rIdWCABExternalLink",
+            "workbook_relationship_type": (
+                "http://schemas.openxmlformats.org/officeDocument/2006/relationships/externalLink"
+            ),
+            "external_link_member": "xl/externalLinks/externalLink1.xml",
+            "external_link_relationships_member": ("xl/externalLinks/_rels/externalLink1.xml.rels"),
+            "external_link_content_type": (
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.externalLink+xml"
+            ),
+            "external_link_relationship_id": "rIdWCABExternalLinkPath",
+            "external_link_relationship_type": (
+                "http://schemas.openxmlformats.org/officeDocument/2006/relationships/externalLinkPath"
+            ),
+            "external_sheet": "Inputs",
+            "target_mode": "External",
+            "baseline_target": (
+                "https://approved.example.invalid/wcab-external-workbook/WCABSource.xlsx"
+            ),
+            "candidate_target": (
+                "https://review.example.invalid/wcab-external-workbook/WCABSource.xlsx"
+            ),
+            "dashboard_sheet": "Dashboard",
+            "dashboard_cell": "B4",
+            "dashboard_formula": "=LinkedModel!$B$2",
         }
     ]
     iterative_calculation_row = next(
@@ -2471,6 +2539,93 @@ def test_external_workbook_link_policy_pair_changes_only_workbook_xml(tmp_path: 
     ] == ["xl/workbook.xml"]
 
 
+def test_validator_rejects_a_false_external_workbook_link_source_fact(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "governance" / "external_workbook_link_source_changed"
+    truth_path = case / "truth.json"
+    truth = json.loads(truth_path.read_text(encoding="utf-8"))
+    truth["facts"][0]["candidate_target"] = (
+        "https://approved.example.invalid/wcab-external-workbook/WCABSource.xlsx"
+    )
+    truth_path.write_text(json.dumps(truth), encoding="utf-8")
+    assert validate_case(case)
+
+
+def test_validator_rejects_a_corrupted_external_workbook_link_source_target(
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = (
+        fixture_root / "governance" / "external_workbook_link_source_changed" / "candidate.xlsx"
+    )
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    relationships_member = "xl/externalLinks/_rels/externalLink1.xml.rels"
+    relationships = ElementTree.fromstring(members[relationships_member])
+    relationships[0].set(
+        "Target",
+        "https://approved.example.invalid/wcab-external-workbook/WCABSource.xlsx",
+    )
+    members[relationships_member] = ElementTree.tostring(
+        relationships, encoding="utf-8", xml_declaration=True
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_validator_rejects_an_internal_external_workbook_link_source_target(
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = (
+        fixture_root / "governance" / "external_workbook_link_source_changed" / "candidate.xlsx"
+    )
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    relationships_member = "xl/externalLinks/_rels/externalLink1.xml.rels"
+    relationships = ElementTree.fromstring(members[relationships_member])
+    relationships[0].set("TargetMode", "Internal")
+    members[relationships_member] = ElementTree.tostring(
+        relationships, encoding="utf-8", xml_declaration=True
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_external_workbook_link_source_pair_changes_only_its_relationship_target(
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "governance" / "external_workbook_link_source_changed"
+    with ZipFile(case / "baseline.xlsx") as baseline, ZipFile(case / "candidate.xlsx") as candidate:
+        assert baseline.testzip() is None
+        assert candidate.testzip() is None
+        baseline_members = {
+            entry.filename: baseline.read(entry.filename) for entry in baseline.infolist()
+        }
+        candidate_members = {
+            entry.filename: candidate.read(entry.filename) for entry in candidate.infolist()
+        }
+    assert set(baseline_members) == set(candidate_members)
+    assert [
+        member
+        for member in sorted(baseline_members)
+        if baseline_members[member] != candidate_members[member]
+    ] == ["xl/externalLinks/_rels/externalLink1.xml.rels"]
+
+
 def test_validator_rejects_a_false_iterative_calculation_fact(tmp_path: Path) -> None:
     fixture_root = tmp_path / "fixtures"
     build_all(fixture_root)
@@ -3645,6 +3800,92 @@ def test_formulafence_adapter_rejects_an_inexact_external_workbook_link_policy(
     assert result["status"] == "missed"
     assert result["matched"] == []
     assert result["missed"] == ["external_workbook_link_update_policy_changed"]
+
+
+def test_formulafence_adapter_maps_the_exact_external_workbook_link_source_change(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _external_workbook_link_source_details()
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "external_link_packages_changed",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF025", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "external_workbook_link_source_changed"
+    )
+    assert result["status"] == "matched"
+    assert result["matched"] == ["external_workbook_link_source_changed"]
+
+
+def test_formulafence_adapter_rejects_an_inexact_external_workbook_link_source_change(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _external_workbook_link_source_details()
+        details["after"]["external_workbook_sheet_count"] = 2
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "external_link_packages_changed",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF025", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "external_workbook_link_source_changed"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["external_workbook_link_source_changed"]
+
+
+def test_formulafence_adapter_requires_the_external_workbook_link_source_finding(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "external_link_packages_changed",
+                    "location": None,
+                    "details": _external_workbook_link_source_details(),
+                }
+            ],
+            "findings": [],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "external_workbook_link_source_changed"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["external_workbook_link_source_changed"]
 
 
 def test_formulafence_adapter_maps_the_exact_iterative_calculation_transition(

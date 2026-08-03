@@ -22,7 +22,7 @@ configs:
 # Workbook Change Assurance Benchmark (WCAB)
 
 WCAB is an open, deterministic benchmark for tools that review changes to
-Excel workbooks. Each of its 46 synthetic cases supplies baseline/candidate
+Excel workbooks. Each of its 47 synthetic cases supplies baseline/candidate
 fixtures, explicit observable change facts, a reference review
 disposition, documented coverage boundaries, and—in relevant cases—a
 machine-matchable coverage expectation.
@@ -69,6 +69,9 @@ Dashboard DrawingML chart
 whose stored numeric-series reference changes while its source cells, anchor,
 and other chart references remain fixed), an unchanged external-workbook formula
 whose `never`-to-`always` open-time update policy changes, an unchanged
+external-workbook formula whose local `externalLink` package source target
+moves between reserved `example.invalid` URLs while its formula text and local
+dependency remain fixed, an unchanged
 direct circular formula whose iterative-calculation setting becomes enabled, an
 unchanged precision-sensitive input and formula whose calculation switches to
 precision as displayed, an unchanged legacy-CSE array formula that switches to
@@ -125,6 +128,11 @@ workbook, or claim that a client refreshes successfully.
 The cell-hyperlink case records a stored package relationship only: it does not
 resolve, open, fetch, visit, execute, calculate, or otherwise interact with a
 target, and does not claim that a client follows it.
+
+The external-workbook source case records a stored package relationship only:
+it does not resolve, open, fetch, authenticate to, trust, refresh, calculate,
+or otherwise interact with a source, and does not claim that a client updates a
+link or returns a value.
 
 ## Use
 

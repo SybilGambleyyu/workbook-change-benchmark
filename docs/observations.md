@@ -201,6 +201,19 @@ adapter—then establishes the fixed ID/type/mode, exact reserved-target
 transition, stable visible text/formulas, and relationship-part-only package
 change. Neither report resolves, opens, fetches, visits, or otherwise interacts
 with a target, or claims that a client follows it.
+For the external-workbook source case, it requires one exact
+`external_link_packages_changed` record and matching high-severity `FF025`:
+FormulaFence's redacted profile must retain one external workbook and source
+sheet, no DDE/OLE link, no cached external data, and no opaque metadata while
+only `source_material_changed` is set. FormulaFence does not expose the raw
+source target or relationship IDs. WCAB's raw validator—not the adapter—then
+establishes the exact reserved-target transition, fixed workbook-to-externalLink
+graph, stable formula context, and externalLink-relationship-part-only package
+change. A generic external-relationship record remains unmapped because it is
+not sufficient evidence for this narrower fact. Neither report resolves, opens,
+fetches, authenticates to, trusts, refreshes, calculates, or otherwise
+interacts with a source, or claims that a client updates a link or returns a
+value.
 For the PivotCache case,
 it requires one exact
 `pivot_cache_refresh_controls_changed` record and matching `FF023`: its

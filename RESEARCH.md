@@ -71,6 +71,28 @@ the validator reads local OOXML and formula text only. It does not resolve the
 link, test source availability or trust, retrieve a value, or claim that Excel
 successfully recalculates the workbook.
 
+## External-workbook source relationships
+
+Microsoft's [workbook-link guidance](https://support.microsoft.com/en-us/excel/manage-workbook-links)
+documents **Change source** as a workflow for pointing existing workbook links
+to another source. The Open XML [`ExternalBook` reference](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.spreadsheet.externalbook?view=openxml-3.0.1)
+states that `externalBook` represents an external workbook supplying data to
+the current workbook, including a relationship to the supporting book path.
+This creates a separate review surface from a startup-refresh policy: a stored
+source can change while the visible external formula stays exactly the same.
+
+WCAB 0.32 isolates that relationship graph in one original synthetic package.
+`LinkedModel!B2` keeps `='[WCABSource.xlsx]Inputs'!$B$2`, and
+`Dashboard!B4=LinkedModel!$B$2` remains its direct local consumer. One workbook
+external-reference binding leads to one `externalLink/externalBook` declaration
+and its one externalLinkPath relationship. The formula, source-sheet name,
+relationship IDs/types, content type, and every package member except
+`xl/externalLinks/_rels/externalLink1.xml.rels` stay fixed; only its external
+`Target` moves from `approved.example.invalid` to `review.example.invalid`.
+The validator reads local OOXML only, never resolves, opens, fetches,
+authenticates to, trusts, refreshes, or calculates either source, and does not
+claim that any client updates a link or returns a value.
+
 ## Iterative calculation and intentional circular models
 
 Microsoft's [circular-reference guidance](https://support.microsoft.com/en-US/Excel/remove-or-allow-a-circular-reference-in-excel)

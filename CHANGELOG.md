@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.32.0 — 2026-08-03
+
+- Add a deterministic, relationship-backed external-workbook source-change
+  case. Its `LinkedModel!B2` external formula, direct `Dashboard!B4`
+  consumer, calculation properties, workbook external-reference binding, and
+  `externalLink`/`externalBook` declaration remain fixed while one external
+  `externalLinkPath` relationship moves from the reserved
+  `approved.example.invalid` source to `review.example.invalid`.
+- Add the exact `external_workbook_link_source_changed` fact, a narrow
+  raw-OOXML graph validator, externalLink-relationship-only package-isolation
+  check, and corruption regressions. WCAB records the stored source target
+  only: it does not resolve, open, fetch, authenticate to, trust, refresh,
+  calculate, or otherwise interact with either source, and does not claim that
+  a client updates a link or returns a value.
+- Extend the optional FormulaFence adapter to require its exact redacted
+  `external_link_packages_changed` profile and high-severity `FF025`, while
+  WCAB independently establishes the relationship IDs, types, target mode,
+  target transition, stable formula context, and package boundary.
+
 ## 0.31.0 — 2026-08-03
 
 - Add a deterministic, relationship-backed worksheet cell-hyperlink target

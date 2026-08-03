@@ -59,6 +59,9 @@ member except its QueryTable part.
 WCAB 0.31 adds a relationship-backed worksheet cell-hyperlink target transition
 with unchanged visible text, formulas, and every package member except its
 worksheet relationship part.
+WCAB 0.32 adds a relationship-backed external-workbook source transition with
+unchanged formula text, source-sheet declaration, local downstream formula,
+and every package member except its externalLink relationship part.
 Version 2 remains
 available in the immutable v0.2.0 and v0.3.0 releases.
 
@@ -123,6 +126,7 @@ Facts are observed directly from the fixture files by `wcab validate`.
 | `what_if_data_table_input_reference_changed` | `table_sheet`, `master_cell`, `output_range`, `baseline_input_cell`, `candidate_input_cell`, `orientation`, `recalculation_requested`, `input_value_range`, `input_values`, `primary_input_value`, `alternate_input_value`, `scale_cell`, `scale_value`, `output_formula_cell`, `output_formula`, `model_sheet`, `model_cell`, `model_formula`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | One raw column-oriented one-variable Data Table master retains its declared output range, recalculation request, visible input grid, ordinary formulas, calculation properties, and every package member except its table-bearing worksheet while `f/@r1` moves between declared local input cells. The validator does not substitute inputs, calculate, infer table results, resolve a circular dependency, or claim client behavior. |
 | `chart_series_value_reference_changed` | `chart_sheet`, `chart_anchor`, `source_sheet`, `series_title_ref`, `category_ref`, `baseline_value_ref`, `candidate_value_ref` | One relationship-bound DrawingML chart retains its host, anchor, title/category references, source worksheet cells, and every package member except its chart part while raw `c:ser/c:val/c:numRef/c:f` moves between declared local value ranges. The validator does not calculate, refresh, or render a chart. |
 | `external_workbook_link_update_policy_changed` | `sheet`, `cell`, `formula`, `baseline_update_links`, `candidate_update_links` | The declared external-workbook formula remains unchanged while raw `workbookPr/@updateLinks` changes exactly from `never` to `always`; all other stored `workbookPr` attributes are unchanged. The validator does not resolve the source workbook. |
+| `external_workbook_link_source_changed` | `sheet`, `cell`, `formula`, `workbook_member`, `workbook_relationships_member`, `workbook_relationship_id`, `workbook_relationship_type`, `external_link_member`, `external_link_relationships_member`, `external_link_content_type`, `external_link_relationship_id`, `external_link_relationship_type`, `external_sheet`, `target_mode`, `baseline_target`, `candidate_target`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | One external-workbook formula, workbook external-reference relationship, `externalLink`/`externalBook` declaration, content type, source-sheet name, local downstream formula, and calculation properties remain unchanged while one external `externalLinkPath` relationship `Target` moves between declared reserved URLs. The validator reads local OOXML only; it does not resolve, open, fetch, authenticate to, trust, refresh, calculate, or claim that a client updates a link or returns a value. |
 | `array_formula_mode_changed` | `sheet`, `cell`, `formula`, `baseline_mode`, `candidate_mode`, `baseline_output_range`, `candidate_output_range` | The declared unchanged array anchor moves from `legacy_cse` to `dynamic`, with its stored formula text and output range exactly as declared. The validator reads the raw OOXML cell-metadata binding. |
 | `static_cycle_introduced` | `cells` | Every declared direct A1 cell reaches itself in the local static dependency graph. |
 | `three_d_scope_changed` | `formula_sheet`, `formula_cell`, `inserted_sheet`, `after_sheet`, `before_sheet` | Formula text remains unchanged while a sheet is inserted inside the declared tab span. |
@@ -420,6 +424,30 @@ requires the exact policy values, matching formula text, and equal non-policy
 `workbookPr` attributes. It does not open, resolve, authenticate to, trust,
 refresh, or calculate the external source, and it does not claim an updated
 cached result or a successful workbook recalculation.
+
+## External-workbook link source
+
+Microsoft's [workbook-link guidance](https://support.microsoft.com/en-us/excel/manage-workbook-links)
+documents **Change source** as a way to point existing links at another
+workbook. The Open XML [`ExternalBook` reference](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.spreadsheet.externalbook?view=openxml-3.0.1)
+defines `externalBook` as an external workbook supplying data to the current
+workbook and exposes its relationship to the supporting book path. A source
+change can therefore be review-material even when the external formula text
+does not change.
+
+WCAB's source pair keeps `LinkedModel!B2` as
+`='[WCABSource.xlsx]Inputs'!$B$2` and keeps
+`Dashboard!B4=LinkedModel!$B$2` unchanged. Each package has exactly one
+workbook `<externalReferences>` binding, one externalLink relationship, one
+`externalLink/externalBook` declaration with the `Inputs` sheet name, and one
+externalLinkPath relationship with `TargetMode=External`. Only
+`xl/externalLinks/_rels/externalLink1.xml.rels` changes: its raw `Target`
+moves from the reserved `approved.example.invalid` URL to
+`review.example.invalid`. The validator follows only those local package parts,
+compares the relationship part after erasing `Target`, and requires it to be
+the sole package difference. It does not resolve, open, fetch, authenticate
+to, trust, refresh, calculate, or otherwise interact with either source, and
+does not claim a client updates a link or returns a value.
 
 ## Workbook serial-date system
 
