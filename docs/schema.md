@@ -43,6 +43,9 @@ structure-lock transition with unchanged hidden-sheet/formula context and every
 package member except `xl/workbook.xml`. WCAB 0.26 adds a relationship-backed
 Named Sheet View list-criterion transition with an unchanged base AutoFilter,
 formulas, and every package member except its Named Sheet View part.
+WCAB 0.27 adds a relationship-backed XML Map table-column XPath transition
+with an unchanged map/schema/file-binding declaration, single-cell mapping,
+cells, formulas, and every package member except its table part.
 Version 2 remains
 available in the immutable v0.2.0 and v0.3.0 releases.
 
@@ -85,6 +88,7 @@ Facts are observed directly from the fixture files by `wcab validate`.
 | `ignored_error_rule_added` | `sheet`, `target_range`, `warning_flag`, `formula`, `adjacent_populated_cell`, `adjacent_populated_value`, `downstream_formula_cell`, `downstream_formula` | One standard worksheet `ignoredErrors/ignoredError` declaration is added with the declared target and enabled warning flag while ordinary cells, formulas, calculation properties, and every package member except its worksheet remain unchanged. The validator does not determine whether a client would show a warning, evaluate a formula, judge a warning's justification, render an indicator, or claim client behavior. |
 | `auto_filter_criteria_changed` | `sheet`, `filter_ref`, `filter_column_id`, `baseline_filter_value`, `candidate_filter_value`, `subtotal_cell`, `subtotal_formula`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | One raw worksheet AutoFilter list criterion changes while its filter shell, formulas, direct dependency edge, and every package member except the report worksheet remain unchanged. The validator does not apply the filter or calculate a result. |
 | `named_sheet_view_filter_criterion_changed` | `sheet`, `view_member`, `base_filter_ref`, `filter_column_id`, `baseline_filter_value`, `candidate_filter_value`, `subtotal_cell`, `subtotal_formula`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | One relationship-backed Named Sheet View list criterion changes while its worksheet AutoFilter binding, formulas, direct dependency edge, and every package member except its Named Sheet View part remain unchanged. The validator does not activate, render, or apply the view, calculate a subtotal, or infer visible rows. |
+| `xml_map_table_column_xpath_retargeted` | `sheet`, `table_member`, `table_name`, `table_ref`, `mapped_column_id`, `mapped_column_name`, `map_member`, `map_id`, `schema_id`, `connection_id`, `baseline_xpath`, `candidate_xpath`, `single_cell_member`, `single_cell`, `single_cell_xpath`, `total_cell`, `total_formula`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | One relationship-backed XML Map table-column binding changes its raw XPath while map/schema/file-binding declarations, a sheet-level single-cell mapping, table cells, formulas, calculation properties, and every package member except its table part remain unchanged. The validator does not access a file, validate a schema, import/export XML, materialize data, calculate, or infer a client result. |
 | `sheet_visibility_changed` | `sheet`, `baseline_state`, `candidate_state` | The stored sheet state changes. |
 | `formula_cell_unlocked` | `sheet`, `cell` | A formula cell is explicitly unlocked while its sheet remains protected. |
 | `workbook_structure_lock_removed` | `baseline_lock_structure`, `candidate_lock_structure`, `hidden_sheet`, `hidden_sheet_state`, `formula_sheet`, `formula_cell`, `formula` | Raw `workbookProtection/@lockStructure` changes exactly from `true` to `false` while the declared hidden-sheet state, formula, calculation properties, and every package member except `xl/workbook.xml` remain unchanged. The validator does not test a password, encryption, authorization, or client behavior. |
@@ -417,6 +421,28 @@ range, compares the view part after erasing only the terminal list value,
 and requires that part to be the sole package difference. It does not
 activate, render, or apply a view, calculate a subtotal, infer visible rows,
 or claim a client display or print outcome.
+
+## XML Maps
+
+Microsoft's [XML overview](https://support.microsoft.com/en-US/Excel/overview-of-xml-in-excel)
+describes XML Maps as the relationship between worksheet mapped cells or XML
+tables and XML schema elements, used by Excel import/export workflows. The
+[XmlMap API](https://learn.microsoft.com/en-us/office/vba/api/excel.xmlmap)
+exposes corresponding Import and Export operations. A table-column XPath is
+therefore a reviewable data-contract declaration even when its current cells
+and formulas remain unchanged.
+
+The WCAB XML Map pair keeps the synthetic local MapInfo/XSD declaration,
+file-binding metadata, `Export!E2` single-cell mapping, table values,
+`Export!D2=SUM(InvoiceLines[Net amount])`, and
+`Dashboard!B4=Export!$D$2` fixed. Its only difference is the `InvoiceLines`
+table's `Net amount` `xmlColumnPr/@xpath`: `NetAmount` becomes
+`TaxAmount`. The raw
+validator follows the local workbook-to-map and worksheet-to-table/single-cell
+relationships, compares the mapped table part with only the XPath erased,
+and requires `xl/tables/table1.xml` to be the sole differing package member.
+It does not access a file, validate the schema, import/export XML, materialize
+data, calculate a result, or claim a client outcome.
 
 ## DrawingML chart-series source references
 

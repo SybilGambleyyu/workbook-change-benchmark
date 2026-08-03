@@ -336,6 +336,16 @@ the adapter—then establishes the `North`-to-`South` criterion, base
 AutoFilter binding, stable formulas, direct dashboard edge, and
 Named-Sheet-View-part-only package change. Neither report activates, renders,
 or applies the view, calculates a subtotal, or infers visible rows. The adapter
+requires one exact `xml_mapping_controls_changed` record and `FF049` for the
+XML Map case. FormulaFence's redacted profile must retain one map part,
+schema, map, data binding, file binding, table binding, and sheet-level
+single-cell binding with no unrecognized metadata, while only its binding
+material flag changes. It does not expose the schema, map, XPath, table, or
+cell values. WCAB's raw validator independently establishes the synthetic
+`NetAmount`-to-`TaxAmount` XPath transition, stable map/schema/bindings and
+formulas, direct dashboard edge, and table-part-only package change. Neither
+report accesses a file, imports or exports XML, materializes data, or infers
+a result. The adapter
 leaves `review`
 as `null`: FormulaFence surfaces evidence but does not impose WCAB's reference
 policy as a universal approval decision. Any intentionally unmapped fact or coverage expectation

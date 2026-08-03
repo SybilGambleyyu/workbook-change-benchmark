@@ -22,7 +22,7 @@ configs:
 # Workbook Change Assurance Benchmark (WCAB)
 
 WCAB is an open, deterministic benchmark for tools that review changes to
-Excel workbooks. Each of its 41 synthetic cases supplies baseline/candidate
+Excel workbooks. Each of its 42 synthetic cases supplies baseline/candidate
 fixtures, explicit observable change facts, a reference review
 disposition, documented coverage boundaries, and—in relevant cases—a
 machine-matchable coverage expectation.
@@ -78,7 +78,10 @@ serial-date-system setting change with a stable numeric serial, date format,
 and local formulas, an active worksheet AutoFilter criterion change with a
 stable `SUBTOTAL` and downstream formula, a relationship-backed saved Excel
 Named Sheet View whose alternate list criterion changes while its base
-AutoFilter, cells, formulas, and dashboard dependency stay fixed, and a small
+AutoFilter, cells, formulas, and dashboard dependency stay fixed, a local XML
+Map whose mapped invoice-table column XPath changes while its map/schema/file
+binding declarations, single-cell mapping, cells, formulas, and dashboard
+dependency stay fixed, and a small
 multi-workbook
 portfolio.
 
@@ -91,6 +94,10 @@ and report unsupported features explicitly.
 The Named Sheet View case records stored OOXML only: it does not activate,
 render, or apply the view; calculate a subtotal; infer visible rows; or claim
 a client display or print outcome.
+
+The XML Map case records a stored import/export binding only: it does not
+access a file, validate a schema, import or export XML, materialize data,
+calculate a result, or claim client behavior.
 
 ## Use
 

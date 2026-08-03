@@ -186,6 +186,30 @@ terminal list value, and requires that part to be the sole package change.
 It does not activate, render, or apply the view; calculate a subtotal; infer
 visible rows; or claim a display or print outcome.
 
+## XML Maps can retarget a workbook's import/export contract without a cell edit
+
+Microsoft's [XML overview](https://support.microsoft.com/en-US/Excel/overview-of-xml-in-excel)
+explains that XML Maps bind schema elements to worksheet cells or XML tables
+and are used to import and export mapped XML data. It distinguishes
+single-mapped cells from repeating XML tables, and describes XML Maps as the
+relationship between mapped cells and schema elements. The
+[Excel XmlMap API](https://learn.microsoft.com/en-us/office/vba/api/excel.xmlmap)
+likewise exposes Import and Export operations over a workbook XML map. That
+makes the raw mapping target—not only the current worksheet value—a material
+review surface for data-exchange templates.
+
+WCAB 0.27 isolates that boundary in one original synthetic package. The
+`Export!A1:B3` `InvoiceLines` XML table has one mapped `Net amount` column;
+only its raw `xmlColumnPr/@xpath` moves from a `NetAmount` to a `TaxAmount`
+path. The local XML Map, embedded XSD declaration, local file-binding
+metadata, stable `Export!E2` single-cell mapping, table values,
+`Export!D2=SUM(InvoiceLines[Net amount])`, and
+`Dashboard!B4=Export!$D$2` remain fixed. The validator follows only local
+workbook and worksheet relationships, compares the table part after erasing
+the XPath, and requires that table part to be the sole package change. It
+does not access a file, validate the schema, import or export XML, materialize
+data, calculate formulas, or claim a client result.
+
 ## PivotTable cache refresh requests without a cell edit
 
 Microsoft documents an option to [refresh PivotTable data when a workbook

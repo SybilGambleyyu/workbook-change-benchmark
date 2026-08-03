@@ -13,7 +13,7 @@ import json
 import re
 import struct
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Any
@@ -86,6 +86,33 @@ _NAMED_SHEET_VIEW_FILTER_ID = "{00000000-0001-0000-0000-000000000000}"
 _NAMED_SHEET_VIEW_ID = "{11111111-1111-1111-1111-111111111111}"
 _NAMED_SHEET_VIEW_COLUMN_ID = "{22222222-2222-2222-2222-222222222222}"
 _NAMED_SHEET_VIEW_NAME = "WCAB regional review"
+_XML_SCHEMA_NS = "http://www.w3.org/2001/XMLSchema"
+_XML_MAP_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/xmlMaps"
+_TABLE_SINGLE_CELLS_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/tableSingleCells"
+_XML_MAP_EXPORT_SHEET = "Export"
+_XML_MAP_DASHBOARD_SHEET = "Dashboard"
+_XML_MAP_TABLE_NAME = "InvoiceLines"
+_XML_MAP_TABLE_REF = "A1:B3"
+_XML_MAP_TABLE_MEMBER = "xl/tables/table1.xml"
+_XML_MAP_MEMBER = "xl/xmlMaps.xml"
+_XML_MAP_SINGLE_CELL_MEMBER = "xl/singleCellTables/singleCellTable1.xml"
+_XML_MAP_WORKBOOK_RELATIONSHIP_ID = "rIdWCABXmlMaps"
+_XML_MAP_SINGLE_CELL_RELATIONSHIP_ID = "rIdWCABXmlMappingSingleCells"
+_XML_MAP_CONNECTION_ID = 7
+_XML_MAP_ID = 1
+_XML_MAP_SCHEMA_ID = "WCAB-INVOICE-EXPORT"
+_XML_MAP_NAMESPACE = "urn:wcab:invoice-export"
+_XML_MAP_ROOT_ELEMENT = "Invoice"
+_XML_MAP_TABLE_COLUMN_ID = 2
+_XML_MAP_TABLE_COLUMN_NAME = "Net amount"
+_XML_MAP_BASELINE_XPATH = "/wcab:Invoice/wcab:Line/wcab:NetAmount"
+_XML_MAP_CANDIDATE_XPATH = "/wcab:Invoice/wcab:Line/wcab:TaxAmount"
+_XML_MAP_SINGLE_CELL = "E2"
+_XML_MAP_SINGLE_CELL_XPATH = "/wcab:Invoice/wcab:Header/wcab:AsOf"
+_XML_MAP_TOTAL_CELL = "D2"
+_XML_MAP_TOTAL_FORMULA = "=SUM(InvoiceLines[Net amount])"
+_XML_MAP_DASHBOARD_CELL = "B4"
+_XML_MAP_DASHBOARD_FORMULA = "=Export!$D$2"
 _PIVOT_CACHE_ID = 1
 _PIVOT_CACHE_SOURCE_SHEET = "Source"
 _PIVOT_CACHE_SOURCE_REF = "A1:B5"
@@ -690,6 +717,286 @@ def _inject_named_sheet_view_filter(path: Path, *, filter_value: str) -> None:
             {
                 "PartName": f"/{_NAMED_SHEET_VIEW_MEMBER}",
                 "ContentType": _NAMED_SHEET_VIEW_CONTENT_TYPE,
+            },
+        )
+        members["[Content_Types].xml"] = serialize(content_types)
+
+    _rewrite_xlsx_parts(path, mutate)
+
+
+def _xml_map_table_workbook() -> Workbook:
+    """Build a stable table whose XML-map binding is added after saving.
+
+    The ordinary workbook contains one invoice-line table, a table-driven
+    total, and a dashboard consumer.  A raw OOXML step adds a conventional XML
+    Map binding because openpyxl does not author XML Maps.  The pair later
+    retargets just that binding; it does not import, export, calculate, or
+    otherwise materialize data through the map.
+    """
+
+    workbook = Workbook()
+    _configure_workbook(workbook, title="WCAB XML Map export fixture")
+    export = workbook.active
+    export.title = _XML_MAP_EXPORT_SHEET
+    export.append(["Item", _XML_MAP_TABLE_COLUMN_NAME])
+    export.append(["Consulting", 120])
+    export.append(["Software", 180])
+    table = Table(displayName=_XML_MAP_TABLE_NAME, ref=_XML_MAP_TABLE_REF)
+    table.tableStyleInfo = TableStyleInfo(name="TableStyleMedium2", showRowStripes=True)
+    export.add_table(table)
+    export["D1"] = "Mapped table total"
+    export[_XML_MAP_TOTAL_CELL] = _XML_MAP_TOTAL_FORMULA
+    export["E1"] = "Export as of"
+    export[_XML_MAP_SINGLE_CELL] = date(2024, 1, 1)
+    export[_XML_MAP_SINGLE_CELL].number_format = "yyyy-mm-dd"
+
+    dashboard = workbook.create_sheet(_XML_MAP_DASHBOARD_SHEET)
+    dashboard["A4"] = "Mapped invoice total"
+    dashboard[_XML_MAP_DASHBOARD_CELL] = _XML_MAP_DASHBOARD_FORMULA
+    return workbook
+
+
+def _inject_xml_map_table_binding(path: Path, *, xpath: str) -> None:
+    """Attach one local XML Map package and mapped table-column declaration.
+
+    The fixture has a stable schema, map declaration, file binding, and
+    worksheet single-cell mapping.  Only the mapped table column's XPath is
+    supplied by the caller.  All names and targets are synthetic and local;
+    this routine records a package declaration rather than contacting a file,
+    executing an import/export operation, or opening an Excel client.
+    """
+
+    if xpath not in {_XML_MAP_BASELINE_XPATH, _XML_MAP_CANDIDATE_XPATH}:
+        raise ValueError(f"unsupported XML Map XPath {xpath!r}")
+
+    def serialize(element: ElementTree.Element) -> bytes:
+        return ElementTree.tostring(element, encoding="utf-8", xml_declaration=True)
+
+    def mutate(members: dict[str, bytes]) -> None:
+        relationship_tag = f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationship"
+        table_relationship = f"{_DOCUMENT_RELATIONSHIPS_NS}/table"
+        table_column_tag = f"{{{_SPREADSHEETML_NS}}}tableColumn"
+        table_columns_tag = f"{{{_SPREADSHEETML_NS}}}tableColumns"
+        relationship_id_attribute = f"{{{_DOCUMENT_RELATIONSHIPS_NS}}}id"
+
+        table = ElementTree.fromstring(members[_XML_MAP_TABLE_MEMBER])
+        if table.tag != f"{{{_SPREADSHEETML_NS}}}table":
+            raise ValueError("XML Map fixture table has an unexpected root")
+        if (
+            table.get("displayName") != _XML_MAP_TABLE_NAME
+            or table.get("ref") != _XML_MAP_TABLE_REF
+        ):
+            raise ValueError("XML Map fixture table metadata is unexpected")
+        if "tableType" in table.attrib or "connectionId" in table.attrib:
+            raise ValueError("XML Map fixture table already has XML mapping metadata")
+        table_columns = table.findall(table_columns_tag)
+        if len(table_columns) != 1:
+            raise ValueError("XML Map fixture requires one tableColumns element")
+        columns = table_columns[0].findall(table_column_tag)
+        if len(columns) != 2:
+            raise ValueError("XML Map fixture requires two table columns")
+        mapped_column = columns[1]
+        if (
+            mapped_column.get("id") != str(_XML_MAP_TABLE_COLUMN_ID)
+            or mapped_column.get("name") != _XML_MAP_TABLE_COLUMN_NAME
+            or len(mapped_column) != 0
+        ):
+            raise ValueError("XML Map fixture has an unexpected mapped table column")
+        table.set("tableType", "xml")
+        table.set("connectionId", str(_XML_MAP_CONNECTION_ID))
+        ElementTree.SubElement(
+            mapped_column,
+            f"{{{_SPREADSHEETML_NS}}}xmlColumnPr",
+            {
+                "mapId": str(_XML_MAP_ID),
+                "xpath": xpath,
+                "denormalized": "false",
+                "xmlDataType": "double",
+            },
+        )
+        members[_XML_MAP_TABLE_MEMBER] = serialize(table)
+
+        map_info = ElementTree.Element(
+            f"{{{_SPREADSHEETML_NS}}}MapInfo",
+            {"SelectionNamespaces": f"xmlns:wcab='{_XML_MAP_NAMESPACE}'"},
+        )
+        schema = ElementTree.SubElement(
+            map_info,
+            f"{{{_SPREADSHEETML_NS}}}Schema",
+            {"ID": _XML_MAP_SCHEMA_ID},
+        )
+        schema_definition = ElementTree.SubElement(
+            schema,
+            f"{{{_XML_SCHEMA_NS}}}schema",
+            {
+                "targetNamespace": _XML_MAP_NAMESPACE,
+                "elementFormDefault": "qualified",
+            },
+        )
+        invoice = ElementTree.SubElement(
+            schema_definition,
+            f"{{{_XML_SCHEMA_NS}}}element",
+            {"name": _XML_MAP_ROOT_ELEMENT},
+        )
+        invoice_type = ElementTree.SubElement(invoice, f"{{{_XML_SCHEMA_NS}}}complexType")
+        invoice_sequence = ElementTree.SubElement(invoice_type, f"{{{_XML_SCHEMA_NS}}}sequence")
+        header = ElementTree.SubElement(
+            invoice_sequence,
+            f"{{{_XML_SCHEMA_NS}}}element",
+            {"name": "Header", "minOccurs": "0"},
+        )
+        header_type = ElementTree.SubElement(header, f"{{{_XML_SCHEMA_NS}}}complexType")
+        header_sequence = ElementTree.SubElement(header_type, f"{{{_XML_SCHEMA_NS}}}sequence")
+        ElementTree.SubElement(
+            header_sequence,
+            f"{{{_XML_SCHEMA_NS}}}element",
+            {"name": "AsOf", "type": "xs:date"},
+        )
+        line = ElementTree.SubElement(
+            invoice_sequence,
+            f"{{{_XML_SCHEMA_NS}}}element",
+            {"name": "Line", "minOccurs": "0", "maxOccurs": "unbounded"},
+        )
+        line_type = ElementTree.SubElement(line, f"{{{_XML_SCHEMA_NS}}}complexType")
+        line_sequence = ElementTree.SubElement(line_type, f"{{{_XML_SCHEMA_NS}}}sequence")
+        for name, data_type in (
+            ("Item", "xs:string"),
+            ("NetAmount", "xs:decimal"),
+            ("TaxAmount", "xs:decimal"),
+        ):
+            ElementTree.SubElement(
+                line_sequence,
+                f"{{{_XML_SCHEMA_NS}}}element",
+                {"name": name, "type": data_type},
+            )
+        xml_map = ElementTree.SubElement(
+            map_info,
+            f"{{{_SPREADSHEETML_NS}}}Map",
+            {
+                "ID": str(_XML_MAP_ID),
+                "Name": "WCAB invoice export",
+                "RootElement": _XML_MAP_ROOT_ELEMENT,
+                "SchemaID": _XML_MAP_SCHEMA_ID,
+                "ShowImportExportValidationErrors": "false",
+                "AutoFit": "true",
+                "Append": "false",
+                "PreserveSortAFLayout": "true",
+                "PreserveFormat": "true",
+            },
+        )
+        ElementTree.SubElement(
+            xml_map,
+            f"{{{_SPREADSHEETML_NS}}}DataBinding",
+            {
+                "DataBindingName": "WCAB invoice export binding",
+                "FileBinding": "true",
+                "ConnectionID": str(_XML_MAP_CONNECTION_ID),
+                "FileBindingName": "wcab-invoice-export.xml",
+                "DataBindingLoadMode": "1",
+            },
+        )
+        members[_XML_MAP_MEMBER] = serialize(map_info)
+
+        workbook_relationships = ElementTree.fromstring(members["xl/_rels/workbook.xml.rels"])
+        if any(
+            relationship.get("Type") == _XML_MAP_RELATIONSHIP
+            for relationship in workbook_relationships.findall(relationship_tag)
+        ):
+            raise ValueError("XML Map fixture already has an XML Maps relationship")
+        ElementTree.SubElement(
+            workbook_relationships,
+            relationship_tag,
+            {
+                "Id": _XML_MAP_WORKBOOK_RELATIONSHIP_ID,
+                "Type": _XML_MAP_RELATIONSHIP,
+                "Target": "xmlMaps.xml",
+            },
+        )
+        members["xl/_rels/workbook.xml.rels"] = serialize(workbook_relationships)
+
+        worksheet_relationships_member = "xl/worksheets/_rels/sheet1.xml.rels"
+        worksheet_relationships = ElementTree.fromstring(members[worksheet_relationships_member])
+        table_relationships = [
+            relationship
+            for relationship in worksheet_relationships.findall(relationship_tag)
+            if relationship.get("Type") == table_relationship
+        ]
+        if len(table_relationships) != 1:
+            raise ValueError("XML Map fixture cannot find its worksheet table relationship")
+        if any(
+            relationship.get("Type") == _TABLE_SINGLE_CELLS_RELATIONSHIP
+            for relationship in worksheet_relationships.findall(relationship_tag)
+        ):
+            raise ValueError("XML Map fixture already has a single-cell relationship")
+
+        worksheet = ElementTree.fromstring(members["xl/worksheets/sheet1.xml"])
+        table_parts = worksheet.findall(f"{{{_SPREADSHEETML_NS}}}tableParts")
+        if len(table_parts) != 1 or len(table_parts[0]) != 1:
+            raise ValueError("XML Map fixture requires one worksheet table part")
+        table_part_relationship_id = table_parts[0][0].get(relationship_id_attribute)
+        if table_part_relationship_id != table_relationships[0].get("Id"):
+            raise ValueError("XML Map fixture table relationship does not bind the worksheet")
+
+        single_cells = ElementTree.Element(f"{{{_SPREADSHEETML_NS}}}singleXmlCells")
+        single_cell = ElementTree.SubElement(
+            single_cells,
+            f"{{{_SPREADSHEETML_NS}}}singleXmlCell",
+            {
+                "id": "1",
+                "r": _XML_MAP_SINGLE_CELL,
+                "connectionId": str(_XML_MAP_CONNECTION_ID),
+            },
+        )
+        cell_properties = ElementTree.SubElement(
+            single_cell,
+            f"{{{_SPREADSHEETML_NS}}}xmlCellPr",
+            {
+                "id": "1",
+                "uniqueName": "WCAB invoice export as of",
+            },
+        )
+        ElementTree.SubElement(
+            cell_properties,
+            f"{{{_SPREADSHEETML_NS}}}xmlPr",
+            {
+                "mapId": str(_XML_MAP_ID),
+                "xpath": _XML_MAP_SINGLE_CELL_XPATH,
+                "xmlDataType": "date",
+            },
+        )
+        members[_XML_MAP_SINGLE_CELL_MEMBER] = serialize(single_cells)
+        ElementTree.SubElement(
+            worksheet_relationships,
+            relationship_tag,
+            {
+                "Id": _XML_MAP_SINGLE_CELL_RELATIONSHIP_ID,
+                "Type": _TABLE_SINGLE_CELLS_RELATIONSHIP,
+                "Target": "../singleCellTables/singleCellTable1.xml",
+            },
+        )
+        members[worksheet_relationships_member] = serialize(worksheet_relationships)
+
+        content_types = ElementTree.fromstring(members["[Content_Types].xml"])
+        default_tag = f"{{{_CONTENT_TYPES_NS}}}Default"
+        override_tag = f"{{{_CONTENT_TYPES_NS}}}Override"
+        xml_defaults = [
+            default
+            for default in content_types.findall(default_tag)
+            if default.get("Extension") == "xml" and default.get("ContentType") == "application/xml"
+        ]
+        if len(xml_defaults) != 1:
+            raise ValueError("XML Map fixture requires one generic XML content type")
+        if any(
+            override.get("PartName") == f"/{_XML_MAP_SINGLE_CELL_MEMBER}"
+            for override in content_types.findall(override_tag)
+        ):
+            raise ValueError("XML Map fixture already has a single-cell content-type override")
+        ElementTree.SubElement(
+            content_types,
+            override_tag,
+            {
+                "PartName": f"/{_XML_MAP_SINGLE_CELL_MEMBER}",
+                "ContentType": "application/vnd.ms-excel.tableSingleCells",
             },
         )
         members["[Content_Types].xml"] = serialize(content_types)
@@ -2920,6 +3227,69 @@ def _build_operations_named_sheet_view_filter_criterion(root: Path) -> None:
     )
 
 
+def _build_operations_xml_map_table_xpath(root: Path) -> None:
+    """Build a mapped-table retargeting pair with stable local model context."""
+
+    directory = root / "operations" / "xml_map_table_xpath_retargeted"
+    directory.mkdir(parents=True, exist_ok=True)
+    baseline = directory / "baseline.xlsx"
+    candidate = directory / "candidate.xlsx"
+    _save_workbook(_xml_map_table_workbook(), baseline)
+    _save_workbook(_xml_map_table_workbook(), candidate)
+    _inject_xml_map_table_binding(baseline, xpath=_XML_MAP_BASELINE_XPATH)
+    _inject_xml_map_table_binding(candidate, xpath=_XML_MAP_CANDIDATE_XPATH)
+    _write_json(
+        directory / "truth.json",
+        _truth(
+            case_id="operations.xml_map_table_xpath_retargeted",
+            title="An XML-mapped invoice table field is retargeted for export",
+            family="operations",
+            review_expectation="review",
+            facts=[
+                {
+                    "kind": "xml_map_table_column_xpath_retargeted",
+                    "sheet": _XML_MAP_EXPORT_SHEET,
+                    "table_member": _XML_MAP_TABLE_MEMBER,
+                    "table_name": _XML_MAP_TABLE_NAME,
+                    "table_ref": _XML_MAP_TABLE_REF,
+                    "mapped_column_id": _XML_MAP_TABLE_COLUMN_ID,
+                    "mapped_column_name": _XML_MAP_TABLE_COLUMN_NAME,
+                    "map_member": _XML_MAP_MEMBER,
+                    "map_id": _XML_MAP_ID,
+                    "schema_id": _XML_MAP_SCHEMA_ID,
+                    "connection_id": _XML_MAP_CONNECTION_ID,
+                    "baseline_xpath": _XML_MAP_BASELINE_XPATH,
+                    "candidate_xpath": _XML_MAP_CANDIDATE_XPATH,
+                    "single_cell_member": _XML_MAP_SINGLE_CELL_MEMBER,
+                    "single_cell": _XML_MAP_SINGLE_CELL,
+                    "single_cell_xpath": _XML_MAP_SINGLE_CELL_XPATH,
+                    "total_cell": _XML_MAP_TOTAL_CELL,
+                    "total_formula": _XML_MAP_TOTAL_FORMULA,
+                    "dashboard_sheet": _XML_MAP_DASHBOARD_SHEET,
+                    "dashboard_cell": _XML_MAP_DASHBOARD_CELL,
+                    "dashboard_formula": _XML_MAP_DASHBOARD_FORMULA,
+                }
+            ],
+            must_reach=[
+                {
+                    "source": {"sheet": _XML_MAP_EXPORT_SHEET, "cell": _XML_MAP_TOTAL_CELL},
+                    "targets": [
+                        {
+                            "sheet": _XML_MAP_DASHBOARD_SHEET,
+                            "cell": _XML_MAP_DASHBOARD_CELL,
+                        }
+                    ],
+                }
+            ],
+            coverage=[
+                "The pair changes only one raw xmlColumnPr XPath in xl/tables/table1.xml. It does not edit table cells, ordinary formulas, map/schema declarations, the stable file binding, the sheet-level single-cell mapping, calculation properties, or any other package member.",
+                "The observed contract is a stored XML Map table-field binding used by Excel import/export workflows. WCAB does not access a file, validate a schema, import or export XML, materialize mapped data, calculate formulas, or claim an Excel-client result.",
+                "The direct Export!D2-to-Dashboard!B4 dependency is a stable lower-bound context for the stored table data. It is not evidence that an import or export uses either XML path or that future mapped values would produce a particular total.",
+            ],
+        ),
+    )
+
+
 def _build_governance_visibility(root: Path) -> None:
     def mutate(workbook: Workbook) -> None:
         workbook["ReviewControls"].sheet_state = "visible"
@@ -4032,6 +4402,7 @@ _BUILDERS: tuple[Callable[[Path], None], ...] = (
     _build_operations_ignored_error_suppression,
     _build_operations_auto_filter_criteria,
     _build_operations_named_sheet_view_filter_criterion,
+    _build_operations_xml_map_table_xpath,
     _build_governance_visibility,
     _build_governance_protection,
     _build_governance_workbook_structure_protection,
@@ -4075,6 +4446,7 @@ CASE_IDS = (
     "operations.ignored_error_formula_range_suppressed",
     "operations.auto_filter_criteria_changed",
     "operations.named_sheet_view_filter_criterion_changed",
+    "operations.xml_map_table_xpath_retargeted",
     "governance.hidden_sheet_revealed",
     "governance.formula_cell_unlocked",
     "governance.workbook_structure_lock_removed",

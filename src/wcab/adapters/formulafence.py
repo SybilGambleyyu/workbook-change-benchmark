@@ -37,6 +37,7 @@ _FACT_TO_CHANGE: dict[str, tuple[str, str | None]] = {
     "ignored_error_rule_added": ("ignored_error_controls_changed", None),
     "auto_filter_criteria_changed": ("filter_visibility_controls_changed", None),
     "named_sheet_view_filter_criterion_changed": ("named_sheet_views_changed", None),
+    "xml_map_table_column_xpath_retargeted": ("xml_mapping_controls_changed", None),
     "sheet_visibility_changed": ("sheet_visibility_changed", None),
     "formula_cell_unlocked": ("cell_protection_assignments_changed", None),
     "workbook_structure_lock_removed": ("workbook_protection_changed", None),
@@ -476,6 +477,78 @@ def _named_sheet_view_filter_criterion_finding_observed(
     return finding.get(
         "rule_id"
     ) == "FF038" and _named_sheet_view_filter_criterion_details_observed(
+        finding.get("details"), fact
+    )
+
+
+def _xml_map_table_xpath_details_observed(details: Any, fact: dict[str, Any]) -> bool:
+    """Require FormulaFence's exact redacted XML Map binding evidence.
+
+    FormulaFence intentionally omits schema IDs, map names, XPath values, table
+    identifiers, and bound cells. WCAB's raw validator establishes those
+    generated-package details independently and requires this one-map,
+    one-table-binding, one-single-cell-binding FF049 profile.
+    """
+
+    if (
+        fact.get("sheet") != "Export"
+        or fact.get("table_member") != "xl/tables/table1.xml"
+        or fact.get("table_name") != "InvoiceLines"
+        or fact.get("table_ref") != "A1:B3"
+        or fact.get("mapped_column_id") != 2
+        or fact.get("mapped_column_name") != "Net amount"
+        or fact.get("map_member") != "xl/xmlMaps.xml"
+        or fact.get("map_id") != 1
+        or fact.get("schema_id") != "WCAB-INVOICE-EXPORT"
+        or fact.get("connection_id") != 7
+        or fact.get("baseline_xpath") != "/wcab:Invoice/wcab:Line/wcab:NetAmount"
+        or fact.get("candidate_xpath") != "/wcab:Invoice/wcab:Line/wcab:TaxAmount"
+        or fact.get("single_cell_member") != "xl/singleCellTables/singleCellTable1.xml"
+        or fact.get("single_cell") != "E2"
+        or fact.get("single_cell_xpath") != "/wcab:Invoice/wcab:Header/wcab:AsOf"
+        or fact.get("total_cell") != "D2"
+        or fact.get("total_formula") != "=SUM(InvoiceLines[Net amount])"
+        or fact.get("dashboard_sheet") != "Dashboard"
+        or fact.get("dashboard_cell") != "B4"
+        or fact.get("dashboard_formula") != "=Export!$D$2"
+        or not isinstance(details, dict)
+    ):
+        return False
+    expected_profile = {
+        "present": True,
+        "xml_map_part_count": 1,
+        "xml_schema_count": 1,
+        "xml_map_count": 1,
+        "xml_map_data_binding_count": 1,
+        "xml_map_file_binding_count": 1,
+        "xml_map_connection_binding_count": 1,
+        "table_xml_binding_part_count": 1,
+        "table_xml_binding_count": 1,
+        "single_cell_xml_binding_sheet_count": 1,
+        "single_cell_xml_binding_part_count": 1,
+        "single_cell_xml_binding_count": 1,
+        "single_cell_xml_connection_binding_count": 1,
+        "unrecognized_xml_mapping_count": 0,
+    }
+    return details == {
+        "before": expected_profile,
+        "after": expected_profile,
+        "xml_mapping_bindings_changed": True,
+    }
+
+
+def _xml_map_table_xpath_observed(change: dict[str, Any], fact: dict[str, Any]) -> bool:
+    """Match FormulaFence's stored XML Map control record."""
+
+    return change.get("kind") == "xml_mapping_controls_changed" and (
+        _xml_map_table_xpath_details_observed(change.get("details"), fact)
+    )
+
+
+def _xml_map_table_xpath_finding_observed(finding: dict[str, Any], fact: dict[str, Any]) -> bool:
+    """Require FormulaFence's matching high-severity XML Map finding."""
+
+    return finding.get("rule_id") == "FF049" and _xml_map_table_xpath_details_observed(
         finding.get("details"), fact
     )
 
@@ -1594,6 +1667,16 @@ def evaluate_diff_case(case_dir: str | Path, *, executable: str = "formulafence"
                 if isinstance(change, dict)
             ) and any(
                 _named_sheet_view_filter_criterion_finding_observed(finding, fact)
+                for finding in findings
+                if isinstance(finding, dict)
+            )
+        if kind == "xml_map_table_column_xpath_retargeted":
+            observed = any(
+                _xml_map_table_xpath_observed(change, fact)
+                for change in changes
+                if isinstance(change, dict)
+            ) and any(
+                _xml_map_table_xpath_finding_observed(finding, fact)
                 for finding in findings
                 if isinstance(finding, dict)
             )

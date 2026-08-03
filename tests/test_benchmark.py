@@ -75,6 +75,30 @@ def _named_sheet_view_filter_criterion_details() -> dict[str, object]:
     }
 
 
+def _xml_map_table_xpath_details() -> dict[str, object]:
+    profile = {
+        "present": True,
+        "xml_map_part_count": 1,
+        "xml_schema_count": 1,
+        "xml_map_count": 1,
+        "xml_map_data_binding_count": 1,
+        "xml_map_file_binding_count": 1,
+        "xml_map_connection_binding_count": 1,
+        "table_xml_binding_part_count": 1,
+        "table_xml_binding_count": 1,
+        "single_cell_xml_binding_sheet_count": 1,
+        "single_cell_xml_binding_part_count": 1,
+        "single_cell_xml_binding_count": 1,
+        "single_cell_xml_connection_binding_count": 1,
+        "unrecognized_xml_mapping_count": 0,
+    }
+    return {
+        "before": dict(profile),
+        "after": dict(profile),
+        "xml_mapping_bindings_changed": True,
+    }
+
+
 def _pivot_cache_refresh_details() -> dict[str, object]:
     before = {
         "background_query": False,
@@ -540,6 +564,34 @@ def test_committed_manifest_matches_fixture_tree() -> None:
             "dashboard_sheet": "Dashboard",
             "dashboard_cell": "B4",
             "dashboard_formula": "=Report!$D$2",
+        }
+    ]
+    xml_map_row = next(
+        row for row in rows if row["id"] == "operations.xml_map_table_xpath_retargeted"
+    )
+    assert xml_map_row["facts"] == [
+        {
+            "kind": "xml_map_table_column_xpath_retargeted",
+            "sheet": "Export",
+            "table_member": "xl/tables/table1.xml",
+            "table_name": "InvoiceLines",
+            "table_ref": "A1:B3",
+            "mapped_column_id": 2,
+            "mapped_column_name": "Net amount",
+            "map_member": "xl/xmlMaps.xml",
+            "map_id": 1,
+            "schema_id": "WCAB-INVOICE-EXPORT",
+            "connection_id": 7,
+            "baseline_xpath": "/wcab:Invoice/wcab:Line/wcab:NetAmount",
+            "candidate_xpath": "/wcab:Invoice/wcab:Line/wcab:TaxAmount",
+            "single_cell_member": "xl/singleCellTables/singleCellTable1.xml",
+            "single_cell": "E2",
+            "single_cell_xpath": "/wcab:Invoice/wcab:Header/wcab:AsOf",
+            "total_cell": "D2",
+            "total_formula": "=SUM(InvoiceLines[Net amount])",
+            "dashboard_sheet": "Dashboard",
+            "dashboard_cell": "B4",
+            "dashboard_formula": "=Export!$D$2",
         }
     ]
     data_validation_list_source_row = next(
@@ -2373,6 +2425,82 @@ def test_named_sheet_view_filter_criterion_pair_changes_only_its_view_part(tmp_p
     ] == ["xl/namedSheetViews/namedSheetView1.xml"]
 
 
+def test_validator_rejects_a_false_xml_map_table_xpath_fact(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "operations" / "xml_map_table_xpath_retargeted"
+    truth_path = case / "truth.json"
+    truth = json.loads(truth_path.read_text(encoding="utf-8"))
+    truth["facts"][0]["candidate_xpath"] = "/wcab:Invoice/wcab:Line/wcab:GrossAmount"
+    truth_path.write_text(json.dumps(truth), encoding="utf-8")
+    assert validate_case(case)
+
+
+def test_validator_rejects_a_corrupted_xml_map_table_xpath(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = fixture_root / "operations" / "xml_map_table_xpath_retargeted" / "candidate.xlsx"
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    namespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    table = ElementTree.fromstring(members["xl/tables/table1.xml"])
+    binding = table.find(f".//{{{namespace}}}xmlColumnPr")
+    assert binding is not None
+    binding.set("xpath", "/wcab:Invoice/wcab:Line/wcab:NetAmount")
+    members["xl/tables/table1.xml"] = ElementTree.tostring(
+        table, encoding="utf-8", xml_declaration=True
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_validator_rejects_an_unrelated_xml_map_change(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = fixture_root / "operations" / "xml_map_table_xpath_retargeted" / "candidate.xlsx"
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    namespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    map_info = ElementTree.fromstring(members["xl/xmlMaps.xml"])
+    xml_map = map_info.find(f"{{{namespace}}}Map")
+    assert xml_map is not None
+    xml_map.set("Append", "true")
+    members["xl/xmlMaps.xml"] = ElementTree.tostring(
+        map_info, encoding="utf-8", xml_declaration=True
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_xml_map_table_xpath_pair_changes_only_its_table_part(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "operations" / "xml_map_table_xpath_retargeted"
+    with ZipFile(case / "baseline.xlsx") as baseline, ZipFile(case / "candidate.xlsx") as candidate:
+        assert baseline.testzip() is None
+        assert candidate.testzip() is None
+        baseline_members = {
+            entry.filename: baseline.read(entry.filename) for entry in baseline.infolist()
+        }
+        candidate_members = {
+            entry.filename: candidate.read(entry.filename) for entry in candidate.infolist()
+        }
+    assert set(baseline_members) == set(candidate_members)
+    assert [
+        member
+        for member in sorted(baseline_members)
+        if baseline_members[member] != candidate_members[member]
+    ] == ["xl/tables/table1.xml"]
+
+
 def test_validator_rejects_a_false_workbook_date_system_fact(tmp_path: Path) -> None:
     fixture_root = tmp_path / "fixtures"
     build_all(fixture_root)
@@ -3199,6 +3327,92 @@ def test_formulafence_adapter_requires_the_named_sheet_view_finding(
     assert result["status"] == "missed"
     assert result["matched"] == []
     assert result["missed"] == ["named_sheet_view_filter_criterion_changed"]
+
+
+def test_formulafence_adapter_maps_the_exact_xml_map_table_xpath_change(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _xml_map_table_xpath_details()
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "xml_mapping_controls_changed",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF049", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "operations" / "xml_map_table_xpath_retargeted"
+    )
+    assert result["status"] == "matched"
+    assert result["matched"] == ["xml_map_table_column_xpath_retargeted"]
+
+
+def test_formulafence_adapter_rejects_an_inexact_xml_map_table_xpath_change(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _xml_map_table_xpath_details()
+        details["after"]["single_cell_xml_binding_count"] = 2
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "xml_mapping_controls_changed",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF049", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "operations" / "xml_map_table_xpath_retargeted"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["xml_map_table_column_xpath_retargeted"]
+
+
+def test_formulafence_adapter_requires_the_xml_map_table_xpath_finding(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "xml_mapping_controls_changed",
+                    "location": None,
+                    "details": _xml_map_table_xpath_details(),
+                }
+            ],
+            "findings": [],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "operations" / "xml_map_table_xpath_retargeted"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["xml_map_table_column_xpath_retargeted"]
 
 
 def test_formulafence_adapter_maps_the_exact_data_validation_list_source_change(

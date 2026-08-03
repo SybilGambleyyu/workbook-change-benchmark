@@ -36,6 +36,9 @@ _NAMED_SHEET_VIEW_NS = "http://schemas.microsoft.com/office/spreadsheetml/2019/n
 _NAMED_SHEET_VIEW_RELATIONSHIP = (
     "http://schemas.microsoft.com/office/2019/04/relationships/namedSheetView"
 )
+_XML_SCHEMA_NS = "http://www.w3.org/2001/XMLSchema"
+_XML_MAP_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/xmlMaps"
+_TABLE_SINGLE_CELLS_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/tableSingleCells"
 _SLICER_CACHE_RELATIONSHIP = "http://schemas.microsoft.com/office/2007/relationships/slicerCache"
 _DATA_MASHUP_NS = "http://schemas.microsoft.com/DataMashup"
 _POWER_QUERY_CUSTOM_XML_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/customXml"
@@ -1684,6 +1687,227 @@ def _named_sheet_view_without_filter_criterion(path: Path, sheet_name: str) -> b
     return ElementTree.tostring(named_views, encoding="utf-8", xml_declaration=True)
 
 
+def _raw_xml_map_table_binding_state(path: Path, sheet_name: str) -> dict[str, Any] | None:
+    """Read WCAB's compact XML Map table and single-cell binding graph.
+
+    This reader follows only local package relationships written by the
+    generated fixture. It establishes a stored schema/map/table binding, not
+    whether Excel can validate the schema, open a bound file, import or export
+    XML, materialize data, calculate formulas, or render a result.
+    """
+
+    try:
+        with ZipFile(path) as archive:
+            workbook_relationships = ElementTree.fromstring(
+                archive.read("xl/_rels/workbook.xml.rels")
+            )
+            relationship_tag = f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationship"
+            map_relationships = [
+                relationship
+                for relationship in workbook_relationships.findall(relationship_tag)
+                if relationship.get("Type") == _XML_MAP_RELATIONSHIP
+            ]
+            if len(map_relationships) != 1:
+                return None
+            map_relationship_id = map_relationships[0].get("Id")
+            if not isinstance(map_relationship_id, str):
+                return None
+            map_member = _relationship_part_member(
+                workbook_relationships,
+                map_relationship_id,
+                "xl/workbook.xml",
+                relationship_type=_XML_MAP_RELATIONSHIP,
+            )
+            if map_member is None:
+                return None
+            map_info = ElementTree.fromstring(archive.read(map_member))
+
+            worksheet_member = _worksheet_member_for_sheet(archive, sheet_name)
+            if worksheet_member is None:
+                return None
+            worksheet = ElementTree.fromstring(archive.read(worksheet_member))
+            table_parts = worksheet.findall(f"{{{_SPREADSHEETML_NS}}}tableParts")
+            if len(table_parts) != 1 or len(table_parts[0]) != 1:
+                return None
+            table_part = table_parts[0][0]
+            if table_part.tag != f"{{{_SPREADSHEETML_NS}}}tablePart":
+                return None
+            table_relationship_id = table_part.get(f"{{{_DOCUMENT_RELATIONSHIPS_NS}}}id")
+            if not isinstance(table_relationship_id, str):
+                return None
+
+            worksheet_directory, worksheet_filename = worksheet_member.rsplit("/", maxsplit=1)
+            worksheet_relationships_member = (
+                f"{worksheet_directory}/_rels/{worksheet_filename}.rels"
+            )
+            worksheet_relationships = ElementTree.fromstring(
+                archive.read(worksheet_relationships_member)
+            )
+            table_member = _relationship_part_member(
+                worksheet_relationships,
+                table_relationship_id,
+                worksheet_member,
+                relationship_type=f"{_DOCUMENT_RELATIONSHIPS_NS}/table",
+            )
+            if table_member is None:
+                return None
+            table_relationships = [
+                relationship
+                for relationship in worksheet_relationships.findall(relationship_tag)
+                if relationship.get("Id") == table_relationship_id
+                and relationship.get("Type") == f"{_DOCUMENT_RELATIONSHIPS_NS}/table"
+            ]
+            if len(table_relationships) != 1:
+                return None
+            table = ElementTree.fromstring(archive.read(table_member))
+
+            single_cell_relationships = [
+                relationship
+                for relationship in worksheet_relationships.findall(relationship_tag)
+                if relationship.get("Type") == _TABLE_SINGLE_CELLS_RELATIONSHIP
+            ]
+            if len(single_cell_relationships) != 1:
+                return None
+            single_cell_relationship_id = single_cell_relationships[0].get("Id")
+            if not isinstance(single_cell_relationship_id, str):
+                return None
+            single_cell_member = _relationship_part_member(
+                worksheet_relationships,
+                single_cell_relationship_id,
+                worksheet_member,
+                relationship_type=_TABLE_SINGLE_CELLS_RELATIONSHIP,
+            )
+            if single_cell_member is None:
+                return None
+            single_cells = ElementTree.fromstring(archive.read(single_cell_member))
+
+            content_types = ElementTree.fromstring(archive.read("[Content_Types].xml"))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError, ValueError):
+        return None
+
+    spreadsheet = _SPREADSHEETML_NS
+    if map_info.tag != f"{{{spreadsheet}}}MapInfo":
+        return None
+    schemas = map_info.findall(f"{{{spreadsheet}}}Schema")
+    maps = map_info.findall(f"{{{spreadsheet}}}Map")
+    if len(schemas) != 1 or len(maps) != 1 or len(map_info) != 2:
+        return None
+    schema = schemas[0]
+    schema_definitions = schema.findall(f"{{{_XML_SCHEMA_NS}}}schema")
+    if len(schema_definitions) != 1 or len(schema) != 1:
+        return None
+    schema_definition = schema_definitions[0]
+    root_elements = schema_definition.findall(f"{{{_XML_SCHEMA_NS}}}element")
+    if len(root_elements) != 1 or len(schema_definition) != 1:
+        return None
+    schema_element_attributes = tuple(
+        tuple(sorted(element.attrib.items()))
+        for element in schema_definition.iter(f"{{{_XML_SCHEMA_NS}}}element")
+    )
+
+    xml_map = maps[0]
+    data_bindings = xml_map.findall(f"{{{spreadsheet}}}DataBinding")
+    if len(data_bindings) != 1 or len(xml_map) != 1:
+        return None
+
+    if table.tag != f"{{{spreadsheet}}}table":
+        return None
+    table_columns = table.findall(f"{{{spreadsheet}}}tableColumns")
+    if len(table_columns) != 1:
+        return None
+    columns = table_columns[0].findall(f"{{{spreadsheet}}}tableColumn")
+    if len(columns) != 2:
+        return None
+    mapped_columns = [
+        (column, bindings[0])
+        for column in columns
+        if len(bindings := column.findall(f"{{{spreadsheet}}}xmlColumnPr")) == 1
+    ]
+    if len(mapped_columns) != 1:
+        return None
+    mapped_column, xml_column = mapped_columns[0]
+    if len(xml_column) != 0:
+        return None
+
+    if single_cells.tag != f"{{{spreadsheet}}}singleXmlCells" or single_cells.attrib:
+        return None
+    single_cells_children = single_cells.findall(f"{{{spreadsheet}}}singleXmlCell")
+    if len(single_cells_children) != 1 or len(single_cells) != 1:
+        return None
+    single_cell = single_cells_children[0]
+    cell_properties = single_cell.findall(f"{{{spreadsheet}}}xmlCellPr")
+    if len(cell_properties) != 1 or len(single_cell) != 1:
+        return None
+    cell_property = cell_properties[0]
+    cell_bindings = cell_property.findall(f"{{{spreadsheet}}}xmlPr")
+    if len(cell_bindings) != 1 or len(cell_property) != 1 or len(cell_bindings[0]) != 0:
+        return None
+
+    default_tag = f"{{{_CONTENT_TYPES_NS}}}Default"
+    override_tag = f"{{{_CONTENT_TYPES_NS}}}Override"
+    xml_defaults = [
+        default
+        for default in content_types.findall(default_tag)
+        if default.get("Extension") == "xml" and default.get("ContentType") == "application/xml"
+    ]
+    single_cell_content_types = [
+        override
+        for override in content_types.findall(override_tag)
+        if override.get("PartName") == f"/{single_cell_member}"
+    ]
+    if len(xml_defaults) != 1 or len(single_cell_content_types) != 1:
+        return None
+
+    return {
+        "worksheet_member": worksheet_member,
+        "worksheet_relationships_member": worksheet_relationships_member,
+        "worksheet_table_part_attributes": tuple(sorted(table_part.attrib.items())),
+        "table_relationship_attributes": tuple(sorted(table_relationships[0].attrib.items())),
+        "table_member": table_member,
+        "table_attributes": tuple(sorted(table.attrib.items())),
+        "table_column_attributes": tuple(sorted(mapped_column.attrib.items())),
+        "xml_column_attributes": tuple(sorted(xml_column.attrib.items())),
+        "map_relationship_attributes": tuple(sorted(map_relationships[0].attrib.items())),
+        "map_member": map_member,
+        "map_info_attributes": tuple(sorted(map_info.attrib.items())),
+        "schema_attributes": tuple(sorted(schema.attrib.items())),
+        "schema_definition_attributes": tuple(sorted(schema_definition.attrib.items())),
+        "schema_root_element_attributes": tuple(sorted(root_elements[0].attrib.items())),
+        "schema_element_attributes": schema_element_attributes,
+        "map_attributes": tuple(sorted(xml_map.attrib.items())),
+        "data_binding_attributes": tuple(sorted(data_bindings[0].attrib.items())),
+        "single_cell_relationship_attributes": tuple(
+            sorted(single_cell_relationships[0].attrib.items())
+        ),
+        "single_cell_member": single_cell_member,
+        "single_cell_attributes": tuple(sorted(single_cell.attrib.items())),
+        "single_cell_property_attributes": tuple(sorted(cell_property.attrib.items())),
+        "single_cell_binding_attributes": tuple(sorted(cell_bindings[0].attrib.items())),
+        "xml_default_attributes": tuple(sorted(xml_defaults[0].attrib.items())),
+        "single_cell_content_type_attributes": tuple(
+            sorted(single_cell_content_types[0].attrib.items())
+        ),
+    }
+
+
+def _xml_map_table_without_xpath(path: Path, sheet_name: str) -> bytes | None:
+    """Return the generated mapped Table part with only its XPath erased."""
+
+    state = _raw_xml_map_table_binding_state(path, sheet_name)
+    if state is None:
+        return None
+    try:
+        with ZipFile(path) as archive:
+            table = ElementTree.fromstring(archive.read(state["table_member"]))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    bindings = table.findall(f".//{{{_SPREADSHEETML_NS}}}xmlColumnPr")
+    if len(bindings) != 1 or "xpath" not in bindings[0].attrib:
+        return None
+    bindings[0].attrib.pop("xpath")
+    return ElementTree.tostring(table, encoding="utf-8", xml_declaration=True)
+
+
 def _raw_ignored_error_formula_range_state(path: Path, sheet_name: str) -> dict[str, Any] | None:
     """Read WCAB's compact worksheet-local ignored-error declaration.
 
@@ -2415,6 +2639,229 @@ def _validate_fact(
             == {"xl/namedSheetViews/namedSheetView1.xml"}
             and _calculation_properties(baseline_path) == _calculation_properties(candidate_path),
             f"{truth['id']}: expected only one relationship-backed Named Sheet View criterion North -> South with stable base filter, formulas, and package boundary",
+            errors,
+        )
+        return
+
+    if kind == "xml_map_table_column_xpath_retargeted":
+        sheet_name = fact.get("sheet")
+        total_cell = fact.get("total_cell")
+        dashboard_sheet = fact.get("dashboard_sheet")
+        dashboard_cell = fact.get("dashboard_cell")
+        single_cell = fact.get("single_cell")
+        before_state = (
+            _raw_xml_map_table_binding_state(baseline_path, sheet_name)
+            if isinstance(sheet_name, str)
+            else None
+        )
+        after_state = (
+            _raw_xml_map_table_binding_state(candidate_path, sheet_name)
+            if isinstance(sheet_name, str)
+            else None
+        )
+        before_total = (
+            _raw_cell_state(baseline_path, sheet_name, total_cell)
+            if isinstance(sheet_name, str) and isinstance(total_cell, str)
+            else None
+        )
+        after_total = (
+            _raw_cell_state(candidate_path, sheet_name, total_cell)
+            if isinstance(sheet_name, str) and isinstance(total_cell, str)
+            else None
+        )
+        before_dashboard = (
+            _raw_cell_state(baseline_path, dashboard_sheet, dashboard_cell)
+            if isinstance(dashboard_sheet, str) and isinstance(dashboard_cell, str)
+            else None
+        )
+        after_dashboard = (
+            _raw_cell_state(candidate_path, dashboard_sheet, dashboard_cell)
+            if isinstance(dashboard_sheet, str) and isinstance(dashboard_cell, str)
+            else None
+        )
+        before_single_cell = (
+            _raw_cell_state(baseline_path, sheet_name, single_cell)
+            if isinstance(sheet_name, str) and isinstance(single_cell, str)
+            else None
+        )
+        after_single_cell = (
+            _raw_cell_state(candidate_path, sheet_name, single_cell)
+            if isinstance(sheet_name, str) and isinstance(single_cell, str)
+            else None
+        )
+        expected_table_part_attributes = (
+            (
+                "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id",
+                "rId1",
+            ),
+        )
+        expected_table_relationship_attributes = (
+            ("Id", "rId1"),
+            ("Target", "/xl/tables/table1.xml"),
+            (
+                "Type",
+                "http://schemas.openxmlformats.org/officeDocument/2006/relationships/table",
+            ),
+        )
+        expected_table_attributes = (
+            ("connectionId", "7"),
+            ("displayName", "InvoiceLines"),
+            ("headerRowCount", "1"),
+            ("id", "1"),
+            ("name", "InvoiceLines"),
+            ("ref", "A1:B3"),
+            ("tableType", "xml"),
+        )
+        expected_map_relationship_attributes = (
+            ("Id", "rIdWCABXmlMaps"),
+            ("Target", "xmlMaps.xml"),
+            (
+                "Type",
+                "http://schemas.openxmlformats.org/officeDocument/2006/relationships/xmlMaps",
+            ),
+        )
+        expected_map_attributes = (
+            ("Append", "false"),
+            ("AutoFit", "true"),
+            ("ID", "1"),
+            ("Name", "WCAB invoice export"),
+            ("PreserveFormat", "true"),
+            ("PreserveSortAFLayout", "true"),
+            ("RootElement", "Invoice"),
+            ("SchemaID", "WCAB-INVOICE-EXPORT"),
+            ("ShowImportExportValidationErrors", "false"),
+        )
+        expected_data_binding_attributes = (
+            ("ConnectionID", "7"),
+            ("DataBindingLoadMode", "1"),
+            ("DataBindingName", "WCAB invoice export binding"),
+            ("FileBinding", "true"),
+            ("FileBindingName", "wcab-invoice-export.xml"),
+        )
+        expected_single_cell_relationship_attributes = (
+            ("Id", "rIdWCABXmlMappingSingleCells"),
+            ("Target", "../singleCellTables/singleCellTable1.xml"),
+            (
+                "Type",
+                "http://schemas.openxmlformats.org/officeDocument/2006/relationships/"
+                "tableSingleCells",
+            ),
+        )
+        expected_single_cell_content_type_attributes = (
+            ("ContentType", "application/vnd.ms-excel.tableSingleCells"),
+            ("PartName", "/xl/singleCellTables/singleCellTable1.xml"),
+        )
+        expected_common_state = {
+            "worksheet_member": "xl/worksheets/sheet1.xml",
+            "worksheet_relationships_member": "xl/worksheets/_rels/sheet1.xml.rels",
+            "worksheet_table_part_attributes": expected_table_part_attributes,
+            "table_relationship_attributes": expected_table_relationship_attributes,
+            "table_member": "xl/tables/table1.xml",
+            "table_attributes": expected_table_attributes,
+            "table_column_attributes": (("id", "2"), ("name", "Net amount")),
+            "map_relationship_attributes": expected_map_relationship_attributes,
+            "map_member": "xl/xmlMaps.xml",
+            "map_info_attributes": (
+                ("SelectionNamespaces", "xmlns:wcab='urn:wcab:invoice-export'"),
+            ),
+            "schema_attributes": (("ID", "WCAB-INVOICE-EXPORT"),),
+            "schema_definition_attributes": (
+                ("elementFormDefault", "qualified"),
+                ("targetNamespace", "urn:wcab:invoice-export"),
+            ),
+            "schema_root_element_attributes": (("name", "Invoice"),),
+            "schema_element_attributes": (
+                (("name", "Invoice"),),
+                (("minOccurs", "0"), ("name", "Header")),
+                (("name", "AsOf"), ("type", "xs:date")),
+                (
+                    ("maxOccurs", "unbounded"),
+                    ("minOccurs", "0"),
+                    ("name", "Line"),
+                ),
+                (("name", "Item"), ("type", "xs:string")),
+                (("name", "NetAmount"), ("type", "xs:decimal")),
+                (("name", "TaxAmount"), ("type", "xs:decimal")),
+            ),
+            "map_attributes": expected_map_attributes,
+            "data_binding_attributes": expected_data_binding_attributes,
+            "single_cell_relationship_attributes": expected_single_cell_relationship_attributes,
+            "single_cell_member": "xl/singleCellTables/singleCellTable1.xml",
+            "single_cell_attributes": (("connectionId", "7"), ("id", "1"), ("r", "E2")),
+            "single_cell_property_attributes": (
+                ("id", "1"),
+                ("uniqueName", "WCAB invoice export as of"),
+            ),
+            "single_cell_binding_attributes": (
+                ("mapId", "1"),
+                ("xmlDataType", "date"),
+                ("xpath", "/wcab:Invoice/wcab:Header/wcab:AsOf"),
+            ),
+            "xml_default_attributes": (
+                ("ContentType", "application/xml"),
+                ("Extension", "xml"),
+            ),
+            "single_cell_content_type_attributes": expected_single_cell_content_type_attributes,
+        }
+        expected_before_xml_column_attributes = (
+            ("denormalized", "false"),
+            ("mapId", "1"),
+            ("xmlDataType", "double"),
+            ("xpath", "/wcab:Invoice/wcab:Line/wcab:NetAmount"),
+        )
+        expected_after_xml_column_attributes = (
+            ("denormalized", "false"),
+            ("mapId", "1"),
+            ("xmlDataType", "double"),
+            ("xpath", "/wcab:Invoice/wcab:Line/wcab:TaxAmount"),
+        )
+        _assert(
+            sheet_name == "Export"
+            and fact.get("table_member") == "xl/tables/table1.xml"
+            and fact.get("table_name") == "InvoiceLines"
+            and fact.get("table_ref") == "A1:B3"
+            and fact.get("mapped_column_id") == 2
+            and fact.get("mapped_column_name") == "Net amount"
+            and fact.get("map_member") == "xl/xmlMaps.xml"
+            and fact.get("map_id") == 1
+            and fact.get("schema_id") == "WCAB-INVOICE-EXPORT"
+            and fact.get("connection_id") == 7
+            and fact.get("baseline_xpath") == "/wcab:Invoice/wcab:Line/wcab:NetAmount"
+            and fact.get("candidate_xpath") == "/wcab:Invoice/wcab:Line/wcab:TaxAmount"
+            and fact.get("single_cell_member") == "xl/singleCellTables/singleCellTable1.xml"
+            and single_cell == "E2"
+            and fact.get("single_cell_xpath") == "/wcab:Invoice/wcab:Header/wcab:AsOf"
+            and total_cell == "D2"
+            and fact.get("total_formula") == "=SUM(InvoiceLines[Net amount])"
+            and dashboard_sheet == "Dashboard"
+            and dashboard_cell == "B4"
+            and fact.get("dashboard_formula") == "=Export!$D$2"
+            and sheet_name in baseline.sheetnames
+            and sheet_name in candidate.sheetnames
+            and dashboard_sheet in baseline.sheetnames
+            and dashboard_sheet in candidate.sheetnames
+            and before_state is not None
+            and after_state is not None
+            and all(before_state.get(key) == value for key, value in expected_common_state.items())
+            and all(after_state.get(key) == value for key, value in expected_common_state.items())
+            and before_state["xml_column_attributes"] == expected_before_xml_column_attributes
+            and after_state["xml_column_attributes"] == expected_after_xml_column_attributes
+            and before_total is not None
+            and before_total == after_total
+            and before_total[0] == "xl/worksheets/sheet1.xml"
+            and before_total[3] == "=SUM(InvoiceLines[Net amount])"
+            and before_dashboard is not None
+            and before_dashboard == after_dashboard
+            and before_dashboard[0] == "xl/worksheets/sheet2.xml"
+            and before_dashboard[3] == "=Export!$D$2"
+            and before_single_cell is not None
+            and before_single_cell == after_single_cell
+            and before_single_cell[0] == "xl/worksheets/sheet1.xml"
+            and _xml_map_table_without_xpath(baseline_path, sheet_name)
+            == _xml_map_table_without_xpath(candidate_path, sheet_name)
+            and _xlsx_member_differences(baseline_path, candidate_path) == {"xl/tables/table1.xml"}
+            and _calculation_properties(baseline_path) == _calculation_properties(candidate_path),
+            f"{truth['id']}: expected only one XML Map table-column XPath NetAmount -> TaxAmount with stable map, schema, cells, formulas, and package boundary",
             errors,
         )
         return

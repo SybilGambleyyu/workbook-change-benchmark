@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.27.0 — 2026-08-03
+
+- Add a deterministic XML Map table-binding case. Its synthetic invoice
+  table's mapped Net amount column changes from the NetAmount XPath to the
+  TaxAmount XPath, while the local map/schema/file-binding declarations,
+  single-cell mapping, visible cells, table total, and dashboard formula
+  remain unchanged.
+- Add the exact xml_map_table_column_xpath_retargeted fact, a narrow
+  raw-OOXML relationship-graph validator, table-part-only package isolation
+  check, and corruption regressions. WCAB records a stored import/export
+  mapping contract; it does not open a file, validate a schema, import or
+  export XML, materialize data, calculate a result, or claim client behavior.
+- Extend the optional FormulaFence adapter to require its exact redacted
+  xml_mapping_controls_changed profile and high-severity FF049, while WCAB
+  independently establishes the map, schema, table-column XPath, single-cell
+  binding, stable formulas, and package boundary.
+
 ## 0.26.0 — 2026-08-03
 
 - Add a deterministic, relationship-backed Excel Named Sheet View case. Its

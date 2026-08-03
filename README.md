@@ -34,7 +34,7 @@ gates, static analyzers, and agent workflows that propose workbook edits.
 
 ## Scope and non-goals
 
-Version `0.26` covers formula-to-value replacements, formula reference drift,
+Version `0.27` covers formula-to-value replacements, formula reference drift,
 value changes with downstream effects, external formula references, named
 ranges, data validation, conditional formatting, sheet visibility, direct cell
 and workbook-structure protection, calculation settings, static cycles,
@@ -71,6 +71,13 @@ AutoFilter remains untouched and `Report!D2=SUBTOTAL(109,B2:B5)` plus its
 `Dashboard!B4` consumer remain unchanged. It records the stored alternate
 review lens only: it does not activate or render a view, apply a filter,
 calculate a subtotal, infer visible rows, or claim a display or print outcome.
+It also covers a local XML Map whose `InvoiceLines[Net amount]` table-column
+binding changes from a synthetic invoice `NetAmount` XPath to `TaxAmount`
+while its map/schema/file-binding declarations, sheet-level single-cell
+mapping, visible cells, table total, and dashboard formula remain unchanged.
+It records a stored import/export data contract only: it does not access a
+file, validate a schema, import or export XML, materialize data, calculate a
+result, or claim client behavior.
 It also covers a local worksheet-backed PivotTable cache whose raw
 `refreshOnLoad` control changes from false to true while its source cells,
 stored `Report!A1:B2` display cells, and `Dashboard!B4=Report!$B$2` consumer
@@ -380,6 +387,15 @@ validator independently proves the `North`-to-`South` criterion, the stable
 base-AutoFilter binding and formulas, and the Named-Sheet-View-part-only
 package change. Neither layer activates, renders, or applies the view,
 calculates a subtotal, or infers visible rows.
+For the XML Map case, it requires FormulaFence
+`xml_mapping_controls_changed` evidence and `FF049` with one map part,
+schema, map, data binding, file binding, table binding, and sheet-level
+single-cell binding; no unrecognized mapping metadata; and only its binding
+material flag. FormulaFence deliberately redacts schema, map, XPath, table,
+and cell values. WCAB's raw validator independently proves the synthetic
+`NetAmount`-to-`TaxAmount` XPath transition, stable map/schema/bindings and
+formulas, and the table-part-only package change. Neither layer accesses a
+file, imports or exports XML, materializes data, or infers a result.
 The adapter keeps unmapped facts explicit; it does not treat the benign
 structural-rewrite annotation as a generic semantic-equivalence claim.
 

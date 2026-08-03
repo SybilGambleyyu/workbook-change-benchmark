@@ -1,0 +1,53 @@
+{
+  "coverage": [
+    "The pair changes only one raw xmlColumnPr XPath in xl/tables/table1.xml. It does not edit table cells, ordinary formulas, map/schema declarations, the stable file binding, the sheet-level single-cell mapping, calculation properties, or any other package member.",
+    "The observed contract is a stored XML Map table-field binding used by Excel import/export workflows. WCAB does not access a file, validate a schema, import or export XML, materialize mapped data, calculate formulas, or claim an Excel-client result.",
+    "The direct Export!D2-to-Dashboard!B4 dependency is a stable lower-bound context for the stored table data. It is not evidence that an import or export uses either XML path or that future mapped values would produce a particular total."
+  ],
+  "coverage_expectations": [],
+  "facts": [
+    {
+      "baseline_xpath": "/wcab:Invoice/wcab:Line/wcab:NetAmount",
+      "candidate_xpath": "/wcab:Invoice/wcab:Line/wcab:TaxAmount",
+      "connection_id": 7,
+      "dashboard_cell": "B4",
+      "dashboard_formula": "=Export!$D$2",
+      "dashboard_sheet": "Dashboard",
+      "kind": "xml_map_table_column_xpath_retargeted",
+      "map_id": 1,
+      "map_member": "xl/xmlMaps.xml",
+      "mapped_column_id": 2,
+      "mapped_column_name": "Net amount",
+      "schema_id": "WCAB-INVOICE-EXPORT",
+      "sheet": "Export",
+      "single_cell": "E2",
+      "single_cell_member": "xl/singleCellTables/singleCellTable1.xml",
+      "single_cell_xpath": "/wcab:Invoice/wcab:Header/wcab:AsOf",
+      "table_member": "xl/tables/table1.xml",
+      "table_name": "InvoiceLines",
+      "table_ref": "A1:B3",
+      "total_cell": "D2",
+      "total_formula": "=SUM(InvoiceLines[Net amount])"
+    }
+  ],
+  "family": "operations",
+  "id": "operations.xml_map_table_xpath_retargeted",
+  "must_reach": [
+    {
+      "source": {
+        "cell": "D2",
+        "sheet": "Export"
+      },
+      "targets": [
+        {
+          "cell": "B4",
+          "sheet": "Dashboard"
+        }
+      ]
+    }
+  ],
+  "review_expectation": "review",
+  "schema_version": 3,
+  "title": "An XML-mapped invoice table field is retargeted for export",
+  "topology": "pair"
+}
