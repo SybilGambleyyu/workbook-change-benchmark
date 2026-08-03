@@ -22,7 +22,7 @@ configs:
 # Workbook Change Assurance Benchmark (WCAB)
 
 WCAB is an open, deterministic benchmark for tools that review changes to
-Excel workbooks. Each of its 44 synthetic cases supplies baseline/candidate
+Excel workbooks. Each of its 46 synthetic cases supplies baseline/candidate
 fixtures, explicit observable change facts, a reference review
 disposition, documented coverage boundaries, and—in relevant cases—a
 machine-matchable coverage expectation.
@@ -90,7 +90,9 @@ internal relationship, opaque synthetic bytes, ordinary cells, and formula
 context stay fixed, a relationship-backed QueryTable whose own raw
 `refreshOnLoad` request moves from false to true while its fixed internal
 connection control, non-routable synthetic endpoint, saved cells, and formula
-context stay fixed, and a small
+context stay fixed, a relationship-backed worksheet cell hyperlink whose
+visible text and local formula context stay fixed while its one external OOXML
+relationship target moves between reserved `example.invalid` URLs, and a small
 multi-workbook
 portfolio.
 
@@ -119,6 +121,10 @@ it does not claim that the opaque synthetic object loads successfully.
 The QueryTable case records a stored package property only: it does not open a
 connection, fetch a URL, refresh a query, materialize rows, calculate a
 workbook, or claim that a client refreshes successfully.
+
+The cell-hyperlink case records a stored package relationship only: it does not
+resolve, open, fetch, visit, execute, calculate, or otherwise interact with a
+target, and does not claim that a client follows it.
 
 ## Use
 

@@ -191,6 +191,16 @@ direct worksheet-to-QueryTable and workbook-to-connections graph, stable saved
 cells/formulas, fixed connection-level control, and QueryTable-part-only
 package change. Neither report opens a connection, fetches a URL, refreshes a
 query, materializes rows, calculates a workbook, or claims a client result.
+For the cell-hyperlink target case, it requires one exact
+`cell_hyperlink_controls_changed` record and matching `FF047`: FormulaFence's
+redacted profile must retain one external worksheet hyperlink binding and no
+location, display, tooltip, or unrecognized declaration while its binding,
+definition material, and relationship material all change. FormulaFence does
+not expose the raw target or relationship ID. WCAB's raw validator—not the
+adapter—then establishes the fixed ID/type/mode, exact reserved-target
+transition, stable visible text/formulas, and relationship-part-only package
+change. Neither report resolves, opens, fetches, visits, or otherwise interacts
+with a target, or claims that a client follows it.
 For the PivotCache case,
 it requires one exact
 `pivot_cache_refresh_controls_changed` record and matching `FF023`: its

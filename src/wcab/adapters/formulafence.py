@@ -60,6 +60,7 @@ _FACT_TO_CHANGE: dict[str, tuple[str, str | None]] = {
         None,
     ),
     "query_table_refresh_on_load_changed": ("query_table_refresh_controls_changed", None),
+    "cell_hyperlink_target_changed": ("cell_hyperlink_controls_changed", None),
     "pivot_cache_refresh_on_load_changed": ("pivot_cache_refresh_controls_changed", None),
     "external_workbook_link_update_policy_changed": (
         "external_data_refresh_settings_changed",
@@ -294,6 +295,65 @@ def _query_table_refresh_finding_observed(finding: dict[str, Any], fact: dict[st
     """Require FormulaFence's matching high-severity QueryTable finding."""
 
     return finding.get("rule_id") == "FF023" and _query_table_refresh_details_observed(
+        finding.get("details"), fact
+    )
+
+
+def _cell_hyperlink_target_details_observed(details: Any, fact: dict[str, Any]) -> bool:
+    """Require FormulaFence's exact one-external-cell-hyperlink profile.
+
+    FormulaFence intentionally keeps the target and relationship ID out of its
+    public report. WCAB validates those raw values itself, then maps only the
+    tool's precise structural evidence and corresponding finding.
+    """
+
+    if (
+        fact.get("sheet") != "Inputs"
+        or fact.get("cell") != "B2"
+        or fact.get("cell_value") != "Open vendor portal"
+        or fact.get("worksheet_member") != "xl/worksheets/sheet1.xml"
+        or fact.get("worksheet_relationships_member") != "xl/worksheets/_rels/sheet1.xml.rels"
+        or fact.get("relationship_id") != "rIdWCABVendorPortal"
+        or fact.get("relationship_type")
+        != "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink"
+        or fact.get("target_mode") != "External"
+        or fact.get("baseline_target") != "https://approved.example.invalid/wcab-vendor-portal"
+        or fact.get("candidate_target") != "https://review.example.invalid/wcab-vendor-portal"
+        or not isinstance(details, dict)
+    ):
+        return False
+    profile = {
+        "present": True,
+        "worksheet_hyperlink_sheet_count": 1,
+        "hyperlink_count": 1,
+        "hyperlink_with_location_count": 0,
+        "hyperlink_with_display_count": 0,
+        "hyperlink_with_tooltip_count": 0,
+        "binding_relationship_count": 1,
+        "external_relationship_count": 1,
+        "unrecognized_cell_hyperlink_count": 0,
+    }
+    return details == {
+        "before": profile,
+        "after": profile,
+        "cell_hyperlink_binding_changed": True,
+        "cell_hyperlink_definition_material_changed": True,
+        "cell_hyperlink_relationships_changed": True,
+    }
+
+
+def _cell_hyperlink_target_observed(change: dict[str, Any], fact: dict[str, Any]) -> bool:
+    """Match FormulaFence's dedicated cell-hyperlink control record."""
+
+    return change.get("kind") == "cell_hyperlink_controls_changed" and (
+        _cell_hyperlink_target_details_observed(change.get("details"), fact)
+    )
+
+
+def _cell_hyperlink_target_finding_observed(finding: dict[str, Any], fact: dict[str, Any]) -> bool:
+    """Require FormulaFence's matching high-severity hyperlink finding."""
+
+    return finding.get("rule_id") == "FF047" and _cell_hyperlink_target_details_observed(
         finding.get("details"), fact
     )
 
@@ -1850,6 +1910,16 @@ def evaluate_diff_case(case_dir: str | Path, *, executable: str = "formulafence"
                 if isinstance(change, dict)
             ) and any(
                 _query_table_refresh_finding_observed(finding, fact)
+                for finding in findings
+                if isinstance(finding, dict)
+            )
+        if kind == "cell_hyperlink_target_changed":
+            observed = any(
+                _cell_hyperlink_target_observed(change, fact)
+                for change in changes
+                if isinstance(change, dict)
+            ) and any(
+                _cell_hyperlink_target_finding_observed(finding, fact)
                 for finding in findings
                 if isinstance(finding, dict)
             )

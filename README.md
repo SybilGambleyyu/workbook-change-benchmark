@@ -34,7 +34,7 @@ gates, static analyzers, and agent workflows that propose workbook edits.
 
 ## Scope and non-goals
 
-Version `0.30` covers formula-to-value replacements, formula reference drift,
+Version `0.31` covers formula-to-value replacements, formula reference drift,
 value changes with downstream effects, external formula references, named
 ranges, data validation, conditional formatting, sheet visibility, direct cell
 and workbook-structure protection, calculation settings, static cycles,
@@ -52,6 +52,13 @@ its synthetic non-routable endpoint, saved cells, and
 unchanged. It records a stored request only: it does not open a connection,
 fetch a URL, refresh a query, materialize rows, calculate a workbook, or claim
 that a client refreshes successfully.
+It also covers one relationship-backed worksheet cell hyperlink whose visible
+`Inputs!B2` text, local `Inputs!B2 → Summary!B2 → Dashboard!B4` formula
+context, calculation properties, and worksheet XML remain unchanged while its
+one external OOXML hyperlink relationship target moves between two reserved
+`example.invalid` URLs. It records the stored target only: it does not resolve,
+open, fetch, visit, execute, calculate, or otherwise interact with either URL,
+and does not claim that a client follows it.
 It also covers
 an unchanged direct circular formula that enables iterative calculation, an
 unchanged precision-sensitive input and formula whose calculation switches to
@@ -293,6 +300,14 @@ worksheet-to-QueryTable and workbook-to-connections graph, stable saved cells
 and direct formula path, and QueryTable-part-only package change. Neither layer
 opens a connection, fetches a URL, refreshes a query, materializes rows,
 calculates a workbook, or claims that a client refreshes successfully.
+For the cell-hyperlink target case, it separately requires FormulaFence's exact
+redacted `cell_hyperlink_controls_changed` profile and matching `FF047`,
+including one external hyperlink binding and no location, display, tooltip, or
+unrecognized declaration. FormulaFence deliberately does not expose the target
+or relationship ID; WCAB's raw validator independently proves their exact
+transition, stable visible cells/formulas, and relationship-part-only package
+change. Neither layer resolves, opens, fetches, visits, or otherwise interacts
+with the target, or claims that a client follows it.
 It separately requires FormulaFence's `pivot_cache_refresh_controls_changed`
 record and matching `FF023` for the local worksheet-backed PivotCache case.
 FormulaFence safely reports cache-level source/control metadata rather than

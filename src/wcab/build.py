@@ -201,6 +201,21 @@ _QUERY_TABLE_SUMMARY_FORMULA = "=ImportedData!$B$2"
 _QUERY_TABLE_DASHBOARD_SHEET = "Dashboard"
 _QUERY_TABLE_DASHBOARD_CELL = "B4"
 _QUERY_TABLE_DASHBOARD_FORMULA = "=Summary!$B$2"
+_CELL_HYPERLINK_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/hyperlink"
+_CELL_HYPERLINK_SHEET = "Inputs"
+_CELL_HYPERLINK_CELL = "B2"
+_CELL_HYPERLINK_VALUE = "Open vendor portal"
+_CELL_HYPERLINK_WORKSHEET_MEMBER = "xl/worksheets/sheet1.xml"
+_CELL_HYPERLINK_WORKSHEET_RELATIONSHIPS_MEMBER = "xl/worksheets/_rels/sheet1.xml.rels"
+_CELL_HYPERLINK_RELATIONSHIP_ID = "rIdWCABVendorPortal"
+_CELL_HYPERLINK_BASELINE_TARGET = "https://approved.example.invalid/wcab-vendor-portal"
+_CELL_HYPERLINK_CANDIDATE_TARGET = "https://review.example.invalid/wcab-vendor-portal"
+_CELL_HYPERLINK_SUMMARY_SHEET = "Summary"
+_CELL_HYPERLINK_SUMMARY_CELL = "B2"
+_CELL_HYPERLINK_SUMMARY_FORMULA = "=Inputs!$B$2"
+_CELL_HYPERLINK_DASHBOARD_SHEET = "Dashboard"
+_CELL_HYPERLINK_DASHBOARD_CELL = "B4"
+_CELL_HYPERLINK_DASHBOARD_FORMULA = "=Summary!$B$2"
 _PIVOT_CACHE_ID = 1
 _PIVOT_CACHE_SOURCE_SHEET = "Source"
 _PIVOT_CACHE_SOURCE_REF = "A1:B5"
@@ -1687,6 +1702,33 @@ def _query_table_refresh_workbook() -> Workbook:
     return workbook
 
 
+def _cell_hyperlink_target_workbook() -> Workbook:
+    """Build stable visible cells around one external worksheet hyperlink.
+
+    The initial URL is normalized in raw OOXML after saving, so the generated
+    pair can differ only in the worksheet relationship's ``Target``. The
+    ordinary cell value and its formula consumers remain intentionally fixed.
+    Generation never resolves, opens, or fetches the stored URL.
+    """
+
+    workbook = Workbook()
+    _configure_workbook(workbook, title="WCAB cell hyperlink target fixture")
+    inputs = workbook.active
+    inputs.title = _CELL_HYPERLINK_SHEET
+    inputs["A1"] = "Vendor portal"
+    inputs[_CELL_HYPERLINK_CELL] = _CELL_HYPERLINK_VALUE
+    inputs[_CELL_HYPERLINK_CELL].hyperlink = _CELL_HYPERLINK_BASELINE_TARGET
+
+    summary = workbook.create_sheet(_CELL_HYPERLINK_SUMMARY_SHEET)
+    summary["A1"] = "Vendor portal label"
+    summary[_CELL_HYPERLINK_SUMMARY_CELL] = _CELL_HYPERLINK_SUMMARY_FORMULA
+
+    dashboard = workbook.create_sheet(_CELL_HYPERLINK_DASHBOARD_SHEET)
+    dashboard["A1"] = "Board output"
+    dashboard[_CELL_HYPERLINK_DASHBOARD_CELL] = _CELL_HYPERLINK_DASHBOARD_FORMULA
+    return workbook
+
+
 def _pivot_cache_refresh_workbook() -> Workbook:
     """Build an ordinary workbook around one raw PivotCache control.
 
@@ -2199,6 +2241,71 @@ def _add_query_table_refresh_control(path: Path, *, refresh_on_load: bool) -> No
             },
         )
         members[_QUERY_TABLE_MEMBER] = serialize(query_table)
+
+    _rewrite_xlsx_parts(path, mutate)
+
+
+def _set_cell_hyperlink_target(path: Path, *, target: str) -> None:
+    """Normalize one worksheet hyperlink binding and set its stored target.
+
+    This deliberately changes only the local OOXML relationship. Both fixture
+    packages use the same explicit relationship ID and worksheet hyperlink
+    declaration; their sole intended distinction is ``Relationship/@Target``.
+    """
+
+    def serialize(root: ElementTree.Element) -> bytes:
+        return ElementTree.tostring(root, encoding="utf-8", xml_declaration=True)
+
+    def mutate(members: dict[str, bytes]) -> None:
+        try:
+            worksheet = ElementTree.fromstring(members[_CELL_HYPERLINK_WORKSHEET_MEMBER])
+            relationships = ElementTree.fromstring(
+                members[_CELL_HYPERLINK_WORKSHEET_RELATIONSHIPS_MEMBER]
+            )
+        except (KeyError, ElementTree.ParseError) as error:
+            raise ValueError(
+                "cell-hyperlink fixture is missing its worksheet relationship graph"
+            ) from error
+
+        hyperlink_sets = worksheet.findall(f"{{{_SPREADSHEETML_NS}}}hyperlinks")
+        hyperlink_tag = f"{{{_SPREADSHEETML_NS}}}hyperlink"
+        relationship_id_attribute = f"{{{_DOCUMENT_RELATIONSHIPS_NS}}}id"
+        if (
+            len(hyperlink_sets) != 1
+            or hyperlink_sets[0].attrib
+            or len(hyperlink_sets[0]) != 1
+            or hyperlink_sets[0][0].tag != hyperlink_tag
+            or set(hyperlink_sets[0][0].attrib) != {"ref", relationship_id_attribute}
+            or hyperlink_sets[0][0].get("ref") != _CELL_HYPERLINK_CELL
+        ):
+            raise ValueError(
+                "cell-hyperlink fixture has an unexpected worksheet hyperlink declaration"
+            )
+        hyperlink = hyperlink_sets[0][0]
+        original_relationship_id = hyperlink.get(relationship_id_attribute)
+        if not isinstance(original_relationship_id, str):
+            raise ValueError("cell-hyperlink fixture has no worksheet hyperlink relationship ID")
+
+        relationship_tag = f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationship"
+        hyperlink_relationships = [
+            relationship
+            for relationship in relationships.findall(relationship_tag)
+            if relationship.get("Id") == original_relationship_id
+            and relationship.get("Type") == _CELL_HYPERLINK_RELATIONSHIP
+        ]
+        if (
+            len(relationships) != 1
+            or len(hyperlink_relationships) != 1
+            or set(hyperlink_relationships[0].attrib) != {"Id", "Type", "Target", "TargetMode"}
+            or hyperlink_relationships[0].get("TargetMode") != "External"
+        ):
+            raise ValueError("cell-hyperlink fixture has an unexpected hyperlink relationship")
+
+        hyperlink.set(relationship_id_attribute, _CELL_HYPERLINK_RELATIONSHIP_ID)
+        hyperlink_relationships[0].set("Id", _CELL_HYPERLINK_RELATIONSHIP_ID)
+        hyperlink_relationships[0].set("Target", target)
+        members[_CELL_HYPERLINK_WORKSHEET_MEMBER] = serialize(worksheet)
+        members[_CELL_HYPERLINK_WORKSHEET_RELATIONSHIPS_MEMBER] = serialize(relationships)
 
     _rewrite_xlsx_parts(path, mutate)
 
@@ -4343,6 +4450,81 @@ def _build_governance_query_table_refresh(root: Path) -> None:
     )
 
 
+def _build_governance_cell_hyperlink_target(root: Path) -> None:
+    """Build a pair whose visible hyperlink text stays fixed while its target moves."""
+
+    directory = root / "governance" / "cell_hyperlink_target_changed"
+    directory.mkdir(parents=True, exist_ok=True)
+    baseline = directory / "baseline.xlsx"
+    candidate = directory / "candidate.xlsx"
+    _save_workbook(_cell_hyperlink_target_workbook(), baseline)
+    _save_workbook(_cell_hyperlink_target_workbook(), candidate)
+    _set_cell_hyperlink_target(baseline, target=_CELL_HYPERLINK_BASELINE_TARGET)
+    _set_cell_hyperlink_target(candidate, target=_CELL_HYPERLINK_CANDIDATE_TARGET)
+    _write_json(
+        directory / "truth.json",
+        _truth(
+            case_id="governance.cell_hyperlink_target_changed",
+            title="A worksheet cell hyperlink points to a different target",
+            family="governance",
+            review_expectation="block",
+            facts=[
+                {
+                    "kind": "cell_hyperlink_target_changed",
+                    "sheet": _CELL_HYPERLINK_SHEET,
+                    "cell": _CELL_HYPERLINK_CELL,
+                    "cell_value": _CELL_HYPERLINK_VALUE,
+                    "worksheet_member": _CELL_HYPERLINK_WORKSHEET_MEMBER,
+                    "worksheet_relationships_member": _CELL_HYPERLINK_WORKSHEET_RELATIONSHIPS_MEMBER,
+                    "relationship_id": _CELL_HYPERLINK_RELATIONSHIP_ID,
+                    "relationship_type": _CELL_HYPERLINK_RELATIONSHIP,
+                    "target_mode": "External",
+                    "baseline_target": _CELL_HYPERLINK_BASELINE_TARGET,
+                    "candidate_target": _CELL_HYPERLINK_CANDIDATE_TARGET,
+                    "summary_sheet": _CELL_HYPERLINK_SUMMARY_SHEET,
+                    "summary_cell": _CELL_HYPERLINK_SUMMARY_CELL,
+                    "summary_formula": _CELL_HYPERLINK_SUMMARY_FORMULA,
+                    "dashboard_sheet": _CELL_HYPERLINK_DASHBOARD_SHEET,
+                    "dashboard_cell": _CELL_HYPERLINK_DASHBOARD_CELL,
+                    "dashboard_formula": _CELL_HYPERLINK_DASHBOARD_FORMULA,
+                }
+            ],
+            must_reach=[
+                {
+                    "source": {"sheet": _CELL_HYPERLINK_SHEET, "cell": _CELL_HYPERLINK_CELL},
+                    "targets": [
+                        {
+                            "sheet": _CELL_HYPERLINK_SUMMARY_SHEET,
+                            "cell": _CELL_HYPERLINK_SUMMARY_CELL,
+                        },
+                        {
+                            "sheet": _CELL_HYPERLINK_DASHBOARD_SHEET,
+                            "cell": _CELL_HYPERLINK_DASHBOARD_CELL,
+                        },
+                    ],
+                },
+                {
+                    "source": {
+                        "sheet": _CELL_HYPERLINK_SUMMARY_SHEET,
+                        "cell": _CELL_HYPERLINK_SUMMARY_CELL,
+                    },
+                    "targets": [
+                        {
+                            "sheet": _CELL_HYPERLINK_DASHBOARD_SHEET,
+                            "cell": _CELL_HYPERLINK_DASHBOARD_CELL,
+                        }
+                    ],
+                },
+            ],
+            coverage=[
+                "The pair changes only xl/worksheets/_rels/sheet1.xml.rels Relationship/@Target. Ordinary cells, formulas, calculation properties, worksheet XML, and the relationship declaration remain byte-identical.",
+                "Each package contains one standard worksheet cell hyperlink declaration bound to one external OOXML hyperlink relationship. The reserved example.invalid targets have no location, display, tooltip, or HYPERLINK formula.",
+                "WCAB does not resolve, open, fetch, visit, execute, calculate, or otherwise interact with either target, and does not claim that any client follows it.",
+            ],
+        ),
+    )
+
+
 def _build_governance_pivot_cache_refresh(root: Path) -> None:
     """Build a local PivotCache whose open-time refresh request changes."""
 
@@ -5114,6 +5296,7 @@ _BUILDERS: tuple[Callable[[Path], None], ...] = (
     _build_governance_static_cycle,
     _build_governance_external_data_refresh,
     _build_governance_query_table_refresh,
+    _build_governance_cell_hyperlink_target,
     _build_governance_pivot_cache_refresh,
     _build_governance_external_workbook_link_update_policy,
     _build_structural_pivot_data_field_aggregation,
@@ -5161,6 +5344,7 @@ CASE_IDS = (
     "governance.static_cycle_introduced",
     "governance.external_data_refresh_on_open",
     "governance.query_table_refresh_on_open",
+    "governance.cell_hyperlink_target_changed",
     "governance.pivot_cache_refresh_on_open",
     "governance.external_workbook_link_update_on_open",
     "structural.pivot_data_field_aggregation_changed",

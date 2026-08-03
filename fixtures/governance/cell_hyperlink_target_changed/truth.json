@@ -1,0 +1,65 @@
+{
+  "coverage": [
+    "The pair changes only xl/worksheets/_rels/sheet1.xml.rels Relationship/@Target. Ordinary cells, formulas, calculation properties, worksheet XML, and the relationship declaration remain byte-identical.",
+    "Each package contains one standard worksheet cell hyperlink declaration bound to one external OOXML hyperlink relationship. The reserved example.invalid targets have no location, display, tooltip, or HYPERLINK formula.",
+    "WCAB does not resolve, open, fetch, visit, execute, calculate, or otherwise interact with either target, and does not claim that any client follows it."
+  ],
+  "coverage_expectations": [],
+  "facts": [
+    {
+      "baseline_target": "https://approved.example.invalid/wcab-vendor-portal",
+      "candidate_target": "https://review.example.invalid/wcab-vendor-portal",
+      "cell": "B2",
+      "cell_value": "Open vendor portal",
+      "dashboard_cell": "B4",
+      "dashboard_formula": "=Summary!$B$2",
+      "dashboard_sheet": "Dashboard",
+      "kind": "cell_hyperlink_target_changed",
+      "relationship_id": "rIdWCABVendorPortal",
+      "relationship_type": "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink",
+      "sheet": "Inputs",
+      "summary_cell": "B2",
+      "summary_formula": "=Inputs!$B$2",
+      "summary_sheet": "Summary",
+      "target_mode": "External",
+      "worksheet_member": "xl/worksheets/sheet1.xml",
+      "worksheet_relationships_member": "xl/worksheets/_rels/sheet1.xml.rels"
+    }
+  ],
+  "family": "governance",
+  "id": "governance.cell_hyperlink_target_changed",
+  "must_reach": [
+    {
+      "source": {
+        "cell": "B2",
+        "sheet": "Inputs"
+      },
+      "targets": [
+        {
+          "cell": "B2",
+          "sheet": "Summary"
+        },
+        {
+          "cell": "B4",
+          "sheet": "Dashboard"
+        }
+      ]
+    },
+    {
+      "source": {
+        "cell": "B2",
+        "sheet": "Summary"
+      },
+      "targets": [
+        {
+          "cell": "B4",
+          "sheet": "Dashboard"
+        }
+      ]
+    }
+  ],
+  "review_expectation": "block",
+  "schema_version": 3,
+  "title": "A worksheet cell hyperlink points to a different target",
+  "topology": "pair"
+}

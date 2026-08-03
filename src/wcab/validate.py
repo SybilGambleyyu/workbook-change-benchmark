@@ -58,6 +58,7 @@ _QUERY_TABLE_CONTENT_TYPE = (
 _QUERY_TABLE_CONNECTIONS_CONTENT_TYPE = (
     "application/vnd.openxmlformats-officedocument.spreadsheetml.connections+xml"
 )
+_CELL_HYPERLINK_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/hyperlink"
 _SLICER_CACHE_RELATIONSHIP = "http://schemas.microsoft.com/office/2007/relationships/slicerCache"
 _DATA_MASHUP_NS = "http://schemas.microsoft.com/DataMashup"
 _POWER_QUERY_CUSTOM_XML_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/customXml"
@@ -303,6 +304,103 @@ def _query_table_without_refresh_on_load(path: Path, sheet_name: str) -> bytes |
         return None
     query_table.attrib.pop("refreshOnLoad")
     return ElementTree.tostring(query_table, encoding="utf-8", xml_declaration=True)
+
+
+def _raw_cell_hyperlink_target_state(
+    path: Path, sheet_name: str, coordinate: str
+) -> dict[str, Any] | None:
+    """Read WCAB's one relationship-backed external cell hyperlink.
+
+    This accepts only the compact generated package shape: one worksheet
+    ``hyperlink`` declaration with a relationship ID and one external hyperlink
+    relationship. It reads neither the target nor any external content.
+    """
+
+    try:
+        with ZipFile(path) as archive:
+            worksheet_member = _worksheet_member_for_sheet(archive, sheet_name)
+            if worksheet_member is None:
+                return None
+            worksheet = ElementTree.fromstring(archive.read(worksheet_member))
+            worksheet_directory, worksheet_filename = worksheet_member.rsplit("/", maxsplit=1)
+            worksheet_relationships_member = (
+                f"{worksheet_directory}/_rels/{worksheet_filename}.rels"
+            )
+            relationships = ElementTree.fromstring(archive.read(worksheet_relationships_member))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError, ValueError):
+        return None
+
+    hyperlink_sets = worksheet.findall(f"{{{_SPREADSHEETML_NS}}}hyperlinks")
+    hyperlink_tag = f"{{{_SPREADSHEETML_NS}}}hyperlink"
+    relationship_id_attribute = f"{{{_DOCUMENT_RELATIONSHIPS_NS}}}id"
+    if (
+        worksheet.tag != f"{{{_SPREADSHEETML_NS}}}worksheet"
+        or len(hyperlink_sets) != 1
+        or hyperlink_sets[0].attrib
+        or len(hyperlink_sets[0]) != 1
+        or hyperlink_sets[0][0].tag != hyperlink_tag
+        or set(hyperlink_sets[0][0].attrib) != {"ref", relationship_id_attribute}
+        or hyperlink_sets[0][0].get("ref") != coordinate
+    ):
+        return None
+    hyperlink = hyperlink_sets[0][0]
+    relationship_id = hyperlink.get(relationship_id_attribute)
+    if not isinstance(relationship_id, str):
+        return None
+
+    relationship_tag = f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationship"
+    if (
+        relationships.tag != f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationships"
+        or relationships.attrib
+        or len(relationships) != 1
+        or relationships[0].tag != relationship_tag
+        or len(relationships[0])
+        or set(relationships[0].attrib) != {"Id", "Type", "Target", "TargetMode"}
+        or relationships[0].get("Id") != relationship_id
+        or relationships[0].get("Type") != _CELL_HYPERLINK_RELATIONSHIP
+        or relationships[0].get("TargetMode") != "External"
+    ):
+        return None
+    target = relationships[0].get("Target")
+    if not isinstance(target, str) or not target:
+        return None
+    return {
+        "worksheet_member": worksheet_member,
+        "worksheet_relationships_member": worksheet_relationships_member,
+        "hyperlink_attributes": tuple(sorted(hyperlink.attrib.items())),
+        "relationship_id": relationship_id,
+        "relationship_attributes": tuple(sorted(relationships[0].attrib.items())),
+        "target_mode": "External",
+        "target": target,
+    }
+
+
+def _cell_hyperlink_relationship_without_target(
+    path: Path, sheet_name: str, coordinate: str
+) -> bytes | None:
+    """Return WCAB's hyperlink relationship part with only ``Target`` erased."""
+
+    state = _raw_cell_hyperlink_target_state(path, sheet_name, coordinate)
+    if state is None:
+        return None
+    try:
+        with ZipFile(path) as archive:
+            relationships = ElementTree.fromstring(
+                archive.read(state["worksheet_relationships_member"])
+            )
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    relationship_tag = f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationship"
+    matches = [
+        relationship
+        for relationship in relationships.findall(relationship_tag)
+        if relationship.get("Id") == state["relationship_id"]
+        and relationship.get("Type") == _CELL_HYPERLINK_RELATIONSHIP
+    ]
+    if len(matches) != 1 or "Target" not in matches[0].attrib:
+        return None
+    matches[0].attrib.pop("Target")
+    return ElementTree.tostring(relationships, encoding="utf-8", xml_declaration=True)
 
 
 def _workbook_properties(path: Path) -> dict[str, str] | None:
@@ -5718,6 +5816,177 @@ def _validate_fact(
             and before_refresh_on_load is fact.get("baseline_refresh_on_load")
             and after_refresh_on_load is fact.get("candidate_refresh_on_load"),
             f"{truth['id']}: expected connection {connection_id!r} refresh-on-open false -> true",
+            errors,
+        )
+        return
+
+    if kind == "cell_hyperlink_target_changed":
+        sheet_name = fact.get("sheet")
+        coordinate = fact.get("cell")
+        summary_sheet = fact.get("summary_sheet")
+        summary_cell = fact.get("summary_cell")
+        dashboard_sheet = fact.get("dashboard_sheet")
+        dashboard_cell = fact.get("dashboard_cell")
+        before_state = (
+            _raw_cell_hyperlink_target_state(baseline_path, sheet_name, coordinate)
+            if isinstance(sheet_name, str) and isinstance(coordinate, str)
+            else None
+        )
+        after_state = (
+            _raw_cell_hyperlink_target_state(candidate_path, sheet_name, coordinate)
+            if isinstance(sheet_name, str) and isinstance(coordinate, str)
+            else None
+        )
+        before_input = (
+            _raw_cell_state(baseline_path, sheet_name, coordinate)
+            if isinstance(sheet_name, str) and isinstance(coordinate, str)
+            else None
+        )
+        after_input = (
+            _raw_cell_state(candidate_path, sheet_name, coordinate)
+            if isinstance(sheet_name, str) and isinstance(coordinate, str)
+            else None
+        )
+        before_summary = (
+            _raw_cell_state(baseline_path, summary_sheet, summary_cell)
+            if isinstance(summary_sheet, str) and isinstance(summary_cell, str)
+            else None
+        )
+        after_summary = (
+            _raw_cell_state(candidate_path, summary_sheet, summary_cell)
+            if isinstance(summary_sheet, str) and isinstance(summary_cell, str)
+            else None
+        )
+        before_dashboard = (
+            _raw_cell_state(baseline_path, dashboard_sheet, dashboard_cell)
+            if isinstance(dashboard_sheet, str) and isinstance(dashboard_cell, str)
+            else None
+        )
+        after_dashboard = (
+            _raw_cell_state(candidate_path, dashboard_sheet, dashboard_cell)
+            if isinstance(dashboard_sheet, str) and isinstance(dashboard_cell, str)
+            else None
+        )
+        before_cell = (
+            baseline[sheet_name][coordinate]
+            if isinstance(sheet_name, str)
+            and isinstance(coordinate, str)
+            and sheet_name in baseline.sheetnames
+            else None
+        )
+        after_cell = (
+            candidate[sheet_name][coordinate]
+            if isinstance(sheet_name, str)
+            and isinstance(coordinate, str)
+            and sheet_name in candidate.sheetnames
+            else None
+        )
+        before_hyperlink = before_cell.hyperlink if before_cell is not None else None
+        after_hyperlink = after_cell.hyperlink if after_cell is not None else None
+        expected_hyperlink_attributes = (
+            ("ref", "B2"),
+            (
+                f"{{{_DOCUMENT_RELATIONSHIPS_NS}}}id",
+                "rIdWCABVendorPortal",
+            ),
+        )
+        expected_before_relationship_attributes = (
+            ("Id", "rIdWCABVendorPortal"),
+            ("Target", "https://approved.example.invalid/wcab-vendor-portal"),
+            ("TargetMode", "External"),
+            (
+                "Type",
+                "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink",
+            ),
+        )
+        expected_after_relationship_attributes = (
+            ("Id", "rIdWCABVendorPortal"),
+            ("Target", "https://review.example.invalid/wcab-vendor-portal"),
+            ("TargetMode", "External"),
+            (
+                "Type",
+                "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink",
+            ),
+        )
+        graph = _direct_graph(candidate)
+        _assert(
+            sheet_name == "Inputs"
+            and coordinate == "B2"
+            and fact.get("cell_value") == "Open vendor portal"
+            and fact.get("worksheet_member") == "xl/worksheets/sheet1.xml"
+            and fact.get("worksheet_relationships_member") == "xl/worksheets/_rels/sheet1.xml.rels"
+            and fact.get("relationship_id") == "rIdWCABVendorPortal"
+            and fact.get("relationship_type")
+            == "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink"
+            and fact.get("target_mode") == "External"
+            and fact.get("baseline_target") == "https://approved.example.invalid/wcab-vendor-portal"
+            and fact.get("candidate_target") == "https://review.example.invalid/wcab-vendor-portal"
+            and summary_sheet == "Summary"
+            and summary_cell == "B2"
+            and fact.get("summary_formula") == "=Inputs!$B$2"
+            and dashboard_sheet == "Dashboard"
+            and dashboard_cell == "B4"
+            and fact.get("dashboard_formula") == "=Summary!$B$2"
+            and all(
+                sheet in baseline.sheetnames and sheet in candidate.sheetnames
+                for sheet in (sheet_name, summary_sheet, dashboard_sheet)
+            )
+            and before_state is not None
+            and after_state is not None
+            and before_state["worksheet_member"] == fact.get("worksheet_member")
+            and after_state["worksheet_member"] == fact.get("worksheet_member")
+            and before_state["worksheet_relationships_member"]
+            == fact.get("worksheet_relationships_member")
+            and after_state["worksheet_relationships_member"]
+            == fact.get("worksheet_relationships_member")
+            and before_state["hyperlink_attributes"] == expected_hyperlink_attributes
+            and after_state["hyperlink_attributes"] == expected_hyperlink_attributes
+            and before_state["relationship_id"] == fact.get("relationship_id")
+            and after_state["relationship_id"] == fact.get("relationship_id")
+            and before_state["relationship_attributes"] == expected_before_relationship_attributes
+            and after_state["relationship_attributes"] == expected_after_relationship_attributes
+            and before_state["target_mode"] == fact.get("target_mode")
+            and after_state["target_mode"] == fact.get("target_mode")
+            and before_state["target"] == fact.get("baseline_target")
+            and after_state["target"] == fact.get("candidate_target")
+            and before_cell is not None
+            and after_cell is not None
+            and before_cell.value == fact.get("cell_value")
+            and after_cell.value == fact.get("cell_value")
+            and before_hyperlink is not None
+            and after_hyperlink is not None
+            and before_hyperlink.id == fact.get("relationship_id")
+            and after_hyperlink.id == fact.get("relationship_id")
+            and before_hyperlink.target == fact.get("baseline_target")
+            and after_hyperlink.target == fact.get("candidate_target")
+            and all(
+                hyperlink.location is None
+                and hyperlink.display is None
+                and hyperlink.tooltip is None
+                for hyperlink in (before_hyperlink, after_hyperlink)
+            )
+            and before_input is not None
+            and after_input is not None
+            and before_input == after_input
+            and before_input[0] == "xl/worksheets/sheet1.xml"
+            and before_input[1] == "inlineStr"
+            and before_input[3:] == (None, None)
+            and before_summary is not None
+            and after_summary is not None
+            and before_summary == after_summary
+            and before_summary[3] == fact.get("summary_formula")
+            and before_dashboard is not None
+            and after_dashboard is not None
+            and before_dashboard == after_dashboard
+            and before_dashboard[3] == fact.get("dashboard_formula")
+            and _cell_hyperlink_relationship_without_target(baseline_path, sheet_name, coordinate)
+            == _cell_hyperlink_relationship_without_target(candidate_path, sheet_name, coordinate)
+            and _xlsx_member_differences(baseline_path, candidate_path)
+            == {"xl/worksheets/_rels/sheet1.xml.rels"}
+            and _calculation_properties(baseline_path) == _calculation_properties(candidate_path)
+            and (summary_sheet, summary_cell) in _reachable(graph, (sheet_name, coordinate))
+            and (dashboard_sheet, dashboard_cell) in _reachable(graph, (sheet_name, coordinate)),
+            f"{truth['id']}: expected one external worksheet cell hyperlink target change only with stable visible text, formulas, and package boundary",
             errors,
         )
         return

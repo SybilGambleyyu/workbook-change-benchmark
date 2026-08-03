@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.31.0 — 2026-08-02
+
+- Add a deterministic, relationship-backed worksheet cell-hyperlink target
+  case. Its visible `Inputs!B2` text, local `Inputs!B2 → Summary!B2 →
+  Dashboard!B4` formula context, calculation properties, and worksheet XML
+  remain fixed while the one external hyperlink relationship moves from the
+  reserved `approved.example.invalid` target to `review.example.invalid`.
+- Add the exact `cell_hyperlink_target_changed` fact, a narrow raw-OOXML
+  relationship validator, relationship-target-only package-isolation check,
+  and corruption regressions. WCAB records the stored target only: it does not
+  resolve, open, fetch, visit, execute, calculate, or otherwise interact with
+  it, and does not claim that a client follows it.
+- Extend the optional FormulaFence adapter to require its exact redacted
+  `cell_hyperlink_controls_changed` profile and high-severity `FF047`, while
+  WCAB independently establishes the raw relationship ID, type, target mode,
+  target transition, stable visible cells/formulas, and package boundary.
+
 ## 0.30.0 — 2026-08-03
 
 - Add a deterministic, relationship-backed QueryTable refresh-on-open case.

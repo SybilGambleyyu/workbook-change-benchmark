@@ -289,6 +289,31 @@ or external OOXML relationship. It does not open a connection, fetch a URL,
 refresh a query, materialize rows, calculate a workbook, or claim that a
 client refreshes successfully.
 
+## Worksheet cell hyperlink targets can change outside ordinary cell content
+
+Microsoft's [Hyperlink.Address reference](https://learn.microsoft.com/en-us/office/vba/api/excel.hyperlink.address)
+defines the address as the target document's string address, while its
+[Hyperlinks collection reference](https://learn.microsoft.com/en-us/office/vba/api/excel.hyperlinks)
+shows that a worksheet range can own a hyperlink. In the Open XML
+[`Hyperlink` reference](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.spreadsheet.hyperlink?view=openxml-3.0.1), the worksheet's
+`x:hyperlink/@r:id` is the relationship identifier that expresses that target
+location; the same element separately documents local `location`, `display`,
+and `tooltip` attributes. A cell's displayed value can therefore remain fixed
+while its relationship-backed external destination changes.
+
+WCAB 0.31 isolates that review surface in one original synthetic package.
+`Inputs!B2` retains the visible text `Open vendor portal`, one plain worksheet
+hyperlink declaration, no local location/display/tooltip fields, and the local
+`Inputs!B2 → Summary!B2 → Dashboard!B4` formula context. The sole package
+difference is `xl/worksheets/_rels/sheet1.xml.rels`: its one external standard
+hyperlink relationship keeps the same ID, type, and `TargetMode=External` but
+its `Target` moves from `approved.example.invalid` to
+`review.example.invalid`. The validator reads only the local package parts,
+compares the relationship XML after erasing `Target`, and requires that
+relationship part to be the sole package difference. It does not resolve, open,
+fetch, visit, execute, calculate, or otherwise interact with either target,
+and does not claim that a client follows one.
+
 ## PivotTable cache refresh requests without a cell edit
 
 Microsoft documents an option to [refresh PivotTable data when a workbook
