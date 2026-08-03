@@ -829,7 +829,7 @@ of the worksheet cells a button happens to sit beside. It does not require a
 benchmark to package or execute VBA: the security-relevant review boundary is
 already present in the local declaration.
 
-WCAB 0.44 isolates a compact relationship-bound Form-control declaration. The
+WCAB 0.44.1 isolates a compact relationship-bound Form-control declaration. The
 baseline and candidate retain one worksheet control, its direct
 control-properties relationship and Office 2010 properties part, content type,
 ordinary `Controls!B2=12` input, `Controls!D2=B2*C2` formula, direct

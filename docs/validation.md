@@ -1,6 +1,6 @@
 # Validation record
 
-This record describes the WCAB 0.44.0 / schema-version-3 validation run. It is
+This record describes the WCAB 0.44.1 / schema-version-3 validation run. It is
 reproducible from this repository; no network service or private workbook is
 required.
 
@@ -421,7 +421,7 @@ Results:
 
 ## Distribution supplement
 
-The 0.44.0 release retains the one-row-per-case `manifest.jsonl` catalogue and
+The 0.44.1 release retains the one-row-per-case `manifest.jsonl` catalogue and
 the tool-neutral observation protocol at version 2. Each catalogue row retains
 the schema-version-3 truth contract and includes byte counts and SHA-256
 digests for the workbooks it names.
@@ -429,26 +429,26 @@ digests for the workbooks it names.
 Commands:
 
 ```bash
-python -m build --outdir /tmp/wcab-v044-dist
-twine check /tmp/wcab-v044-dist/*
-python -m venv /tmp/wcab-v044-wheel-test
-/tmp/wcab-v044-wheel-test/bin/python -m pip install \
-  /tmp/wcab-v044-dist/workbook_change_benchmark-0.44.0-py3-none-any.whl
-/tmp/wcab-v044-wheel-test/bin/python -c 'import wcab; print(wcab.__version__)'
-/tmp/wcab-v044-wheel-test/bin/wcab validate --fixtures fixtures
-/tmp/wcab-v044-wheel-test/bin/wcab manifest --fixtures fixtures --output /tmp/wcab-v044-wheel-manifest.jsonl
-cmp fixtures/manifest.jsonl /tmp/wcab-v044-wheel-manifest.jsonl
-/tmp/wcab-v044-wheel-test/bin/wcab observation-template --fixtures fixtures \
-  --output /tmp/wcab-v044-wheel-observations.json
-/tmp/wcab-v044-wheel-test/bin/wcab score --fixtures fixtures \
-  --observations /tmp/wcab-v044-wheel-observations.json
-python -m venv /tmp/wcab-v044-sdist-test
-/tmp/wcab-v044-sdist-test/bin/python -m pip install \
-  /tmp/wcab-v044-dist/workbook_change_benchmark-0.44.0.tar.gz
-/tmp/wcab-v044-sdist-test/bin/python -c 'import wcab; print(wcab.__version__)'
-/tmp/wcab-v044-sdist-test/bin/wcab validate --fixtures fixtures
-/tmp/wcab-v044-sdist-test/bin/wcab manifest --fixtures fixtures --output /tmp/wcab-v044-sdist-manifest.jsonl
-cmp fixtures/manifest.jsonl /tmp/wcab-v044-sdist-manifest.jsonl
+python -m build --outdir /tmp/wcab-v0441-dist
+twine check /tmp/wcab-v0441-dist/*
+python -m venv /tmp/wcab-v0441-wheel-test
+/tmp/wcab-v0441-wheel-test/bin/python -m pip install \
+  /tmp/wcab-v0441-dist/workbook_change_benchmark-0.44.1-py3-none-any.whl
+/tmp/wcab-v0441-wheel-test/bin/python -c 'import wcab; print(wcab.__version__)'
+/tmp/wcab-v0441-wheel-test/bin/wcab validate --fixtures fixtures
+/tmp/wcab-v0441-wheel-test/bin/wcab manifest --fixtures fixtures --output /tmp/wcab-v0441-wheel-manifest.jsonl
+cmp fixtures/manifest.jsonl /tmp/wcab-v0441-wheel-manifest.jsonl
+/tmp/wcab-v0441-wheel-test/bin/wcab observation-template --fixtures fixtures \
+  --output /tmp/wcab-v0441-wheel-observations.json
+/tmp/wcab-v0441-wheel-test/bin/wcab score --fixtures fixtures \
+  --observations /tmp/wcab-v0441-wheel-observations.json
+python -m venv /tmp/wcab-v0441-sdist-test
+/tmp/wcab-v0441-sdist-test/bin/python -m pip install \
+  /tmp/wcab-v0441-dist/workbook_change_benchmark-0.44.1.tar.gz
+/tmp/wcab-v0441-sdist-test/bin/python -c 'import wcab; print(wcab.__version__)'
+/tmp/wcab-v0441-sdist-test/bin/wcab validate --fixtures fixtures
+/tmp/wcab-v0441-sdist-test/bin/wcab manifest --fixtures fixtures --output /tmp/wcab-v0441-sdist-manifest.jsonl
+cmp fixtures/manifest.jsonl /tmp/wcab-v0441-sdist-manifest.jsonl
 ```
 
 Results:
@@ -458,7 +458,7 @@ Results:
   their uploaded assets in the GitHub release, avoiding a self-referential
   source-distribution checksum in this record.
 - Fresh Python 3.13 wheel and source-distribution installations both reported
-  version 0.44.0 and validated all 61 fixtures; both emitted byte-identical
+  version 0.44.1 and validated all 61 fixtures; both emitted byte-identical
   JSONL output.
 - The full 294-test suite, lint, and format checks passed locally under Python
   3.13.
@@ -674,7 +674,7 @@ Results:
   resolved a label, evaluated policy, determined effective classification,
   inspected encryption or permissions, inferred access, enforced policy, or
   claimed Office, SharePoint, OneDrive, or storage-service behavior.
-- The WCAB 0.44 worksheet-control macro-assignment case was observed as one
+- The WCAB 0.44.1 worksheet-control macro-assignment case was observed as one
   exact critical `worksheet_embedded_controls_changed` record and `FF029`.
   FormulaFence's equal redacted before/after profiles retained one control
   sheet, one worksheet control, one form-control-properties part, one control

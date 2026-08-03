@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.44.1 — 2026-08-03
+
+- Correct the score-suite expected totals after adding the 0.44 control case:
+  full-corpus expected/matched fact assertions now use 63, and the reference
+  FormulaFence observation assertion now uses 62 matched facts plus one
+  intentionally unmapped structural rewrite.
+- Reissue the 0.44 fixture corpus after hosted CI exposed the stale test-only
+  totals in 0.44.0. The generated workbooks, truth contracts, public facts, and
+  FormulaFence adapter requirements are unchanged from the 0.44.0 release.
+
 ## 0.44.0 — 2026-08-02
 
 - Add a deterministic relationship-bound worksheet Form-control pair. Its sole

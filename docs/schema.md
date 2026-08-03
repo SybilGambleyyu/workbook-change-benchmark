@@ -345,7 +345,7 @@ documents assigning macros to Form and ActiveX controls. A stored control
 assignment is therefore a review surface separate from a formula or cell-value
 diff, even though this benchmark does not require an executable VBA payload.
 
-WCAB 0.44 uses a compact relationship-bound Form-control shape: one worksheet
+WCAB 0.44.1 uses a compact relationship-bound Form-control shape: one worksheet
 `controls/control` declaration has one inline `controlPr/@macro`, one direct
 control-properties relationship, and one Office 2010 `formControlPr` part.
 The baseline and candidate retain that entire graph, ordinary `Controls!B2=12`
