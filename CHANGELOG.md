@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.31.0 — 2026-08-02
+## 0.31.0 — 2026-08-03
 
 - Add a deterministic, relationship-backed worksheet cell-hyperlink target
   case. Its visible `Inputs!B2` text, local `Inputs!B2 → Summary!B2 →
