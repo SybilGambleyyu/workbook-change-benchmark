@@ -486,6 +486,20 @@ _SHEET_PROTECTION_SORT_FORMULA = "=B2*C2"
 _SHEET_PROTECTION_SORT_DASHBOARD_SHEET = "Dashboard"
 _SHEET_PROTECTION_SORT_DASHBOARD_CELL = "B4"
 _SHEET_PROTECTION_SORT_DASHBOARD_FORMULA = "=Controls!$D$2"
+_PROTECTED_RANGE_SECURITY_DESCRIPTOR_SHEET = "Controls"
+_PROTECTED_RANGE_SECURITY_DESCRIPTOR_WORKSHEET_MEMBER = "xl/worksheets/sheet1.xml"
+_PROTECTED_RANGE_SECURITY_DESCRIPTOR_INPUT_CELL = "B2"
+_PROTECTED_RANGE_SECURITY_DESCRIPTOR_INPUT_VALUE = 12
+_PROTECTED_RANGE_SECURITY_DESCRIPTOR_FORMULA_CELL = "D2"
+_PROTECTED_RANGE_SECURITY_DESCRIPTOR_FORMULA = "=B2*C2"
+_PROTECTED_RANGE_SECURITY_DESCRIPTOR_DASHBOARD_SHEET = "Dashboard"
+_PROTECTED_RANGE_SECURITY_DESCRIPTOR_DASHBOARD_CELL = "B4"
+_PROTECTED_RANGE_SECURITY_DESCRIPTOR_DASHBOARD_FORMULA = "=Controls!$D$2"
+_PROTECTED_RANGE_SECURITY_DESCRIPTOR_RANGE_NAME = "WCAB controlled input"
+_PROTECTED_RANGE_SECURITY_DESCRIPTOR_RANGE_REF = "B2:B2"
+_PROTECTED_RANGE_SECURITY_DESCRIPTOR_LEGACY_VERIFIER = "A1B2"
+_PROTECTED_RANGE_SECURITY_DESCRIPTOR_BASELINE = "approved-editor@wcab.invalid"
+_PROTECTED_RANGE_SECURITY_DESCRIPTOR_CANDIDATE = "review-editor@wcab.invalid"
 _TABLE_CALCULATED_COLUMN_SHEET = "Ledger"
 _TABLE_CALCULATED_COLUMN_NAME = "ScenarioLedger"
 _TABLE_CALCULATED_COLUMN_REF = "A1:C4"
@@ -1653,6 +1667,82 @@ def _sheet_protection_sort_permission_workbook() -> Workbook:
     dashboard["A1"] = "Board output"
     dashboard[_SHEET_PROTECTION_SORT_DASHBOARD_CELL] = _SHEET_PROTECTION_SORT_DASHBOARD_FORMULA
     return workbook
+
+
+def _protected_range_security_descriptor_workbook() -> Workbook:
+    """Build a locked protected-range target with a small formula context.
+
+    The raw OOXML helper writes the standard nested descriptor after openpyxl
+    has created the sheet. The case records a stored declaration only: it does
+    not prove an identity, verifier, authorization decision, or client action.
+    """
+
+    workbook = Workbook()
+    _configure_workbook(workbook, title="WCAB protected-range descriptor fixture")
+    controls = workbook.active
+    controls.title = _PROTECTED_RANGE_SECURITY_DESCRIPTOR_SHEET
+    controls.append(["Control", "Units", "Rate", "Calculated amount"])
+    controls["A2"] = "Controlled input"
+    controls[_PROTECTED_RANGE_SECURITY_DESCRIPTOR_INPUT_CELL] = (
+        _PROTECTED_RANGE_SECURITY_DESCRIPTOR_INPUT_VALUE
+    )
+    controls["C2"] = 5
+    controls[_PROTECTED_RANGE_SECURITY_DESCRIPTOR_FORMULA_CELL] = (
+        _PROTECTED_RANGE_SECURITY_DESCRIPTOR_FORMULA
+    )
+    controls.protection.sheet = True
+    controls.protection.enable()
+
+    dashboard = workbook.create_sheet(_PROTECTED_RANGE_SECURITY_DESCRIPTOR_DASHBOARD_SHEET)
+    dashboard["A1"] = "Board output"
+    dashboard[_PROTECTED_RANGE_SECURITY_DESCRIPTOR_DASHBOARD_CELL] = (
+        _PROTECTED_RANGE_SECURITY_DESCRIPTOR_DASHBOARD_FORMULA
+    )
+    return workbook
+
+
+def _add_protected_range_security_descriptor(path: Path, *, descriptor: str) -> None:
+    """Attach one standard nested descriptor without invoking a workbook client.
+
+    ``protectedRange/securityDescriptor`` is a stored ISO/IEC SpreadsheetML
+    declaration. The fixture keeps its sheet protection, target cell, legacy
+    verifier, range name, formulas, and every other package member fixed while
+    the child text changes. It never turns that declaration into an access
+    decision.
+    """
+
+    worksheet_member = _PROTECTED_RANGE_SECURITY_DESCRIPTOR_WORKSHEET_MEMBER
+    protected_ranges_tag = f"{{{_SPREADSHEETML_NS}}}protectedRanges"
+    protected_range_tag = f"{{{_SPREADSHEETML_NS}}}protectedRange"
+    descriptor_tag = f"{{{_SPREADSHEETML_NS}}}securityDescriptor"
+    sheet_protection_tag = f"{{{_SPREADSHEETML_NS}}}sheetProtection"
+
+    def mutate(members: dict[str, bytes]) -> None:
+        worksheet = ElementTree.fromstring(members[worksheet_member])
+        if worksheet.find(protected_ranges_tag) is not None:
+            raise ValueError("protected-range descriptor fixture already has protected ranges")
+        sheet_protection = worksheet.find(sheet_protection_tag)
+        if sheet_protection is None:
+            raise ValueError("protected-range descriptor fixture lacks sheet protection")
+        protected_ranges = ElementTree.Element(protected_ranges_tag)
+        protected_range = ElementTree.SubElement(
+            protected_ranges,
+            protected_range_tag,
+            {
+                "name": _PROTECTED_RANGE_SECURITY_DESCRIPTOR_RANGE_NAME,
+                "sqref": _PROTECTED_RANGE_SECURITY_DESCRIPTOR_RANGE_REF,
+                "password": _PROTECTED_RANGE_SECURITY_DESCRIPTOR_LEGACY_VERIFIER,
+            },
+        )
+        ElementTree.SubElement(protected_range, descriptor_tag).text = descriptor
+        worksheet.insert(list(worksheet).index(sheet_protection) + 1, protected_ranges)
+        members[worksheet_member] = ElementTree.tostring(
+            worksheet,
+            encoding="utf-8",
+            xml_declaration=True,
+        )
+
+    _rewrite_xlsx_parts(path, mutate)
 
 
 def _workbook_structure_protection_workbook() -> Workbook:
@@ -5398,6 +5488,75 @@ def _build_governance_sheet_protection_sort_permission(root: Path) -> None:
     )
 
 
+def _build_governance_protected_range_security_descriptor(root: Path) -> None:
+    """Build one standards-form protected-range descriptor transition."""
+
+    directory = root / "governance" / "protected_range_security_descriptor_changed"
+    directory.mkdir(parents=True, exist_ok=True)
+    baseline = directory / "baseline.xlsx"
+    candidate = directory / "candidate.xlsx"
+    _save_workbook(_protected_range_security_descriptor_workbook(), baseline)
+    _save_workbook(_protected_range_security_descriptor_workbook(), candidate)
+    _add_protected_range_security_descriptor(
+        baseline,
+        descriptor=_PROTECTED_RANGE_SECURITY_DESCRIPTOR_BASELINE,
+    )
+    _add_protected_range_security_descriptor(
+        candidate,
+        descriptor=_PROTECTED_RANGE_SECURITY_DESCRIPTOR_CANDIDATE,
+    )
+    _write_json(
+        directory / "truth.json",
+        _truth(
+            case_id="governance.protected_range_security_descriptor_changed",
+            title="A protected range changes its stored security descriptor",
+            family="governance",
+            review_expectation="block",
+            facts=[
+                {
+                    "kind": "protected_range_security_descriptor_changed",
+                    "sheet": _PROTECTED_RANGE_SECURITY_DESCRIPTOR_SHEET,
+                    "worksheet_member": _PROTECTED_RANGE_SECURITY_DESCRIPTOR_WORKSHEET_MEMBER,
+                    "protected_range_ref": _PROTECTED_RANGE_SECURITY_DESCRIPTOR_RANGE_REF,
+                    "protected_range_count": 1,
+                    "security_descriptor_count": 1,
+                    "has_legacy_verifier": True,
+                    "input_cell": _PROTECTED_RANGE_SECURITY_DESCRIPTOR_INPUT_CELL,
+                    "input_value": _PROTECTED_RANGE_SECURITY_DESCRIPTOR_INPUT_VALUE,
+                    "formula_cell": _PROTECTED_RANGE_SECURITY_DESCRIPTOR_FORMULA_CELL,
+                    "formula": _PROTECTED_RANGE_SECURITY_DESCRIPTOR_FORMULA,
+                    "dashboard_sheet": _PROTECTED_RANGE_SECURITY_DESCRIPTOR_DASHBOARD_SHEET,
+                    "dashboard_cell": _PROTECTED_RANGE_SECURITY_DESCRIPTOR_DASHBOARD_CELL,
+                    "dashboard_formula": _PROTECTED_RANGE_SECURITY_DESCRIPTOR_DASHBOARD_FORMULA,
+                }
+            ],
+            must_reach=[
+                {
+                    "source": {
+                        "sheet": _PROTECTED_RANGE_SECURITY_DESCRIPTOR_SHEET,
+                        "cell": _PROTECTED_RANGE_SECURITY_DESCRIPTOR_INPUT_CELL,
+                    },
+                    "targets": [
+                        {
+                            "sheet": _PROTECTED_RANGE_SECURITY_DESCRIPTOR_SHEET,
+                            "cell": _PROTECTED_RANGE_SECURITY_DESCRIPTOR_FORMULA_CELL,
+                        },
+                        {
+                            "sheet": _PROTECTED_RANGE_SECURITY_DESCRIPTOR_DASHBOARD_SHEET,
+                            "cell": _PROTECTED_RANGE_SECURITY_DESCRIPTOR_DASHBOARD_CELL,
+                        },
+                    ],
+                }
+            ],
+            coverage=[
+                "The pair changes only xl/worksheets/sheet1.xml: one standard protectedRange/securityDescriptor child text differs. The worksheet protection, locked target, legacy verifier, range name, range reference, cells, formulas, calculation properties, and every other package member stay fixed.",
+                "The fact is a stored descriptor change on one protected range. WCAB does not test a password or verifier, encryption, identity, authentication, authorization, editable-range enforcement, a spreadsheet client, or any resulting value.",
+                "The raw validator checks the exact compact generated XML privately. An adapter must instead require FormulaFence's equal safe one-range profile, security-descriptor-material signal, and FF022 evidence; it must not require a descriptor, range name, verifier, or identity value.",
+            ],
+        ),
+    )
+
+
 def _build_governance_workbook_structure_protection(root: Path) -> None:
     def mutate(workbook: Workbook) -> None:
         workbook.security.lockStructure = False
@@ -7392,6 +7551,7 @@ _BUILDERS: tuple[Callable[[Path], None], ...] = (
     _build_governance_visibility,
     _build_governance_protection,
     _build_governance_sheet_protection_sort_permission,
+    _build_governance_protected_range_security_descriptor,
     _build_governance_workbook_structure_protection,
     _build_governance_manual_calculation,
     _build_governance_iterative_calculation,
@@ -7452,6 +7612,7 @@ CASE_IDS = (
     "governance.hidden_sheet_revealed",
     "governance.formula_cell_unlocked",
     "governance.sheet_protection_sort_permission_enabled",
+    "governance.protected_range_security_descriptor_changed",
     "governance.workbook_structure_lock_removed",
     "governance.manual_calculation_incomplete",
     "governance.iterative_calculation_enabled",

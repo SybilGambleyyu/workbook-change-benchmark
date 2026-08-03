@@ -22,8 +22,8 @@ configs:
 # Workbook Change Assurance Benchmark (WCAB)
 
 WCAB is an open, deterministic benchmark for tools that review changes to
-Excel workbooks. Each of its 57 synthetic cases supplies baseline/candidate
-fixtures, explicit observable change facts, a reference review
+Excel workbooks. Each of its 59 synthetic cases supplies fixtures, explicit
+observable change facts, a reference review
 disposition, documented coverage boundaries, and—in relevant cases—a
 machine-matchable coverage expectation.
 
@@ -104,7 +104,11 @@ dashboard consumer remain fixed, a workbook-scoped `ScenarioValue` named
 LAMBDA whose stored body changes while its inputs, calling formula, and local
 dashboard consumer remain fixed, a protected `Controls` worksheet whose stored
 sort permission moves from locked to permitted while its cells and formula
-context remain fixed, an unchanged
+context remain fixed, a protected range whose standard nested
+`securityDescriptor` text changes while its protected locked target, verifier,
+range name/reference, formula context, and every other package member remain
+fixed (stored metadata only: it does not identify, authenticate, authorize, or
+enforce an editor), an unchanged
 direct circular formula whose iterative-calculation setting becomes enabled, an
 unchanged precision-sensitive input and formula whose calculation switches to
 precision as displayed, an unchanged legacy-CSE array formula that switches to
@@ -200,6 +204,13 @@ dispatch result, calculate a workbook, or claim client behavior.
 The sheet-protection sort case records a stored action permission only: it does
 not test a password, encryption, authorization, editable ranges, an actual
 client sort operation, or a resulting value.
+
+The protected-range descriptor case records one standards-form nested stored
+descriptor change only. Public truth and FormulaFence adapter contracts use
+safe aggregate metadata rather than the descriptor, range name, or verifier;
+the case does not test a password, encryption, identity, authentication,
+authorization, editable-range enforcement, client behavior, or a resulting
+value.
 
 ## Use
 

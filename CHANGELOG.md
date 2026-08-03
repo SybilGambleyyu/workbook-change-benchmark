@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.42.0 — 2026-08-03
+
+- Add a deterministic standards-form protected-range descriptor pair. Its sole
+  raw change is one nested `protectedRange/securityDescriptor` text node in
+  `xl/worksheets/sheet1.xml`; worksheet protection, a locked input target,
+  legacy verifier, range name/reference, formulas, calculation properties, and
+  every other package member remain fixed.
+- Add the exact `protected_range_security_descriptor_changed` fact, a bounded
+  raw-OOXML validator, descriptor-only comparison, package-isolation check, and
+  corruption regressions. Public truth deliberately excludes the descriptor,
+  range name, and verifier. The fixture records stored metadata only; it does
+  not prove identity, authentication, authorization, enforcement, encryption,
+  or client behavior.
+- Extend the optional FormulaFence adapter to require one exact high-severity
+  `protected_range_permissions_changed` / `FF022` record with equal redacted
+  one-range profiles and `security_descriptor_material_changed=true`. The
+  adapter never relies on identity, descriptor, range-name, or verifier values.
+
 ## 0.41.0 — 2026-08-02
 
 - Add a deterministic legacy shared-workbook revision-log pair. Its sole

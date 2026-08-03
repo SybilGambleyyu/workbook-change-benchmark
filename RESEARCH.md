@@ -796,6 +796,30 @@ records that exact stored transition; it does not test a password, encryption,
 authentication, authorization, editable ranges, a client sort operation, a
 permission decision, or an output value.
 
+## Protected-range descriptors are stored review material, not access proof
+
+ISO/IEC 29500's
+[`securityDescriptor` example](https://www.reginfo.gov/public/do/DownloadDocument?objectID=136723002)
+places one or more account descriptors as nested children of `protectedRange`.
+The standard's text describes these as accounts that may edit a range without
+providing the range password, while noting that the descriptor format is
+application-defined. The Open XML SDK's
+[`ProtectedRange` reference](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.spreadsheet.protectedrange?view=openxml-3.0.1)
+also lists the nested child; separately, the Office 2010 extension's
+[`ProtectedRange` surface](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.office2010.excel.protectedrange?view=openxml-3.0.1)
+documents an attribute-shaped variant. These sources make the document
+representation a legitimate review surface, but not a reason to infer identity,
+authentication, authorization, encryption, or enforcement by a given client.
+
+WCAB 0.42 therefore uses only the standard nested child form. It keeps the
+protected sheet, locked `Controls!B2:B2` target, legacy verifier, range name,
+formulas, calculation properties, and all other package members fixed while
+one synthetic child text changes. The raw validator verifies both synthetic
+texts privately and proves the worksheet-only package boundary. The public
+truth contract omits those texts, the range name, and the verifier so adapters
+can be scored on redacted material-change evidence rather than exposed account
+data.
+
 ## Chart series sources without a worksheet edit
 
 Microsoft's [chart-series guidance](https://support.microsoft.com/en-US/Excel/rename-a-data-series)

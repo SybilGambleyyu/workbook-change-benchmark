@@ -120,6 +120,20 @@ _SHARED_WORKBOOK_REVISION_HEADER_AUTHOR = "WCAB Revision Author"
 _SHARED_WORKBOOK_REVISION_BASELINE_HISTORIC_VALUE = "WCAB historic approved value"
 _SHARED_WORKBOOK_REVISION_CANDIDATE_HISTORIC_VALUE = "WCAB historic candidate value"
 _SHARED_WORKBOOK_REVISION_RECORDED_VALUE = "WCAB historic recorded value"
+_PROTECTED_RANGE_SECURITY_DESCRIPTOR_SHEET = "Controls"
+_PROTECTED_RANGE_SECURITY_DESCRIPTOR_WORKSHEET_MEMBER = "xl/worksheets/sheet1.xml"
+_PROTECTED_RANGE_SECURITY_DESCRIPTOR_INPUT_CELL = "B2"
+_PROTECTED_RANGE_SECURITY_DESCRIPTOR_INPUT_VALUE = 12
+_PROTECTED_RANGE_SECURITY_DESCRIPTOR_FORMULA_CELL = "D2"
+_PROTECTED_RANGE_SECURITY_DESCRIPTOR_FORMULA = "=B2*C2"
+_PROTECTED_RANGE_SECURITY_DESCRIPTOR_DASHBOARD_SHEET = "Dashboard"
+_PROTECTED_RANGE_SECURITY_DESCRIPTOR_DASHBOARD_CELL = "B4"
+_PROTECTED_RANGE_SECURITY_DESCRIPTOR_DASHBOARD_FORMULA = "=Controls!$D$2"
+_PROTECTED_RANGE_SECURITY_DESCRIPTOR_RANGE_NAME = "WCAB controlled input"
+_PROTECTED_RANGE_SECURITY_DESCRIPTOR_RANGE_REF = "B2:B2"
+_PROTECTED_RANGE_SECURITY_DESCRIPTOR_LEGACY_VERIFIER = "A1B2"
+_PROTECTED_RANGE_SECURITY_DESCRIPTOR_BASELINE = "approved-editor@wcab.invalid"
+_PROTECTED_RANGE_SECURITY_DESCRIPTOR_CANDIDATE = "review-editor@wcab.invalid"
 _POWER_PIVOT_DATA_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/powerPivotData"
 _POWER_PIVOT_DATA_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.model+data"
 _POWER_PIVOT_DATA_PAYLOAD = (
@@ -4196,6 +4210,82 @@ def _worksheet_without_sheet_protection_sort_control(path: Path, sheet_name: str
     return ElementTree.tostring(worksheet, encoding="utf-8", xml_declaration=True)
 
 
+def _protected_range_security_descriptor_state(
+    path: Path,
+    sheet_name: str,
+) -> dict[str, Any] | None:
+    """Read WCAB's one standard protected-range descriptor declaration.
+
+    This deliberately parses only the small generated worksheet shape. It
+    establishes raw stored XML, not a password check, identity, authorization
+    result, editable-range enforcement, or spreadsheet-client behavior.
+    """
+
+    try:
+        with ZipFile(path) as archive:
+            worksheet_member = _worksheet_member_for_sheet(archive, sheet_name)
+            if worksheet_member is None:
+                return None
+            worksheet = ElementTree.fromstring(archive.read(worksheet_member))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    sheet_protection_tag = f"{{{_SPREADSHEETML_NS}}}sheetProtection"
+    protected_ranges_tag = f"{{{_SPREADSHEETML_NS}}}protectedRanges"
+    protected_range_tag = f"{{{_SPREADSHEETML_NS}}}protectedRange"
+    descriptor_tag = f"{{{_SPREADSHEETML_NS}}}securityDescriptor"
+    protections = worksheet.findall(sheet_protection_tag)
+    protected_ranges_nodes = worksheet.findall(protected_ranges_tag)
+    if len(protections) != 1 or len(protected_ranges_nodes) != 1:
+        return None
+    sheet_protection = protections[0]
+    protected_ranges = protected_ranges_nodes[0]
+    if protected_ranges.attrib or len(protected_ranges) != 1:
+        return None
+    protected_range = protected_ranges[0]
+    if protected_range.tag != protected_range_tag or len(protected_range) != 1:
+        return None
+    descriptor = protected_range[0]
+    if descriptor.tag != descriptor_tag or descriptor.attrib or len(descriptor):
+        return None
+    children = list(worksheet)
+    if children.index(protected_ranges) != children.index(sheet_protection) + 1:
+        return None
+    return {
+        "worksheet_member": worksheet_member,
+        "sheet_protection_attributes": tuple(sorted(sheet_protection.attrib.items())),
+        "protected_range_attributes": tuple(sorted(protected_range.attrib.items())),
+        "descriptor_count": 1,
+        "descriptor_text": descriptor.text,
+    }
+
+
+def _worksheet_without_protected_range_security_descriptor(
+    path: Path,
+    sheet_name: str,
+) -> bytes | None:
+    """Return WCAB's worksheet with only its nested descriptor text erased."""
+
+    if _protected_range_security_descriptor_state(path, sheet_name) is None:
+        return None
+    try:
+        with ZipFile(path) as archive:
+            worksheet_member = _worksheet_member_for_sheet(archive, sheet_name)
+            if worksheet_member is None:
+                return None
+            worksheet = ElementTree.fromstring(archive.read(worksheet_member))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    descriptor = worksheet.find(
+        f"{{{_SPREADSHEETML_NS}}}protectedRanges/"
+        f"{{{_SPREADSHEETML_NS}}}protectedRange/"
+        f"{{{_SPREADSHEETML_NS}}}securityDescriptor"
+    )
+    if descriptor is None:
+        return None
+    descriptor.text = None
+    return ElementTree.tostring(worksheet, encoding="utf-8", xml_declaration=True)
+
+
 def _xlsx_member_differences(baseline_path: Path, candidate_path: Path) -> set[str] | None:
     """Return changed member names when two small fixture archives align."""
 
@@ -4633,6 +4723,122 @@ def _validate_fact(
             and _calculation_properties(baseline_path) == _calculation_properties(candidate_path)
             and (dashboard_sheet, dashboard_cell) in _reachable(graph, (sheet_name, formula_cell)),
             f"{truth['id']}: expected only one protected-sheet sort lock true -> false with stable formula context",
+            errors,
+        )
+        return
+
+    if kind == "protected_range_security_descriptor_changed":
+        sheet_name = fact.get("sheet")
+        input_cell = fact.get("input_cell")
+        formula_cell = fact.get("formula_cell")
+        dashboard_sheet = fact.get("dashboard_sheet")
+        dashboard_cell = fact.get("dashboard_cell")
+        before_state = (
+            _protected_range_security_descriptor_state(baseline_path, sheet_name)
+            if isinstance(sheet_name, str)
+            else None
+        )
+        after_state = (
+            _protected_range_security_descriptor_state(candidate_path, sheet_name)
+            if isinstance(sheet_name, str)
+            else None
+        )
+        before_input = (
+            _raw_cell_state(baseline_path, sheet_name, input_cell)
+            if isinstance(sheet_name, str) and isinstance(input_cell, str)
+            else None
+        )
+        after_input = (
+            _raw_cell_state(candidate_path, sheet_name, input_cell)
+            if isinstance(sheet_name, str) and isinstance(input_cell, str)
+            else None
+        )
+        before_formula = (
+            _raw_cell_state(baseline_path, sheet_name, formula_cell)
+            if isinstance(sheet_name, str) and isinstance(formula_cell, str)
+            else None
+        )
+        after_formula = (
+            _raw_cell_state(candidate_path, sheet_name, formula_cell)
+            if isinstance(sheet_name, str) and isinstance(formula_cell, str)
+            else None
+        )
+        before_dashboard = (
+            _raw_cell_state(baseline_path, dashboard_sheet, dashboard_cell)
+            if isinstance(dashboard_sheet, str) and isinstance(dashboard_cell, str)
+            else None
+        )
+        after_dashboard = (
+            _raw_cell_state(candidate_path, dashboard_sheet, dashboard_cell)
+            if isinstance(dashboard_sheet, str) and isinstance(dashboard_cell, str)
+            else None
+        )
+        graph = _direct_graph(candidate)
+        expected_range_attributes = (
+            ("name", _PROTECTED_RANGE_SECURITY_DESCRIPTOR_RANGE_NAME),
+            ("password", _PROTECTED_RANGE_SECURITY_DESCRIPTOR_LEGACY_VERIFIER),
+            ("sqref", _PROTECTED_RANGE_SECURITY_DESCRIPTOR_RANGE_REF),
+        )
+        _assert(
+            sheet_name == _PROTECTED_RANGE_SECURITY_DESCRIPTOR_SHEET
+            and fact.get("worksheet_member")
+            == _PROTECTED_RANGE_SECURITY_DESCRIPTOR_WORKSHEET_MEMBER
+            and fact.get("protected_range_ref") == _PROTECTED_RANGE_SECURITY_DESCRIPTOR_RANGE_REF
+            and fact.get("protected_range_count") == 1
+            and fact.get("security_descriptor_count") == 1
+            and fact.get("has_legacy_verifier") is True
+            and input_cell == _PROTECTED_RANGE_SECURITY_DESCRIPTOR_INPUT_CELL
+            and fact.get("input_value") == _PROTECTED_RANGE_SECURITY_DESCRIPTOR_INPUT_VALUE
+            and formula_cell == _PROTECTED_RANGE_SECURITY_DESCRIPTOR_FORMULA_CELL
+            and fact.get("formula") == _PROTECTED_RANGE_SECURITY_DESCRIPTOR_FORMULA
+            and dashboard_sheet == _PROTECTED_RANGE_SECURITY_DESCRIPTOR_DASHBOARD_SHEET
+            and dashboard_cell == _PROTECTED_RANGE_SECURITY_DESCRIPTOR_DASHBOARD_CELL
+            and fact.get("dashboard_formula")
+            == _PROTECTED_RANGE_SECURITY_DESCRIPTOR_DASHBOARD_FORMULA
+            and before_state is not None
+            and after_state is not None
+            and before_state["worksheet_member"]
+            == _PROTECTED_RANGE_SECURITY_DESCRIPTOR_WORKSHEET_MEMBER
+            and after_state["worksheet_member"]
+            == _PROTECTED_RANGE_SECURITY_DESCRIPTOR_WORKSHEET_MEMBER
+            and _ooxml_boolean(dict(before_state["sheet_protection_attributes"]).get("sheet"))
+            is True
+            and _ooxml_boolean(dict(after_state["sheet_protection_attributes"]).get("sheet"))
+            is True
+            and before_state["sheet_protection_attributes"]
+            == after_state["sheet_protection_attributes"]
+            and before_state["protected_range_attributes"] == expected_range_attributes
+            and after_state["protected_range_attributes"] == expected_range_attributes
+            and before_state["descriptor_count"] == 1
+            and after_state["descriptor_count"] == 1
+            and before_state["descriptor_text"] == _PROTECTED_RANGE_SECURITY_DESCRIPTOR_BASELINE
+            and after_state["descriptor_text"] == _PROTECTED_RANGE_SECURITY_DESCRIPTOR_CANDIDATE
+            and bool(baseline[sheet_name].protection.sheet)
+            and bool(candidate[sheet_name].protection.sheet)
+            and bool(baseline[sheet_name][input_cell].protection.locked)
+            and bool(candidate[sheet_name][input_cell].protection.locked)
+            and before_input is not None
+            and after_input is not None
+            and before_input == after_input
+            and before_input[4] == str(_PROTECTED_RANGE_SECURITY_DESCRIPTOR_INPUT_VALUE)
+            and before_formula is not None
+            and after_formula is not None
+            and before_formula == after_formula
+            and before_formula[3] == _PROTECTED_RANGE_SECURITY_DESCRIPTOR_FORMULA
+            and before_dashboard is not None
+            and after_dashboard is not None
+            and before_dashboard == after_dashboard
+            and before_dashboard[3] == _PROTECTED_RANGE_SECURITY_DESCRIPTOR_DASHBOARD_FORMULA
+            and _worksheet_without_protected_range_security_descriptor(baseline_path, sheet_name)
+            == _worksheet_without_protected_range_security_descriptor(candidate_path, sheet_name)
+            and _xlsx_member_differences(baseline_path, candidate_path)
+            == {_PROTECTED_RANGE_SECURITY_DESCRIPTOR_WORKSHEET_MEMBER}
+            and _calculation_properties(baseline_path) == _calculation_properties(candidate_path)
+            and {
+                (sheet_name, formula_cell),
+                (dashboard_sheet, dashboard_cell),
+            }.issubset(_reachable(graph, (sheet_name, input_cell))),
+            f"{truth['id']}: expected only one standard nested protected-range descriptor transition with stable locked input and formula context",
             errors,
         )
         return

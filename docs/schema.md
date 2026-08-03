@@ -147,6 +147,7 @@ Facts are observed directly from the fixture files by `wcab validate`.
 | `sheet_visibility_changed` | `sheet`, `baseline_state`, `candidate_state` | The stored sheet state changes. |
 | `formula_cell_unlocked` | `sheet`, `cell` | A formula cell is explicitly unlocked while its sheet remains protected. |
 | `sheet_protection_sort_permission_enabled` | `sheet`, `worksheet_member`, `baseline_sort_locked`, `candidate_sort_locked`, `formula_cell`, `formula`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | One protected worksheet retains its stored protection and every other action lock while raw `sheetProtection/@sort` changes exactly from `1` (locked) to `0` (permitted). Its formula context, styles, calculation properties, and every package member except the declared worksheet remain unchanged. The validator does not test a password, encryption, authorization, editable ranges, a client sort operation, or a resulting value. |
+| `protected_range_security_descriptor_changed` | `sheet`, `worksheet_member`, `protected_range_ref`, `protected_range_count`, `security_descriptor_count`, `has_legacy_verifier`, `input_cell`, `input_value`, `formula_cell`, `formula`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | One protected worksheet keeps its locked target, range name/reference, legacy verifier, formulas, calculation properties, and every package member except the declared worksheet fixed while one standard nested `protectedRange/securityDescriptor` text node changes. Public truth excludes the descriptor, range name, and verifier. The validator records raw stored metadata only; it does not test a password, encryption, identity, authentication, authorization, enforcement, a client action, or a result. |
 | `workbook_structure_lock_removed` | `baseline_lock_structure`, `candidate_lock_structure`, `hidden_sheet`, `hidden_sheet_state`, `formula_sheet`, `formula_cell`, `formula` | Raw `workbookProtection/@lockStructure` changes exactly from `true` to `false` while the declared hidden-sheet state, formula, calculation properties, and every package member except `xl/workbook.xml` remain unchanged. The validator does not test a password, encryption, authorization, or client behavior. |
 | `manual_calculation_incomplete` | none | Candidate calculation metadata is `manual` and records incomplete calculation. |
 | `iterative_calculation_enabled` | `sheet`, `cell`, `formula`, `baseline_iterate`, `candidate_iterate`, `iteration_count`, `iteration_delta` | The declared direct self-referencing formula remains unchanged while raw `calcPr/@iterate` changes exactly from `false` to `true`; the explicit count and delta remain the declared values, and all non-iteration calculation attributes are unchanged. The validator does not calculate the model. |
@@ -291,6 +292,26 @@ only changed package member. The validator records that stored declaration
 only: it does not test a password, encryption, authentication, authorization,
 editable ranges, an actual sort operation, a client permission decision, or a
 resulting value.
+
+## Protected-range security descriptors
+
+The ISO/IEC SpreadsheetML example for
+[`securityDescriptor`](https://www.reginfo.gov/public/do/DownloadDocument?objectID=136723002)
+stores each account descriptor as a nested child of `protectedRange`; the Open
+XML SDK's [`ProtectedRange` reference](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.spreadsheet.protectedrange?view=openxml-3.0.1)
+also lists it as a child. That stored declaration can change without a cell or
+formula edit, but it is not itself proof that a client authorizes, identifies,
+or permits a person.
+
+WCAB 0.42 keeps one protected `Controls!B2:B2` target locked, its range name
+and legacy verifier fixed, and its `Controls!B2 → Controls!D2 → Dashboard!B4`
+formula context unchanged. Only one standard nested `securityDescriptor` text
+node moves inside `xl/worksheets/sheet1.xml`. The raw validator reads this one
+compact element shape, checks the exact synthetic values privately, compares
+the worksheet after erasing only that text, and requires the worksheet to be
+the sole package difference. Public truth retains no descriptor, range name,
+or verifier. The case does not test a verifier, encryption, identity,
+authentication, authorization, editable-range enforcement, or client behavior.
 
 ## Static impact lower bounds
 

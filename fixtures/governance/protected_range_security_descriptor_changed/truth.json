@@ -1,0 +1,50 @@
+{
+  "coverage": [
+    "The pair changes only xl/worksheets/sheet1.xml: one standard protectedRange/securityDescriptor child text differs. The worksheet protection, locked target, legacy verifier, range name, range reference, cells, formulas, calculation properties, and every other package member stay fixed.",
+    "The fact is a stored descriptor change on one protected range. WCAB does not test a password or verifier, encryption, identity, authentication, authorization, editable-range enforcement, a spreadsheet client, or any resulting value.",
+    "The raw validator checks the exact compact generated XML privately. An adapter must instead require FormulaFence's equal safe one-range profile, security-descriptor-material signal, and FF022 evidence; it must not require a descriptor, range name, verifier, or identity value."
+  ],
+  "coverage_expectations": [],
+  "facts": [
+    {
+      "dashboard_cell": "B4",
+      "dashboard_formula": "=Controls!$D$2",
+      "dashboard_sheet": "Dashboard",
+      "formula": "=B2*C2",
+      "formula_cell": "D2",
+      "has_legacy_verifier": true,
+      "input_cell": "B2",
+      "input_value": 12,
+      "kind": "protected_range_security_descriptor_changed",
+      "protected_range_count": 1,
+      "protected_range_ref": "B2:B2",
+      "security_descriptor_count": 1,
+      "sheet": "Controls",
+      "worksheet_member": "xl/worksheets/sheet1.xml"
+    }
+  ],
+  "family": "governance",
+  "id": "governance.protected_range_security_descriptor_changed",
+  "must_reach": [
+    {
+      "source": {
+        "cell": "B2",
+        "sheet": "Controls"
+      },
+      "targets": [
+        {
+          "cell": "D2",
+          "sheet": "Controls"
+        },
+        {
+          "cell": "B4",
+          "sheet": "Dashboard"
+        }
+      ]
+    }
+  ],
+  "review_expectation": "block",
+  "schema_version": 3,
+  "title": "A protected range changes its stored security descriptor",
+  "topology": "pair"
+}

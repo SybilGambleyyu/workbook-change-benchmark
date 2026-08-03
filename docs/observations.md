@@ -333,6 +333,16 @@ package boundary. WCAB's raw validator—not the adapter—then establishes the
 exact `1`-to-`0` transition, stable formulas, and worksheet-only package
 difference. Neither layer tests a password, encryption, authorization, an
 actual client sort operation, or a resulting value.
+For the standards-form protected-range descriptor case, it requires one exact
+high-severity `protected_range_permissions_changed` record and `FF022`: the
+redacted before/after profiles must retain one named `Controls!B2:B2` range,
+one legacy verifier, one security descriptor, and no opaque metadata while
+only `security_descriptor_material_changed=true` differs. FormulaFence must
+not expose an account descriptor, identity, range name, or verifier. WCAB's
+raw validator independently establishes the nested child, stable locked input
+and formula path, and worksheet-only package difference. Neither layer tests a
+password, encryption, authentication, authorization, editable-range
+enforcement, a spreadsheet client, or a resulting value.
 For the PivotCache case,
 it requires one exact
 `pivot_cache_refresh_controls_changed` record and matching `FF023`: its

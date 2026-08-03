@@ -43,6 +43,10 @@ _FACT_TO_CHANGE: dict[str, tuple[str, str | None]] = {
     "sheet_visibility_changed": ("sheet_visibility_changed", None),
     "formula_cell_unlocked": ("cell_protection_assignments_changed", None),
     "sheet_protection_sort_permission_enabled": ("sheet_protection_changed", None),
+    "protected_range_security_descriptor_changed": (
+        "protected_range_permissions_changed",
+        None,
+    ),
     "workbook_structure_lock_removed": ("workbook_protection_changed", None),
     "manual_calculation_incomplete": ("calculation_settings_changed", None),
     "iterative_calculation_enabled": ("calculation_settings_changed", None),
@@ -2591,6 +2595,81 @@ def _sheet_protection_sort_permission_finding_observed(
     )
 
 
+def _protected_range_security_descriptor_details_observed(
+    details: Any,
+    fact: dict[str, Any],
+) -> bool:
+    """Require FormulaFence's safe standard-descriptor comparison evidence.
+
+    WCAB's raw validator establishes the nested XML child, verifier, range
+    name, and descriptor transition. FormulaFence must expose only the equal
+    safe range profile plus its private material-change signal.
+    """
+
+    if (
+        fact.get("sheet") != "Controls"
+        or fact.get("worksheet_member") != "xl/worksheets/sheet1.xml"
+        or fact.get("protected_range_ref") != "B2:B2"
+        or fact.get("protected_range_count") != 1
+        or fact.get("security_descriptor_count") != 1
+        or fact.get("has_legacy_verifier") is not True
+        or fact.get("input_cell") != "B2"
+        or fact.get("input_value") != 12
+        or fact.get("formula_cell") != "D2"
+        or fact.get("formula") != "=B2*C2"
+        or fact.get("dashboard_sheet") != "Dashboard"
+        or fact.get("dashboard_cell") != "B4"
+        or fact.get("dashboard_formula") != "=Controls!$D$2"
+        or not isinstance(details, dict)
+    ):
+        return False
+    credential = {
+        "configured": True,
+        "has_legacy_verifier": True,
+        "has_modern_verifier": False,
+        "algorithm": None,
+        "spin_count": None,
+    }
+    protected_range = {
+        "sheet": "Controls",
+        "ranges": ["Controls!B2:B2"],
+        "has_name": True,
+        "credential": credential,
+        "has_security_descriptor": True,
+        "opaque_metadata": {"present": False, "count": 0},
+    }
+    return details == {
+        "sheet": "Controls",
+        "before": [protected_range],
+        "after": [protected_range],
+        "security_descriptor_material_changed": True,
+    }
+
+
+def _protected_range_security_descriptor_observed(
+    change: dict[str, Any], fact: dict[str, Any]
+) -> bool:
+    """Match FormulaFence's high-severity protected-range permission record."""
+
+    return (
+        change.get("kind") == "protected_range_permissions_changed"
+        and change.get("severity") == "high"
+        and _protected_range_security_descriptor_details_observed(change.get("details"), fact)
+    )
+
+
+def _protected_range_security_descriptor_finding_observed(
+    finding: dict[str, Any], fact: dict[str, Any]
+) -> bool:
+    """Require high-severity FF022 evidence for the private descriptor change."""
+
+    return (
+        finding.get("rule_id") == "FF022"
+        and finding.get("severity") == "high"
+        and _protected_range_security_descriptor_details_observed(finding.get("details"), fact)
+    )
+
+
 def _what_if_data_table_input_reference_details_observed(
     details: Any, fact: dict[str, Any]
 ) -> bool:
@@ -3224,6 +3303,16 @@ def evaluate_diff_case(case_dir: str | Path, *, executable: str = "formulafence"
                 if isinstance(change, dict)
             ) and any(
                 _sheet_protection_sort_permission_finding_observed(finding, fact)
+                for finding in findings
+                if isinstance(finding, dict)
+            )
+        if kind == "protected_range_security_descriptor_changed":
+            observed = any(
+                _protected_range_security_descriptor_observed(change, fact)
+                for change in changes
+                if isinstance(change, dict)
+            ) and any(
+                _protected_range_security_descriptor_finding_observed(finding, fact)
                 for finding in findings
                 if isinstance(finding, dict)
             )

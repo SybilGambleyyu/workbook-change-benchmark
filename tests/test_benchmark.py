@@ -565,6 +565,30 @@ def _sheet_protection_sort_permission_details() -> dict[str, object]:
     }
 
 
+def _protected_range_security_descriptor_details() -> dict[str, object]:
+    credential = {
+        "configured": True,
+        "has_legacy_verifier": True,
+        "has_modern_verifier": False,
+        "algorithm": None,
+        "spin_count": None,
+    }
+    protected_range = {
+        "sheet": "Controls",
+        "ranges": ["Controls!B2:B2"],
+        "has_name": True,
+        "credential": credential,
+        "has_security_descriptor": True,
+        "opaque_metadata": {"present": False, "count": 0},
+    }
+    return {
+        "sheet": "Controls",
+        "before": [protected_range],
+        "after": [protected_range],
+        "security_descriptor_material_changed": True,
+    }
+
+
 def _chart_series_reference_details() -> dict[str, object]:
     profile = {
         "present": True,
@@ -1210,6 +1234,27 @@ def test_committed_manifest_matches_fixture_tree() -> None:
             "worksheet_member": "xl/worksheets/sheet1.xml",
             "baseline_sort_locked": True,
             "candidate_sort_locked": False,
+            "formula_cell": "D2",
+            "formula": "=B2*C2",
+            "dashboard_sheet": "Dashboard",
+            "dashboard_cell": "B4",
+            "dashboard_formula": "=Controls!$D$2",
+        }
+    ]
+    protected_range_descriptor_row = next(
+        row for row in rows if row["id"] == "governance.protected_range_security_descriptor_changed"
+    )
+    assert protected_range_descriptor_row["facts"] == [
+        {
+            "kind": "protected_range_security_descriptor_changed",
+            "sheet": "Controls",
+            "worksheet_member": "xl/worksheets/sheet1.xml",
+            "protected_range_ref": "B2:B2",
+            "protected_range_count": 1,
+            "security_descriptor_count": 1,
+            "has_legacy_verifier": True,
+            "input_cell": "B2",
+            "input_value": 12,
             "formula_cell": "D2",
             "formula": "=B2*C2",
             "dashboard_sheet": "Dashboard",
@@ -4237,6 +4282,113 @@ def test_sheet_protection_sort_permission_pair_changes_only_controls_worksheet(
     ] == ["xl/worksheets/sheet1.xml"]
 
 
+def test_protected_range_security_descriptor_pair_changes_only_standard_child(
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "governance" / "protected_range_security_descriptor_changed"
+    assert validate_case(case) == []
+    with ZipFile(case / "baseline.xlsx") as baseline, ZipFile(case / "candidate.xlsx") as candidate:
+        assert baseline.testzip() is None
+        assert candidate.testzip() is None
+        baseline_members = {
+            entry.filename: baseline.read(entry.filename) for entry in baseline.infolist()
+        }
+        candidate_members = {
+            entry.filename: candidate.read(entry.filename) for entry in candidate.infolist()
+        }
+    assert set(baseline_members) == set(candidate_members)
+    worksheet_member = "xl/worksheets/sheet1.xml"
+    assert [
+        member
+        for member in sorted(baseline_members)
+        if baseline_members[member] != candidate_members[member]
+    ] == [worksheet_member]
+
+    namespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    descriptor_path = (
+        f"{{{namespace}}}protectedRanges/{{{namespace}}}protectedRange/"
+        f"{{{namespace}}}securityDescriptor"
+    )
+    baseline_worksheet = ElementTree.fromstring(baseline_members[worksheet_member])
+    candidate_worksheet = ElementTree.fromstring(candidate_members[worksheet_member])
+    baseline_descriptor = baseline_worksheet.find(descriptor_path)
+    candidate_descriptor = candidate_worksheet.find(descriptor_path)
+    assert baseline_descriptor is not None
+    assert candidate_descriptor is not None
+    assert baseline_descriptor.text != candidate_descriptor.text
+    assert not baseline_descriptor.attrib
+    assert not candidate_descriptor.attrib
+    assert not list(baseline_descriptor)
+    assert not list(candidate_descriptor)
+    baseline_descriptor.text = None
+    candidate_descriptor.text = None
+    assert ElementTree.tostring(baseline_worksheet) == ElementTree.tostring(candidate_worksheet)
+
+    public_truth = (case / "truth.json").read_text(encoding="utf-8")
+    for private_value in (
+        "approved-editor@wcab.invalid",
+        "review-editor@wcab.invalid",
+        "WCAB controlled input",
+        "A1B2",
+    ):
+        assert private_value not in public_truth
+
+
+def test_validator_rejects_a_false_protected_range_security_descriptor_fact(
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "governance" / "protected_range_security_descriptor_changed"
+    truth_path = case / "truth.json"
+    truth = json.loads(truth_path.read_text(encoding="utf-8"))
+    truth["facts"][0]["security_descriptor_count"] = 2
+    truth_path.write_text(json.dumps(truth), encoding="utf-8")
+    assert validate_case(case)
+
+
+def test_validator_rejects_a_corrupted_protected_range_security_descriptor(
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = (
+        fixture_root
+        / "governance"
+        / "protected_range_security_descriptor_changed"
+        / "candidate.xlsx"
+    )
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    namespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    descriptor = ElementTree.fromstring(members["xl/worksheets/sheet1.xml"]).find(
+        f"{{{namespace}}}protectedRanges/{{{namespace}}}protectedRange/"
+        f"{{{namespace}}}securityDescriptor"
+    )
+    assert descriptor is not None
+    descriptor.text = "approved-editor@wcab.invalid"
+    worksheet = ElementTree.fromstring(members["xl/worksheets/sheet1.xml"])
+    candidate_descriptor = worksheet.find(
+        f"{{{namespace}}}protectedRanges/{{{namespace}}}protectedRange/"
+        f"{{{namespace}}}securityDescriptor"
+    )
+    assert candidate_descriptor is not None
+    candidate_descriptor.text = descriptor.text
+    members["xl/worksheets/sheet1.xml"] = ElementTree.tostring(
+        worksheet,
+        encoding="utf-8",
+        xml_declaration=True,
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
 def test_validator_rejects_a_false_iterative_calculation_fact(tmp_path: Path) -> None:
     fixture_root = tmp_path / "fixtures"
     build_all(fixture_root)
@@ -6346,6 +6498,130 @@ def test_formulafence_adapter_rejects_an_inexact_sheet_protection_sort_permissio
     assert result["status"] == "missed"
     assert result["matched"] == []
     assert result["missed"] == ["sheet_protection_sort_permission_enabled"]
+
+
+def test_formulafence_adapter_maps_the_exact_protected_range_security_descriptor(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _protected_range_security_descriptor_details()
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "protected_range_permissions_changed",
+                    "severity": "high",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF022", "severity": "high", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "protected_range_security_descriptor_changed"
+    )
+    assert result["status"] == "matched"
+    assert result["matched"] == ["protected_range_security_descriptor_changed"]
+
+
+def test_formulafence_adapter_rejects_an_inexact_protected_range_security_descriptor(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _protected_range_security_descriptor_details()
+        details["after"][0]["opaque_metadata"]["count"] = 1
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "protected_range_permissions_changed",
+                    "severity": "high",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF022", "severity": "high", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "protected_range_security_descriptor_changed"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["protected_range_security_descriptor_changed"]
+
+
+def test_formulafence_adapter_requires_high_ff022_for_protected_range_descriptor(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _protected_range_security_descriptor_details()
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "protected_range_permissions_changed",
+                    "severity": "high",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF022", "severity": "medium", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "protected_range_security_descriptor_changed"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["protected_range_security_descriptor_changed"]
+
+
+def test_formulafence_adapter_requires_high_change_for_protected_range_descriptor(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _protected_range_security_descriptor_details()
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "protected_range_permissions_changed",
+                    "severity": "medium",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF022", "severity": "high", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "protected_range_security_descriptor_changed"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["protected_range_security_descriptor_changed"]
 
 
 def test_formulafence_adapter_maps_the_exact_iterative_calculation_transition(

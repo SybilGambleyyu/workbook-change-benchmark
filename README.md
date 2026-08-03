@@ -34,7 +34,7 @@ gates, static analyzers, and agent workflows that propose workbook edits.
 
 ## Scope and non-goals
 
-Version `0.41` covers formula-to-value replacements, formula reference drift,
+Version `0.42` covers formula-to-value replacements, formula reference drift,
 value changes with downstream effects, external formula references, named
 ranges, data validation, conditional formatting, sheet visibility, direct cell
 and workbook-structure protection, calculation settings, static cycles,
@@ -118,6 +118,15 @@ while protection remains enabled and all cells, formulas, styles, calculation
 properties, and workbook-level protection remain fixed. It records a stored
 permission only: it does not test a password, authorization, an editable range,
 whether a client permits a sort, or what a sort would change.
+It also covers one protected range whose standards-form nested
+`securityDescriptor` child changes while its `Controls!B2` target remains
+locked on a protected sheet, `Controls!D2=B2*C2` and its
+`Dashboard!B4=Controls!$D$2` consumer remain fixed, and
+`xl/worksheets/sheet1.xml` is the sole changed package member. Public truth
+retains the range shape and safe counts, not the descriptor, range name, or
+legacy verifier. It records stored metadata only: it does not prove identity,
+authentication, authorization, editable-range enforcement, encryption, or a
+spreadsheet-client result.
 It also covers one macro-enabled `.xlsm` workbook whose workbook-scoped
 `_xlnm.Auto_Open` binding moves from the very-hidden `Macro Automation!A1`
 cell to `Macro Automation!A2` while the XLM macro sheet remains byte-identical
@@ -477,6 +486,16 @@ validator independently establishes the `1`-to-`0` stored transition, stable
 formula context, and worksheet-only package boundary. Neither layer tests a
 password, encryption, authorization, a client sort operation, or a resulting
 value.
+For the standards-form protected-range descriptor case, it requires FormulaFence's
+exact high-severity `protected_range_permissions_changed` / `FF022` evidence:
+the redacted before/after profiles retain one named range, one legacy verifier,
+one standard descriptor, no opaque metadata, and only
+`security_descriptor_material_changed=true`. FormulaFence does not expose an
+identity, descriptor, range name, verifier, or raw package boundary; WCAB's
+raw validator independently establishes those compact generated XML invariants
+and the worksheet-only difference. Neither layer authenticates an actor,
+determines authorization, tests enforcement, decrypts a file, opens a client,
+or claims a result.
 It separately requires FormulaFence's `pivot_cache_refresh_controls_changed`
 record and matching `FF023` for the local worksheet-backed PivotCache case.
 FormulaFence safely reports cache-level source/control metadata rather than
