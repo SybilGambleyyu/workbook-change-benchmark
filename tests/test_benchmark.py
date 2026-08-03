@@ -341,6 +341,27 @@ def _threaded_comment_resolution_state_details() -> dict[str, object]:
     }
 
 
+def _shared_workbook_revision_log_details() -> dict[str, object]:
+    profile = {
+        "present": True,
+        "revision_header_part_count": 1,
+        "revision_header_count": 1,
+        "revision_log_part_count": 1,
+        "revision_log_entry_count": 3,
+        "shared_workbook_enabled_count": 1,
+        "track_revisions_enabled_count": 1,
+        "revision_history_enabled_count": 1,
+        "keep_change_history_enabled_count": 1,
+        "revision_history_protected_count": 1,
+        "unrecognized_shared_workbook_revision_count": 0,
+    }
+    return {
+        "before": profile,
+        "after": dict(profile),
+        "revision_log_material_changed": True,
+    }
+
+
 def _cell_hyperlink_target_details() -> dict[str, object]:
     profile = {
         "present": True,
@@ -1378,6 +1399,48 @@ def test_committed_manifest_matches_fixture_tree() -> None:
             "stable_formula": "=B10*C10",
         }
     ]
+    shared_workbook_revision_row = next(
+        row for row in rows if row["id"] == "governance.shared_workbook_revision_log_changed"
+    )
+    assert shared_workbook_revision_row["facts"] == [
+        {
+            "kind": "shared_workbook_revision_log_changed",
+            "workbook_relationships_member": "xl/_rels/workbook.xml.rels",
+            "revision_headers_member": "xl/revisions/revisionHeaders.xml",
+            "revision_headers_relationships_member": (
+                "xl/revisions/_rels/revisionHeaders.xml.rels"
+            ),
+            "revision_log_member": "xl/revisions/revisionLog1.xml",
+            "revision_headers_content_type": (
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.revisionHeaders+xml"
+            ),
+            "revision_log_content_type": (
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.revisionLog+xml"
+            ),
+            "revision_headers_relationship_type": (
+                "http://schemas.openxmlformats.org/officeDocument/2006/relationships/"
+                "revisionHeaders"
+            ),
+            "revision_log_relationship_type": (
+                "http://schemas.openxmlformats.org/officeDocument/2006/relationships/revisionLog"
+            ),
+            "revision_header_part_count": 1,
+            "revision_header_count": 1,
+            "revision_log_part_count": 1,
+            "revision_log_entry_count": 3,
+            "shared_workbook_enabled_count": 1,
+            "track_revisions_enabled_count": 1,
+            "revision_history_enabled_count": 1,
+            "keep_change_history_enabled_count": 1,
+            "revision_history_protected_count": 1,
+            "unrecognized_shared_workbook_revision_count": 0,
+            "stable_sheet": "Controls",
+            "stable_value_cell": "B10",
+            "stable_value": 12,
+            "stable_formula_cell": "D10",
+            "stable_formula": "=B10*C10",
+        }
+    ]
     query_table_row = next(
         row for row in rows if row["id"] == "governance.query_table_refresh_on_open"
     )
@@ -2292,6 +2355,86 @@ def test_validator_rejects_a_corrupted_threaded_comment_resolution_state(
     comment.set("done", "0")
     members[threaded_member] = ElementTree.tostring(
         comments,
+        encoding="utf-8",
+        xml_declaration=True,
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_shared_workbook_revision_log_pair_changes_only_its_historic_value(
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "governance" / "shared_workbook_revision_log_changed"
+    assert validate_case(case) == []
+    with ZipFile(case / "baseline.xlsx") as baseline, ZipFile(case / "candidate.xlsx") as candidate:
+        assert baseline.testzip() is None
+        assert candidate.testzip() is None
+        baseline_members = {
+            entry.filename: baseline.read(entry.filename) for entry in baseline.infolist()
+        }
+        candidate_members = {
+            entry.filename: candidate.read(entry.filename) for entry in candidate.infolist()
+        }
+    assert set(baseline_members) == set(candidate_members)
+    revision_log_member = "xl/revisions/revisionLog1.xml"
+    assert [
+        member
+        for member in sorted(baseline_members)
+        if baseline_members[member] != candidate_members[member]
+    ] == [revision_log_member]
+
+    namespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    old_value_path = f"{{{namespace}}}rcc/{{{namespace}}}oc/{{{namespace}}}v"
+    baseline_revisions = ElementTree.fromstring(baseline_members[revision_log_member])
+    candidate_revisions = ElementTree.fromstring(candidate_members[revision_log_member])
+    baseline_old_value = baseline_revisions.find(old_value_path)
+    candidate_old_value = candidate_revisions.find(old_value_path)
+    assert baseline_old_value is not None
+    assert candidate_old_value is not None
+    assert baseline_old_value.text != candidate_old_value.text
+    baseline_old_value.text = ""
+    candidate_old_value.text = ""
+    assert ElementTree.tostring(baseline_revisions) == ElementTree.tostring(candidate_revisions)
+
+    public_truth = (case / "truth.json").read_text(encoding="utf-8")
+    for private_value in (
+        "WCAB historic approved value",
+        "WCAB historic candidate value",
+        "WCAB historic recorded value",
+        "WCAB Revision Author",
+        "2024-01-02T03:04:05Z",
+        "{88888888-8888-8888-8888-888888888888}",
+        "rIdWCABRevisionHeaders",
+        "rIdWCABRevisionLog",
+    ):
+        assert private_value not in public_truth
+
+
+def test_validator_rejects_a_corrupted_shared_workbook_revision_log(
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = (
+        fixture_root / "governance" / "shared_workbook_revision_log_changed" / "candidate.xlsx"
+    )
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    revision_log_member = "xl/revisions/revisionLog1.xml"
+    namespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    revisions = ElementTree.fromstring(members[revision_log_member])
+    old_value = revisions.find(f"{{{namespace}}}rcc/{{{namespace}}}oc/{{{namespace}}}v")
+    assert old_value is not None
+    old_value.text = "WCAB historic approved value"
+    members[revision_log_member] = ElementTree.tostring(
+        revisions,
         encoding="utf-8",
         xml_declaration=True,
     )
@@ -5295,6 +5438,130 @@ def test_formulafence_adapter_requires_threaded_comment_ff045(
     assert result["status"] == "missed"
     assert result["matched"] == []
     assert result["missed"] == ["threaded_comment_resolution_state_changed"]
+
+
+def test_formulafence_adapter_maps_the_exact_shared_workbook_revision_log(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _shared_workbook_revision_log_details()
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "shared_workbook_revisions_changed",
+                    "location": None,
+                    "severity": "high",
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF062", "severity": "high", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "shared_workbook_revision_log_changed"
+    )
+    assert result["status"] == "matched"
+    assert result["matched"] == ["shared_workbook_revision_log_changed"]
+
+
+def test_formulafence_adapter_requires_the_exact_shared_workbook_revision_profile(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _shared_workbook_revision_log_details()
+        details["after"]["revision_log_entry_count"] = 2
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "shared_workbook_revisions_changed",
+                    "location": None,
+                    "severity": "high",
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF062", "severity": "high", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "shared_workbook_revision_log_changed"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["shared_workbook_revision_log_changed"]
+
+
+def test_formulafence_adapter_requires_shared_workbook_revision_log_material_signal(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _shared_workbook_revision_log_details()
+        details.pop("revision_log_material_changed")
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "shared_workbook_revisions_changed",
+                    "location": None,
+                    "severity": "high",
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF062", "severity": "high", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "shared_workbook_revision_log_changed"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["shared_workbook_revision_log_changed"]
+
+
+def test_formulafence_adapter_requires_shared_workbook_revision_ff062(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "shared_workbook_revisions_changed",
+                    "location": None,
+                    "severity": "high",
+                    "details": _shared_workbook_revision_log_details(),
+                }
+            ],
+            "findings": [],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "shared_workbook_revision_log_changed"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["shared_workbook_revision_log_changed"]
 
 
 def test_formulafence_adapter_maps_the_exact_query_table_refresh_change(

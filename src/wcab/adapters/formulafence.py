@@ -76,6 +76,10 @@ _FACT_TO_CHANGE: dict[str, tuple[str, str | None]] = {
         "threaded_comment_controls_changed",
         None,
     ),
+    "shared_workbook_revision_log_changed": (
+        "shared_workbook_revisions_changed",
+        None,
+    ),
     "query_table_refresh_on_load_changed": ("query_table_refresh_controls_changed", None),
     "cell_hyperlink_target_changed": ("cell_hyperlink_controls_changed", None),
     "pivot_cache_refresh_on_load_changed": ("pivot_cache_refresh_controls_changed", None),
@@ -659,6 +663,78 @@ def _threaded_comment_resolution_state_finding_observed(
         finding.get("rule_id") == "FF045"
         and finding.get("severity") == "high"
         and _threaded_comment_resolution_state_details_observed(finding.get("details"), fact)
+    )
+
+
+def _shared_workbook_revision_log_fact_is_expected(fact: dict[str, Any]) -> bool:
+    """Check only the safe aggregate contract for WCAB's revision-log pair.
+
+    FormulaFence intentionally withholds revision values, cell locations,
+    author names, timestamps, GUIDs, and relationship IDs. The raw WCAB
+    validator owns the fixed synthetic package graph and historic-value change.
+    """
+
+    return (
+        fact.get("revision_header_part_count") == 1
+        and fact.get("revision_header_count") == 1
+        and fact.get("revision_log_part_count") == 1
+        and fact.get("revision_log_entry_count") == 3
+        and fact.get("shared_workbook_enabled_count") == 1
+        and fact.get("track_revisions_enabled_count") == 1
+        and fact.get("revision_history_enabled_count") == 1
+        and fact.get("keep_change_history_enabled_count") == 1
+        and fact.get("revision_history_protected_count") == 1
+        and fact.get("unrecognized_shared_workbook_revision_count") == 0
+    )
+
+
+def _shared_workbook_revision_log_details_observed(
+    details: Any,
+    fact: dict[str, Any],
+) -> bool:
+    """Require the exact redacted FF062 historic-log signal."""
+
+    if not _shared_workbook_revision_log_fact_is_expected(fact):
+        return False
+    profile = {
+        "present": True,
+        "revision_header_part_count": 1,
+        "revision_header_count": 1,
+        "revision_log_part_count": 1,
+        "revision_log_entry_count": 3,
+        "shared_workbook_enabled_count": 1,
+        "track_revisions_enabled_count": 1,
+        "revision_history_enabled_count": 1,
+        "keep_change_history_enabled_count": 1,
+        "revision_history_protected_count": 1,
+        "unrecognized_shared_workbook_revision_count": 0,
+    }
+    return details == {
+        "before": profile,
+        "after": profile,
+        "revision_log_material_changed": True,
+    }
+
+
+def _shared_workbook_revision_log_observed(change: dict[str, Any], fact: dict[str, Any]) -> bool:
+    """Match FormulaFence's high-severity legacy revision-history record."""
+
+    return (
+        change.get("kind") == "shared_workbook_revisions_changed"
+        and change.get("severity") == "high"
+        and _shared_workbook_revision_log_details_observed(change.get("details"), fact)
+    )
+
+
+def _shared_workbook_revision_log_finding_observed(
+    finding: dict[str, Any], fact: dict[str, Any]
+) -> bool:
+    """Require FormulaFence's matching high-severity FF062 finding."""
+
+    return (
+        finding.get("rule_id") == "FF062"
+        and finding.get("severity") == "high"
+        and _shared_workbook_revision_log_details_observed(finding.get("details"), fact)
     )
 
 
@@ -2917,6 +2993,16 @@ def evaluate_diff_case(case_dir: str | Path, *, executable: str = "formulafence"
                 if isinstance(change, dict)
             ) and any(
                 _threaded_comment_resolution_state_finding_observed(finding, fact)
+                for finding in findings
+                if isinstance(finding, dict)
+            )
+        if kind == "shared_workbook_revision_log_changed":
+            observed = any(
+                _shared_workbook_revision_log_observed(change, fact)
+                for change in changes
+                if isinstance(change, dict)
+            ) and any(
+                _shared_workbook_revision_log_finding_observed(finding, fact)
                 for finding in findings
                 if isinstance(finding, dict)
             )

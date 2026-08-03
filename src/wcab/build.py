@@ -292,6 +292,27 @@ _THREADED_COMMENT_CELL = "B10"
 _THREADED_COMMENT_TIMESTAMP = "2024-01-01T00:00:00Z"
 _THREADED_COMMENT_TEXT = "WCAB synthetic review thread"
 _THREADED_COMMENT_PERSON_NAME = "WCAB Reviewer"
+_SHARED_WORKBOOK_REVISION_HEADERS_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/revisionHeaders"
+_SHARED_WORKBOOK_REVISION_LOG_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/revisionLog"
+_SHARED_WORKBOOK_REVISION_HEADERS_CONTENT_TYPE = (
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.revisionHeaders+xml"
+)
+_SHARED_WORKBOOK_REVISION_LOG_CONTENT_TYPE = (
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.revisionLog+xml"
+)
+_SHARED_WORKBOOK_REVISION_HEADERS_MEMBER = "xl/revisions/revisionHeaders.xml"
+_SHARED_WORKBOOK_REVISION_HEADERS_RELATIONSHIPS_MEMBER = (
+    "xl/revisions/_rels/revisionHeaders.xml.rels"
+)
+_SHARED_WORKBOOK_REVISION_LOG_MEMBER = "xl/revisions/revisionLog1.xml"
+_SHARED_WORKBOOK_REVISION_HEADERS_RELATIONSHIP_ID = "rIdWCABRevisionHeaders"
+_SHARED_WORKBOOK_REVISION_LOG_RELATIONSHIP_ID = "rIdWCABRevisionLog"
+_SHARED_WORKBOOK_REVISION_HEADER_GUID = "{88888888-8888-8888-8888-888888888888}"
+_SHARED_WORKBOOK_REVISION_HEADER_TIMESTAMP = "2024-01-02T03:04:05Z"
+_SHARED_WORKBOOK_REVISION_HEADER_AUTHOR = "WCAB Revision Author"
+_SHARED_WORKBOOK_REVISION_BASELINE_HISTORIC_VALUE = "WCAB historic approved value"
+_SHARED_WORKBOOK_REVISION_CANDIDATE_HISTORIC_VALUE = "WCAB historic candidate value"
+_SHARED_WORKBOOK_REVISION_RECORDED_VALUE = "WCAB historic recorded value"
 _QUERY_TABLE_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/queryTable"
 _QUERY_TABLE_CONNECTIONS_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/connections"
 _QUERY_TABLE_CONTENT_TYPE = (
@@ -2831,6 +2852,173 @@ def _add_threaded_comment_resolution_state(path: Path, *, resolved: bool) -> Non
             },
         )
         members[_THREADED_COMMENT_PERSON_MEMBER] = serialize(people)
+
+    _rewrite_xlsx_parts(path, mutate)
+
+
+def _add_shared_workbook_revision_log(path: Path, *, historic_value: str) -> None:
+    """Attach one bounded legacy shared-workbook revision history.
+
+    Both packages retain the same workbook/header/log package graph, tracking
+    controls, author metadata, record shape, ordinary cells, and calculation
+    properties. Only a historic value inside the relationship-backed revision
+    log changes. This represents stored audit-trail material, not an identity,
+    a verified provenance record, a conflict-resolution result, an approval,
+    or a completed review workflow.
+    """
+
+    if historic_value not in {
+        _SHARED_WORKBOOK_REVISION_BASELINE_HISTORIC_VALUE,
+        _SHARED_WORKBOOK_REVISION_CANDIDATE_HISTORIC_VALUE,
+    }:
+        raise ValueError("shared-workbook revision fixture has an unexpected historic value")
+
+    def serialize(root: ElementTree.Element) -> bytes:
+        return ElementTree.tostring(root, encoding="utf-8", xml_declaration=True)
+
+    def add_override(
+        content_types: ElementTree.Element,
+        member: str,
+        content_type: str,
+    ) -> None:
+        override_tag = f"{{{_CONTENT_TYPES_NS}}}Override"
+        existing = [
+            item
+            for item in content_types.findall(override_tag)
+            if item.get("PartName") == f"/{member}"
+        ]
+        if not existing:
+            ElementTree.SubElement(
+                content_types,
+                override_tag,
+                {"PartName": f"/{member}", "ContentType": content_type},
+            )
+            return
+        if len(existing) != 1 or existing[0].get("ContentType") != content_type:
+            raise ValueError(
+                f"shared-workbook revision fixture has unexpected content type for {member}"
+            )
+
+    def mutate(members: dict[str, bytes]) -> None:
+        revision_members = {
+            _SHARED_WORKBOOK_REVISION_HEADERS_MEMBER,
+            _SHARED_WORKBOOK_REVISION_HEADERS_RELATIONSHIPS_MEMBER,
+            _SHARED_WORKBOOK_REVISION_LOG_MEMBER,
+        }
+        if revision_members & members.keys():
+            raise ValueError("shared-workbook revision fixture already has revision parts")
+
+        content_types = ElementTree.fromstring(members["[Content_Types].xml"])
+        add_override(
+            content_types,
+            _SHARED_WORKBOOK_REVISION_HEADERS_MEMBER,
+            _SHARED_WORKBOOK_REVISION_HEADERS_CONTENT_TYPE,
+        )
+        add_override(
+            content_types,
+            _SHARED_WORKBOOK_REVISION_LOG_MEMBER,
+            _SHARED_WORKBOOK_REVISION_LOG_CONTENT_TYPE,
+        )
+        members["[Content_Types].xml"] = serialize(content_types)
+
+        relationship_tag = f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationship"
+        workbook_relationships = ElementTree.fromstring(members["xl/_rels/workbook.xml.rels"])
+        if any(
+            relationship.get("Id") == _SHARED_WORKBOOK_REVISION_HEADERS_RELATIONSHIP_ID
+            for relationship in workbook_relationships.findall(relationship_tag)
+        ):
+            raise ValueError("shared-workbook revision fixture already has its header relationship")
+        ElementTree.SubElement(
+            workbook_relationships,
+            relationship_tag,
+            {
+                "Id": _SHARED_WORKBOOK_REVISION_HEADERS_RELATIONSHIP_ID,
+                "Type": _SHARED_WORKBOOK_REVISION_HEADERS_RELATIONSHIP,
+                "Target": "revisions/revisionHeaders.xml",
+            },
+        )
+        members["xl/_rels/workbook.xml.rels"] = serialize(workbook_relationships)
+
+        headers = ElementTree.Element(
+            f"{{{_SPREADSHEETML_NS}}}headers",
+            {
+                "diskRevisions": "1",
+                "exclusive": "0",
+                "history": "true",
+                "keepChangeHistory": "true",
+                "protected": "true",
+                "shared": "1",
+                "trackRevisions": "true",
+                "preserveHistory": "30",
+                "revisionId": "7",
+                "version": "+2",
+            },
+        )
+        ElementTree.SubElement(
+            headers,
+            f"{{{_SPREADSHEETML_NS}}}header",
+            {
+                "guid": _SHARED_WORKBOOK_REVISION_HEADER_GUID,
+                "dateTime": _SHARED_WORKBOOK_REVISION_HEADER_TIMESTAMP,
+                "maxSheetId": "4",
+                "userName": _SHARED_WORKBOOK_REVISION_HEADER_AUTHOR,
+                f"{{{_DOCUMENT_RELATIONSHIPS_NS}}}id": (
+                    _SHARED_WORKBOOK_REVISION_LOG_RELATIONSHIP_ID
+                ),
+            },
+        )
+        members[_SHARED_WORKBOOK_REVISION_HEADERS_MEMBER] = serialize(headers)
+
+        header_relationships = ElementTree.Element(f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationships")
+        ElementTree.SubElement(
+            header_relationships,
+            relationship_tag,
+            {
+                "Id": _SHARED_WORKBOOK_REVISION_LOG_RELATIONSHIP_ID,
+                "Type": _SHARED_WORKBOOK_REVISION_LOG_RELATIONSHIP,
+                "Target": "revisionLog1.xml",
+            },
+        )
+        members[_SHARED_WORKBOOK_REVISION_HEADERS_RELATIONSHIPS_MEMBER] = serialize(
+            header_relationships
+        )
+
+        revisions = ElementTree.Element(f"{{{_SPREADSHEETML_NS}}}revisions")
+        changed_cells = ElementTree.SubElement(
+            revisions,
+            f"{{{_SPREADSHEETML_NS}}}rcc",
+            {"rId": "1", "sId": "1"},
+        )
+        old_cell = ElementTree.SubElement(
+            changed_cells,
+            f"{{{_SPREADSHEETML_NS}}}oc",
+            {"r": "C20"},
+        )
+        ElementTree.SubElement(old_cell, f"{{{_SPREADSHEETML_NS}}}v").text = historic_value
+        new_cell = ElementTree.SubElement(
+            changed_cells,
+            f"{{{_SPREADSHEETML_NS}}}nc",
+            {"r": "C20"},
+        )
+        ElementTree.SubElement(
+            new_cell, f"{{{_SPREADSHEETML_NS}}}v"
+        ).text = _SHARED_WORKBOOK_REVISION_RECORDED_VALUE
+        ElementTree.SubElement(
+            revisions,
+            f"{{{_SPREADSHEETML_NS}}}rrc",
+            {
+                "rId": "2",
+                "sId": "1",
+                "ref": "A1:A1048576",
+                "action": "insertCol",
+            },
+        )
+        ElementTree.SubElement(
+            revisions,
+            f"{{{_SPREADSHEETML_NS}}}rfmt",
+            {"sheetId": "1", "sqref": "C20"},
+        )
+        members[_SHARED_WORKBOOK_REVISION_LOG_MEMBER] = serialize(revisions)
 
     _rewrite_xlsx_parts(path, mutate)
 
@@ -5794,6 +5982,73 @@ def _build_governance_threaded_comment_resolution_state(root: Path) -> None:
     )
 
 
+def _build_governance_shared_workbook_revision_log(root: Path) -> None:
+    """Build one private revision-log mutation outside ordinary worksheet cells."""
+
+    directory = root / "governance" / "shared_workbook_revision_log_changed"
+    directory.mkdir(parents=True, exist_ok=True)
+    baseline = directory / "baseline.xlsx"
+    candidate = directory / "candidate.xlsx"
+    _save_workbook(_governance_workbook(), baseline)
+    _save_workbook(_governance_workbook(), candidate)
+    _add_shared_workbook_revision_log(
+        baseline,
+        historic_value=_SHARED_WORKBOOK_REVISION_BASELINE_HISTORIC_VALUE,
+    )
+    _add_shared_workbook_revision_log(
+        candidate,
+        historic_value=_SHARED_WORKBOOK_REVISION_CANDIDATE_HISTORIC_VALUE,
+    )
+    _write_json(
+        directory / "truth.json",
+        _truth(
+            case_id="governance.shared_workbook_revision_log_changed",
+            title="A legacy shared-workbook revision log changes",
+            family="governance",
+            review_expectation="block",
+            facts=[
+                {
+                    "kind": "shared_workbook_revision_log_changed",
+                    "workbook_relationships_member": "xl/_rels/workbook.xml.rels",
+                    "revision_headers_member": _SHARED_WORKBOOK_REVISION_HEADERS_MEMBER,
+                    "revision_headers_relationships_member": (
+                        _SHARED_WORKBOOK_REVISION_HEADERS_RELATIONSHIPS_MEMBER
+                    ),
+                    "revision_log_member": _SHARED_WORKBOOK_REVISION_LOG_MEMBER,
+                    "revision_headers_content_type": (
+                        _SHARED_WORKBOOK_REVISION_HEADERS_CONTENT_TYPE
+                    ),
+                    "revision_log_content_type": _SHARED_WORKBOOK_REVISION_LOG_CONTENT_TYPE,
+                    "revision_headers_relationship_type": (
+                        _SHARED_WORKBOOK_REVISION_HEADERS_RELATIONSHIP
+                    ),
+                    "revision_log_relationship_type": (_SHARED_WORKBOOK_REVISION_LOG_RELATIONSHIP),
+                    "revision_header_part_count": 1,
+                    "revision_header_count": 1,
+                    "revision_log_part_count": 1,
+                    "revision_log_entry_count": 3,
+                    "shared_workbook_enabled_count": 1,
+                    "track_revisions_enabled_count": 1,
+                    "revision_history_enabled_count": 1,
+                    "keep_change_history_enabled_count": 1,
+                    "revision_history_protected_count": 1,
+                    "unrecognized_shared_workbook_revision_count": 0,
+                    "stable_sheet": "Controls",
+                    "stable_value_cell": "B10",
+                    "stable_value": 12,
+                    "stable_formula_cell": "D10",
+                    "stable_formula": "=B10*C10",
+                }
+            ],
+            coverage=[
+                "The pair changes only xl/revisions/revisionLog1.xml: one synthetic historic value differs inside one stored revision record. Its revision-header/log relationship graph, content types, tracking and retention controls, record shape, ordinary cells, formulas, calculation properties, and every other package member stay fixed.",
+                "The pair records a stored legacy revision-history difference only. It does not reveal or validate historic cell values, locations, author identity, timestamps, GUIDs, relationship IDs, provenance, conflict resolution, review/approval, authentication, authorization, or a completed workflow.",
+                "The raw XML validates the exact synthetic package shape locally. An adapter must instead require FormulaFence's redacted one-header/one-log equal-count profile, revision-log-material signal, and FF062 evidence; it must never require a historic value, cell reference, author, timestamp, GUID, or relationship ID.",
+            ],
+        ),
+    )
+
+
 def _build_governance_query_table_refresh(root: Path) -> None:
     """Build a pair whose QueryTable, not connection, requests refresh on open."""
 
@@ -7149,6 +7404,7 @@ _BUILDERS: tuple[Callable[[Path], None], ...] = (
     _build_governance_package_signature_manifest_retarget,
     _build_governance_package_signature_relationship_selector_retarget,
     _build_governance_threaded_comment_resolution_state,
+    _build_governance_shared_workbook_revision_log,
     _build_governance_query_table_refresh,
     _build_governance_cell_hyperlink_target,
     _build_governance_pivot_cache_refresh,
@@ -7208,6 +7464,7 @@ CASE_IDS = (
     "governance.package_signature_manifest_retargeted",
     "governance.package_signature_relationship_selector_retargeted",
     "governance.threaded_comment_resolution_state_changed",
+    "governance.shared_workbook_revision_log_changed",
     "governance.query_table_refresh_on_open",
     "governance.cell_hyperlink_target_changed",
     "governance.pivot_cache_refresh_on_open",

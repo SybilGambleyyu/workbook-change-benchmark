@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.41.0 — 2026-08-02
+
+- Add a deterministic legacy shared-workbook revision-log pair. Its sole
+  historic-value token changes inside `xl/revisions/revisionLog1.xml`, while
+  the workbook-to-header-to-log graph, content types, tracking/retention
+  controls, record shape, ordinary cells/formula context, calculation
+  properties, and every other package member stay fixed.
+- Add the exact `shared_workbook_revision_log_changed` fact, bounded raw OOXML
+  validator, historic-value-only comparison, package-isolation check, and
+  corruption regressions. The fixture records stored audit-trail material; it
+  does not expose historic values, cell locations, author identity, timestamps,
+  GUIDs, or relationship IDs, or prove provenance, conflict resolution, review,
+  approval, authentication, authorization, or workflow behavior.
+- Extend the optional FormulaFence adapter to require one exact high-severity
+  `shared_workbook_revisions_changed` / `FF062` signal with an equal-count
+  one-header/one-log redacted profile and `revision_log_material_changed=true`.
+  The adapter never relies on revision record material or writer identifiers.
+
 ## 0.40.0 — 2026-08-02
 
 - Add a deterministic modern threaded-comment resolution-state pair. Its sole

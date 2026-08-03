@@ -1,0 +1,43 @@
+{
+  "coverage": [
+    "The pair changes only xl/revisions/revisionLog1.xml: one synthetic historic value differs inside one stored revision record. Its revision-header/log relationship graph, content types, tracking and retention controls, record shape, ordinary cells, formulas, calculation properties, and every other package member stay fixed.",
+    "The pair records a stored legacy revision-history difference only. It does not reveal or validate historic cell values, locations, author identity, timestamps, GUIDs, relationship IDs, provenance, conflict resolution, review/approval, authentication, authorization, or a completed workflow.",
+    "The raw XML validates the exact synthetic package shape locally. An adapter must instead require FormulaFence's redacted one-header/one-log equal-count profile, revision-log-material signal, and FF062 evidence; it must never require a historic value, cell reference, author, timestamp, GUID, or relationship ID."
+  ],
+  "coverage_expectations": [],
+  "facts": [
+    {
+      "keep_change_history_enabled_count": 1,
+      "kind": "shared_workbook_revision_log_changed",
+      "revision_header_count": 1,
+      "revision_header_part_count": 1,
+      "revision_headers_content_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.revisionHeaders+xml",
+      "revision_headers_member": "xl/revisions/revisionHeaders.xml",
+      "revision_headers_relationship_type": "http://schemas.openxmlformats.org/officeDocument/2006/relationships/revisionHeaders",
+      "revision_headers_relationships_member": "xl/revisions/_rels/revisionHeaders.xml.rels",
+      "revision_history_enabled_count": 1,
+      "revision_history_protected_count": 1,
+      "revision_log_content_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.revisionLog+xml",
+      "revision_log_entry_count": 3,
+      "revision_log_member": "xl/revisions/revisionLog1.xml",
+      "revision_log_part_count": 1,
+      "revision_log_relationship_type": "http://schemas.openxmlformats.org/officeDocument/2006/relationships/revisionLog",
+      "shared_workbook_enabled_count": 1,
+      "stable_formula": "=B10*C10",
+      "stable_formula_cell": "D10",
+      "stable_sheet": "Controls",
+      "stable_value": 12,
+      "stable_value_cell": "B10",
+      "track_revisions_enabled_count": 1,
+      "unrecognized_shared_workbook_revision_count": 0,
+      "workbook_relationships_member": "xl/_rels/workbook.xml.rels"
+    }
+  ],
+  "family": "governance",
+  "id": "governance.shared_workbook_revision_log_changed",
+  "must_reach": [],
+  "review_expectation": "block",
+  "schema_version": 3,
+  "title": "A legacy shared-workbook revision log changes",
+  "topology": "pair"
+}

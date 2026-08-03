@@ -151,6 +151,28 @@ both fixtures are deliberately synthetic: neither package-signature case is a
 cryptographic verification, transform evaluation, certificate/identity check,
 trust-chain assessment, or package-consumer decision.
 
+## Legacy shared-workbook revision history persists outside ordinary cells
+
+Microsoft's Open XML [`Headers` reference](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.spreadsheet.headers?view=openxml-3.0.1)
+describes revision history persisted in distinct headers and log files, with
+shared/tracking/history/retention/protection controls. Its
+[`WorkbookRevisionHeaderPart` reference](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.packaging.workbookrevisionheaderpart?view=openxml-3.0.1)
+exposes linked revision-log parts, while the [`Revisions` reference](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.spreadsheet.revisions?view=openxml-3.0.1)
+describes a log as a list of revisions made to a shared workbook. The old shared
+workbook feature is legacy, but that is exactly why persisted history can remain
+outside an ordinary cell/value/formula comparison.
+
+WCAB 0.41 isolates a compact relationship-backed workbook-to-header-to-log
+graph. The header controls, synthetic author/timestamp/GUID, revision-record
+shape, content types, `Controls!B10=12`, `Controls!D10=B10*C10`, calculation
+properties, and every package member except `xl/revisions/revisionLog1.xml`
+remain fixed. Only one synthetic historic value changes. The raw validator
+checks that bounded local declaration and compares the log after erasing the
+private value. It does not publish historic values, cell locations, writer
+identity, timestamps, GUIDs, or relationship IDs; verify provenance or a
+writer; replay revisions; resolve conflicts; establish review/approval;
+authenticate or authorize a person; or claim workflow/client behavior.
+
 ## External sources can hide in defined names without an externalLink part
 
 Microsoft's [workbook-link guidance](https://support.microsoft.com/en-us/excel/manage-workbook-links)

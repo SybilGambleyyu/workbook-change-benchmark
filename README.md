@@ -34,7 +34,7 @@ gates, static analyzers, and agent workflows that propose workbook edits.
 
 ## Scope and non-goals
 
-Version `0.40` covers formula-to-value replacements, formula reference drift,
+Version `0.41` covers formula-to-value replacements, formula reference drift,
 value changes with downstream effects, external formula references, named
 ranges, data validation, conditional formatting, sheet visibility, direct cell
 and workbook-structure protection, calculation settings, static cycles,
@@ -90,7 +90,15 @@ cells, formulas, calculation properties, and every other package member stay
 fixed. It records a persisted discussion-state control only: it does not expose
 comment content or identity through a tool report, prove a review or approval,
 resolve a notification, authenticate an author, authorize an action, or claim
-a completed workflow. It also covers an
+a completed workflow. It also covers a legacy shared-workbook revision history
+whose one synthetic historic value changes inside its relationship-backed
+revision log while its workbook/header/log graph, content types,
+tracking/retention controls, record shape, ordinary cells, formulas,
+calculation properties, and every other package member remain fixed. It records
+stored audit-trail material only: it does not expose historic values, locations,
+author identity, timestamps, GUIDs, or relationship IDs; prove provenance,
+conflict resolution, review or approval; authenticate or authorize a person; or
+claim workflow/client behavior. It also covers an
 external-workbook link policy that switches from never to always updating when
 the workbook opens. It also covers
 an unchanged external-workbook formula whose local `externalLink` package
@@ -382,7 +390,17 @@ independently proves the bounded local package graph and
 `xl/threadedComments/threadedComment1.xml`-only boundary. Neither layer proves
 that anyone reviewed or approved a workbook, triggers notifications, authenticates
 an author, authorizes an action, opens a client, or claims workflow completion.
-For the QueryTable case, it separately requires FormulaFence's exact redacted
+For the legacy shared-workbook revision-log case, it requires one exact
+high-severity `shared_workbook_revisions_changed` record and matching `FF062`:
+the redacted one-header/one-log profile retains its three stored log records,
+enabled tracking/history/retention/protection controls, and no coverage gap
+while `revision_log_material_changed` is true. FormulaFence does not expose a
+historic value, cell reference, author, timestamp, GUID, or relationship ID;
+WCAB's raw validator independently proves the bounded synthetic package graph
+and `xl/revisions/revisionLog1.xml`-only boundary. Neither layer verifies
+provenance or identity, replays a revision, resolves a conflict, proves review
+or approval, authenticates or authorizes a person, or claims workflow
+completion. For the QueryTable case, it separately requires FormulaFence's exact redacted
 `query_table_refresh_controls_changed` profile and matching `FF023`, including
 the isolated QueryTable-level false-to-true request, fixed connection controls,
 and no opaque metadata. WCAB's raw validator independently proves the direct

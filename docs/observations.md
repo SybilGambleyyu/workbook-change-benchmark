@@ -226,7 +226,20 @@ ID, or identity data. WCAB's raw validator—not the adapter—establishes the
 fixed synthetic package graph, ordinary cells/formula context, and
 `xl/threadedComments/threadedComment1.xml`-only boundary. Neither layer proves
 review or approval, resolves a notification, authenticates a person, enforces
-authorization, opens a client, or claims workflow completion. For the QueryTable case,
+authorization, opens a client, or claims workflow completion. For the legacy
+shared-workbook revision-log case, it requires one exact high-severity
+`shared_workbook_revisions_changed` record and matching `FF062`: FormulaFence's
+redacted before/after profiles remain equal with one header part/header, one
+log part, three log entries, enabled shared/tracking/history/retention/
+protection controls, and no unrecognized metadata, while only
+`revision_log_material_changed=true` differs. FormulaFence exposes no historic
+value, cell location, author, timestamp, GUID, or relationship ID. WCAB's raw
+validator—not the adapter—establishes the fixed synthetic workbook-to-header-
+to-log graph, ordinary cells/formula context, and
+`xl/revisions/revisionLog1.xml`-only boundary. Neither layer verifies
+provenance or identity, replays a revision, resolves a conflict, proves review
+or approval, authenticates or authorizes a person, or claims workflow
+completion. For the QueryTable case, it requires one exact `query_table_refresh_controls_changed` record and
 it requires one exact `query_table_refresh_controls_changed` record and
 matching `FF023`: its redacted profile must retain one
 `ImportedData` table, connection ID 1, fixed refresh/edit/fill/growth controls,

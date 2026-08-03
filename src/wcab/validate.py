@@ -99,6 +99,27 @@ _THREADED_COMMENT_CELL = "B10"
 _THREADED_COMMENT_TIMESTAMP = "2024-01-01T00:00:00Z"
 _THREADED_COMMENT_TEXT = "WCAB synthetic review thread"
 _THREADED_COMMENT_PERSON_NAME = "WCAB Reviewer"
+_SHARED_WORKBOOK_REVISION_HEADERS_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/revisionHeaders"
+_SHARED_WORKBOOK_REVISION_LOG_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/revisionLog"
+_SHARED_WORKBOOK_REVISION_HEADERS_CONTENT_TYPE = (
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.revisionHeaders+xml"
+)
+_SHARED_WORKBOOK_REVISION_LOG_CONTENT_TYPE = (
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.revisionLog+xml"
+)
+_SHARED_WORKBOOK_REVISION_HEADERS_MEMBER = "xl/revisions/revisionHeaders.xml"
+_SHARED_WORKBOOK_REVISION_HEADERS_RELATIONSHIPS_MEMBER = (
+    "xl/revisions/_rels/revisionHeaders.xml.rels"
+)
+_SHARED_WORKBOOK_REVISION_LOG_MEMBER = "xl/revisions/revisionLog1.xml"
+_SHARED_WORKBOOK_REVISION_HEADERS_RELATIONSHIP_ID = "rIdWCABRevisionHeaders"
+_SHARED_WORKBOOK_REVISION_LOG_RELATIONSHIP_ID = "rIdWCABRevisionLog"
+_SHARED_WORKBOOK_REVISION_HEADER_GUID = "{88888888-8888-8888-8888-888888888888}"
+_SHARED_WORKBOOK_REVISION_HEADER_TIMESTAMP = "2024-01-02T03:04:05Z"
+_SHARED_WORKBOOK_REVISION_HEADER_AUTHOR = "WCAB Revision Author"
+_SHARED_WORKBOOK_REVISION_BASELINE_HISTORIC_VALUE = "WCAB historic approved value"
+_SHARED_WORKBOOK_REVISION_CANDIDATE_HISTORIC_VALUE = "WCAB historic candidate value"
+_SHARED_WORKBOOK_REVISION_RECORDED_VALUE = "WCAB historic recorded value"
 _POWER_PIVOT_DATA_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/powerPivotData"
 _POWER_PIVOT_DATA_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.model+data"
 _POWER_PIVOT_DATA_PAYLOAD = (
@@ -659,6 +680,186 @@ def _raw_threaded_comment_resolution_state(
         "external_relationship_count": 0,
         "unrecognized_threaded_comment_count": 0,
         "comment_without_done": comment_without_done,
+    }
+
+
+def _raw_shared_workbook_revision_log_state(path: Path) -> dict[str, Any] | None:
+    """Read WCAB's bounded legacy shared-workbook revision declaration.
+
+    This checks one local workbook-to-header-to-log graph and one synthetic
+    historic value. Historic values, cell locations, authors, timestamps,
+    GUIDs, and relationship IDs remain private to this validator; the public
+    fact records only safe package structure and aggregate counts. It does not
+    verify provenance or identity, replay a revision, resolve conflicts, or
+    infer review, approval, authorization, or workflow behavior.
+    """
+
+    try:
+        with ZipFile(path) as archive:
+            workbook_relationships = ElementTree.fromstring(
+                archive.read("xl/_rels/workbook.xml.rels")
+            )
+            content_types = ElementTree.fromstring(archive.read("[Content_Types].xml"))
+            headers = ElementTree.fromstring(archive.read(_SHARED_WORKBOOK_REVISION_HEADERS_MEMBER))
+            header_relationships = ElementTree.fromstring(
+                archive.read(_SHARED_WORKBOOK_REVISION_HEADERS_RELATIONSHIPS_MEMBER)
+            )
+            revisions = ElementTree.fromstring(archive.read(_SHARED_WORKBOOK_REVISION_LOG_MEMBER))
+    except (BadZipFile, KeyError, OSError, ValueError, ElementTree.ParseError):
+        return None
+
+    relationship_tag = f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationship"
+    override_tag = f"{{{_CONTENT_TYPES_NS}}}Override"
+    revision_header_relationships = [
+        relationship
+        for relationship in workbook_relationships.findall(relationship_tag)
+        if relationship.get("Type") == _SHARED_WORKBOOK_REVISION_HEADERS_RELATIONSHIP
+    ]
+    revision_log_relationships = [
+        relationship
+        for relationship in header_relationships.findall(relationship_tag)
+        if relationship.get("Type") == _SHARED_WORKBOOK_REVISION_LOG_RELATIONSHIP
+    ]
+    revision_headers_content_types = [
+        override
+        for override in content_types.findall(override_tag)
+        if override.get("PartName") == f"/{_SHARED_WORKBOOK_REVISION_HEADERS_MEMBER}"
+    ]
+    revision_log_content_types = [
+        override
+        for override in content_types.findall(override_tag)
+        if override.get("PartName") == f"/{_SHARED_WORKBOOK_REVISION_LOG_MEMBER}"
+    ]
+    spreadsheet = _SPREADSHEETML_NS
+    header_tag = f"{{{spreadsheet}}}header"
+    changed_cells_tag = f"{{{spreadsheet}}}rcc"
+    old_cell_tag = f"{{{spreadsheet}}}oc"
+    new_cell_tag = f"{{{spreadsheet}}}nc"
+    value_tag = f"{{{spreadsheet}}}v"
+    row_column_change_tag = f"{{{spreadsheet}}}rrc"
+    format_change_tag = f"{{{spreadsheet}}}rfmt"
+    relationship_id_attribute = f"{{{_DOCUMENT_RELATIONSHIPS_NS}}}id"
+    expected_headers_attributes = {
+        "diskRevisions": "1",
+        "exclusive": "0",
+        "history": "true",
+        "keepChangeHistory": "true",
+        "protected": "true",
+        "shared": "1",
+        "trackRevisions": "true",
+        "preserveHistory": "30",
+        "revisionId": "7",
+        "version": "+2",
+    }
+    expected_header_attributes = {
+        "guid": _SHARED_WORKBOOK_REVISION_HEADER_GUID,
+        "dateTime": _SHARED_WORKBOOK_REVISION_HEADER_TIMESTAMP,
+        "maxSheetId": "4",
+        "userName": _SHARED_WORKBOOK_REVISION_HEADER_AUTHOR,
+        relationship_id_attribute: _SHARED_WORKBOOK_REVISION_LOG_RELATIONSHIP_ID,
+    }
+    if (
+        len(revision_header_relationships) != 1
+        or set(revision_header_relationships[0].attrib) != {"Id", "Type", "Target"}
+        or revision_header_relationships[0].get("Id")
+        != _SHARED_WORKBOOK_REVISION_HEADERS_RELATIONSHIP_ID
+        or revision_header_relationships[0].get("Target") != "revisions/revisionHeaders.xml"
+        or header_relationships.tag != f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationships"
+        or header_relationships.attrib
+        or len(header_relationships) != 1
+        or len(revision_log_relationships) != 1
+        or set(revision_log_relationships[0].attrib) != {"Id", "Type", "Target"}
+        or revision_log_relationships[0].get("Id") != _SHARED_WORKBOOK_REVISION_LOG_RELATIONSHIP_ID
+        or revision_log_relationships[0].get("Target") != "revisionLog1.xml"
+        or len(revision_headers_content_types) != 1
+        or set(revision_headers_content_types[0].attrib) != {"PartName", "ContentType"}
+        or revision_headers_content_types[0].get("ContentType")
+        != _SHARED_WORKBOOK_REVISION_HEADERS_CONTENT_TYPE
+        or len(revision_log_content_types) != 1
+        or set(revision_log_content_types[0].attrib) != {"PartName", "ContentType"}
+        or revision_log_content_types[0].get("ContentType")
+        != _SHARED_WORKBOOK_REVISION_LOG_CONTENT_TYPE
+        or headers.tag != f"{{{spreadsheet}}}headers"
+        or headers.attrib != expected_headers_attributes
+        or len(headers) != 1
+        or headers[0].tag != header_tag
+        or headers[0].attrib != expected_header_attributes
+        or len(headers[0])
+        or revisions.tag != f"{{{spreadsheet}}}revisions"
+        or revisions.attrib
+        or len(revisions) != 3
+        or revisions[0].tag != changed_cells_tag
+        or revisions[0].attrib != {"rId": "1", "sId": "1"}
+        or len(revisions[0]) != 2
+        or revisions[0][0].tag != old_cell_tag
+        or revisions[0][0].attrib != {"r": "C20"}
+        or len(revisions[0][0]) != 1
+        or revisions[0][0][0].tag != value_tag
+        or revisions[0][0][0].attrib
+        or revisions[0][1].tag != new_cell_tag
+        or revisions[0][1].attrib != {"r": "C20"}
+        or len(revisions[0][1]) != 1
+        or revisions[0][1][0].tag != value_tag
+        or revisions[0][1][0].attrib
+        or revisions[0][1][0].text != _SHARED_WORKBOOK_REVISION_RECORDED_VALUE
+        or revisions[1].tag != row_column_change_tag
+        or revisions[1].attrib
+        != {
+            "rId": "2",
+            "sId": "1",
+            "ref": "A1:A1048576",
+            "action": "insertCol",
+        }
+        or len(revisions[1])
+        or revisions[2].tag != format_change_tag
+        or revisions[2].attrib != {"sheetId": "1", "sqref": "C20"}
+        or len(revisions[2])
+    ):
+        return None
+
+    historic_value = revisions[0][0][0].text
+    if historic_value not in {
+        _SHARED_WORKBOOK_REVISION_BASELINE_HISTORIC_VALUE,
+        _SHARED_WORKBOOK_REVISION_CANDIDATE_HISTORIC_VALUE,
+    }:
+        return None
+    revisions[0][0][0].text = ""
+    revision_log_without_historic_value = ElementTree.tostring(
+        revisions,
+        encoding="utf-8",
+        xml_declaration=True,
+    )
+    return {
+        "workbook_relationships_member": "xl/_rels/workbook.xml.rels",
+        "revision_headers_member": _SHARED_WORKBOOK_REVISION_HEADERS_MEMBER,
+        "revision_headers_relationships_member": (
+            _SHARED_WORKBOOK_REVISION_HEADERS_RELATIONSHIPS_MEMBER
+        ),
+        "revision_log_member": _SHARED_WORKBOOK_REVISION_LOG_MEMBER,
+        "revision_headers_relationship_attributes": tuple(
+            sorted(revision_header_relationships[0].attrib.items())
+        ),
+        "revision_log_relationship_attributes": tuple(
+            sorted(revision_log_relationships[0].attrib.items())
+        ),
+        "revision_headers_content_type_attributes": tuple(
+            sorted(revision_headers_content_types[0].attrib.items())
+        ),
+        "revision_log_content_type_attributes": tuple(
+            sorted(revision_log_content_types[0].attrib.items())
+        ),
+        "revision_header_part_count": 1,
+        "revision_header_count": 1,
+        "revision_log_part_count": 1,
+        "revision_log_entry_count": 3,
+        "shared_workbook_enabled_count": 1,
+        "track_revisions_enabled_count": 1,
+        "revision_history_enabled_count": 1,
+        "keep_change_history_enabled_count": 1,
+        "revision_history_protected_count": 1,
+        "unrecognized_shared_workbook_revision_count": 0,
+        "historic_value": historic_value,
+        "revision_log_without_historic_value": revision_log_without_historic_value,
     }
 
 
@@ -7983,6 +8184,179 @@ def _validate_fact(
             and _xlsx_member_differences(baseline_path, candidate_path) == {threaded_comment_member}
             and _calculation_properties(baseline_path) == _calculation_properties(candidate_path),
             f"{truth['id']}: expected one threaded-comment resolution-state transition only",
+            errors,
+        )
+        return
+
+    if kind == "shared_workbook_revision_log_changed":
+        workbook_relationships_member = fact.get("workbook_relationships_member")
+        revision_headers_member = fact.get("revision_headers_member")
+        revision_headers_relationships_member = fact.get("revision_headers_relationships_member")
+        revision_log_member = fact.get("revision_log_member")
+        revision_headers_content_type = fact.get("revision_headers_content_type")
+        revision_log_content_type = fact.get("revision_log_content_type")
+        revision_headers_relationship_type = fact.get("revision_headers_relationship_type")
+        revision_log_relationship_type = fact.get("revision_log_relationship_type")
+        stable_sheet = fact.get("stable_sheet")
+        stable_value_cell = fact.get("stable_value_cell")
+        stable_value = fact.get("stable_value")
+        stable_formula_cell = fact.get("stable_formula_cell")
+        stable_formula = fact.get("stable_formula")
+        before_state = _raw_shared_workbook_revision_log_state(baseline_path)
+        after_state = _raw_shared_workbook_revision_log_state(candidate_path)
+        before_value = (
+            _raw_cell_state(baseline_path, stable_sheet, stable_value_cell)
+            if isinstance(stable_sheet, str) and isinstance(stable_value_cell, str)
+            else None
+        )
+        after_value = (
+            _raw_cell_state(candidate_path, stable_sheet, stable_value_cell)
+            if isinstance(stable_sheet, str) and isinstance(stable_value_cell, str)
+            else None
+        )
+        before_formula = (
+            _raw_cell_state(baseline_path, stable_sheet, stable_formula_cell)
+            if isinstance(stable_sheet, str) and isinstance(stable_formula_cell, str)
+            else None
+        )
+        after_formula = (
+            _raw_cell_state(candidate_path, stable_sheet, stable_formula_cell)
+            if isinstance(stable_sheet, str) and isinstance(stable_formula_cell, str)
+            else None
+        )
+        expected_headers_relationship_attributes = (
+            tuple(
+                sorted(
+                    {
+                        "Id": _SHARED_WORKBOOK_REVISION_HEADERS_RELATIONSHIP_ID,
+                        "Type": revision_headers_relationship_type,
+                        "Target": "revisions/revisionHeaders.xml",
+                    }.items()
+                )
+            )
+            if isinstance(revision_headers_relationship_type, str)
+            else None
+        )
+        expected_log_relationship_attributes = (
+            tuple(
+                sorted(
+                    {
+                        "Id": _SHARED_WORKBOOK_REVISION_LOG_RELATIONSHIP_ID,
+                        "Type": revision_log_relationship_type,
+                        "Target": "revisionLog1.xml",
+                    }.items()
+                )
+            )
+            if isinstance(revision_log_relationship_type, str)
+            else None
+        )
+        expected_headers_content_type_attributes = (
+            tuple(
+                sorted(
+                    {
+                        "PartName": f"/{revision_headers_member}",
+                        "ContentType": revision_headers_content_type,
+                    }.items()
+                )
+            )
+            if isinstance(revision_headers_member, str)
+            and isinstance(revision_headers_content_type, str)
+            else None
+        )
+        expected_log_content_type_attributes = (
+            tuple(
+                sorted(
+                    {
+                        "PartName": f"/{revision_log_member}",
+                        "ContentType": revision_log_content_type,
+                    }.items()
+                )
+            )
+            if isinstance(revision_log_member, str) and isinstance(revision_log_content_type, str)
+            else None
+        )
+        profile_fields = (
+            "revision_header_part_count",
+            "revision_header_count",
+            "revision_log_part_count",
+            "revision_log_entry_count",
+            "shared_workbook_enabled_count",
+            "track_revisions_enabled_count",
+            "revision_history_enabled_count",
+            "keep_change_history_enabled_count",
+            "revision_history_protected_count",
+            "unrecognized_shared_workbook_revision_count",
+        )
+        _assert(
+            workbook_relationships_member == "xl/_rels/workbook.xml.rels"
+            and revision_headers_member == "xl/revisions/revisionHeaders.xml"
+            and revision_headers_relationships_member
+            == "xl/revisions/_rels/revisionHeaders.xml.rels"
+            and revision_log_member == "xl/revisions/revisionLog1.xml"
+            and revision_headers_content_type == _SHARED_WORKBOOK_REVISION_HEADERS_CONTENT_TYPE
+            and revision_log_content_type == _SHARED_WORKBOOK_REVISION_LOG_CONTENT_TYPE
+            and revision_headers_relationship_type == _SHARED_WORKBOOK_REVISION_HEADERS_RELATIONSHIP
+            and revision_log_relationship_type == _SHARED_WORKBOOK_REVISION_LOG_RELATIONSHIP
+            and fact.get("revision_header_part_count") == 1
+            and fact.get("revision_header_count") == 1
+            and fact.get("revision_log_part_count") == 1
+            and fact.get("revision_log_entry_count") == 3
+            and fact.get("shared_workbook_enabled_count") == 1
+            and fact.get("track_revisions_enabled_count") == 1
+            and fact.get("revision_history_enabled_count") == 1
+            and fact.get("keep_change_history_enabled_count") == 1
+            and fact.get("revision_history_protected_count") == 1
+            and fact.get("unrecognized_shared_workbook_revision_count") == 0
+            and stable_sheet == "Controls"
+            and stable_value_cell == "B10"
+            and stable_value == 12
+            and stable_formula_cell == "D10"
+            and stable_formula == "=B10*C10"
+            and before_state is not None
+            and after_state is not None
+            and before_state["workbook_relationships_member"] == workbook_relationships_member
+            and after_state["workbook_relationships_member"] == workbook_relationships_member
+            and before_state["revision_headers_member"] == revision_headers_member
+            and after_state["revision_headers_member"] == revision_headers_member
+            and before_state["revision_headers_relationships_member"]
+            == revision_headers_relationships_member
+            and after_state["revision_headers_relationships_member"]
+            == revision_headers_relationships_member
+            and before_state["revision_log_member"] == revision_log_member
+            and after_state["revision_log_member"] == revision_log_member
+            and before_state["revision_headers_relationship_attributes"]
+            == expected_headers_relationship_attributes
+            and after_state["revision_headers_relationship_attributes"]
+            == expected_headers_relationship_attributes
+            and before_state["revision_log_relationship_attributes"]
+            == expected_log_relationship_attributes
+            and after_state["revision_log_relationship_attributes"]
+            == expected_log_relationship_attributes
+            and before_state["revision_headers_content_type_attributes"]
+            == expected_headers_content_type_attributes
+            and after_state["revision_headers_content_type_attributes"]
+            == expected_headers_content_type_attributes
+            and before_state["revision_log_content_type_attributes"]
+            == expected_log_content_type_attributes
+            and after_state["revision_log_content_type_attributes"]
+            == expected_log_content_type_attributes
+            and all(before_state[field] == fact.get(field) for field in profile_fields)
+            and all(after_state[field] == fact.get(field) for field in profile_fields)
+            and before_state["historic_value"] == _SHARED_WORKBOOK_REVISION_BASELINE_HISTORIC_VALUE
+            and after_state["historic_value"] == _SHARED_WORKBOOK_REVISION_CANDIDATE_HISTORIC_VALUE
+            and before_state["revision_log_without_historic_value"]
+            == after_state["revision_log_without_historic_value"]
+            and before_value is not None
+            and after_value is not None
+            and before_value == after_value
+            and before_value[4] == str(stable_value)
+            and before_formula is not None
+            and after_formula is not None
+            and before_formula == after_formula
+            and before_formula[3] == stable_formula
+            and _xlsx_member_differences(baseline_path, candidate_path) == {revision_log_member}
+            and _calculation_properties(baseline_path) == _calculation_properties(candidate_path),
+            f"{truth['id']}: expected one shared-workbook revision-log transition only",
             errors,
         )
         return

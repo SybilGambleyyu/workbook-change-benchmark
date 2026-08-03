@@ -63,6 +63,12 @@ unresolved to resolved while its synthetic text, person record, relationships,
 content types, ordinary cells, formulas, and every other package member remain
 fixed (a stored state only: not proof of review, approval, notification,
 identity, authorization, or workflow completion), a
+legacy shared-workbook revision log whose one synthetic historic value changes
+while its relationship-backed workbook/header/log graph, content types,
+tracking/retention controls, record shape, ordinary cells, formulas, and every
+other package member remain fixed (stored audit-trail material only: not proof
+of provenance, identity, conflict resolution, review, approval, authorization,
+or workflow completion), a
 local worksheet-backed PivotTable cache whose
 stored `refreshOnLoad` request becomes enabled while its source, stored report
 cells, and direct dashboard formula remain fixed, a local PivotTable value
