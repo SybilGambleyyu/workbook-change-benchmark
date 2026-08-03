@@ -180,7 +180,17 @@ native `value_changed` record and the candidate profile's
 `dynamic_reference_cells` feature. For the external-data refresh case, it
 requires FormulaFence's `external_data_connections_changed` details to contain
 the exact connection ID and `refresh_on_load` false-to-true transition; the
-stored control is a fact, not a coverage declaration. For the QueryTable case,
+stored control is a fact, not a coverage declaration. For the external-data
+web-query source case, it requires the high-severity
+`external_data_connections_changed` record and `FF023` with identical safe
+one-web-query profiles, `source_configuration_material_changed=true`, and
+exactly `source_material_change_categories: ["web_query_url"]`. FormulaFence
+does not serialize either URL, a connection string, a command, a parameter, or
+a source fingerprint. WCAB's raw validator—not the adapter—then establishes
+the two reserved endpoint texts, the stable package graph and formula context,
+and the `xl/connections.xml`-only package boundary. Neither report opens a
+connection, fetches a URL, refreshes a query, materializes rows, calculates a
+workbook, or claims a client result. For the QueryTable case,
 it requires one exact `query_table_refresh_controls_changed` record and
 matching `FF023`: its redacted profile must retain one
 `ImportedData` table, connection ID 1, fixed refresh/edit/fill/growth controls,

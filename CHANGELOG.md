@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.37.0 — 2026-08-02
+
+- Add a deterministic relationship-backed external-data source-transition
+  case. Its sole raw `xl/connections.xml` `webPr/@url` moves from the reserved
+  `approved.example.invalid` endpoint to `review.example.invalid`; connection
+  identity and refresh controls, relationships, content types, ordinary saved
+  cells/formulas, calculation properties, and every other package member stay
+  fixed.
+- Add the exact `external_data_connection_web_query_url_changed` fact,
+  raw-OOXML graph validator, URL-only package-isolation check, and corruption
+  regressions. WCAB records a stored endpoint declaration only: it does not
+  open, fetch, authenticate to, trust, refresh, calculate, or otherwise
+  interact with either source, and it does not claim a client returns a value.
+- Extend the optional FormulaFence adapter to require its exact high-severity
+  `external_data_connections_changed` / `FF023` evidence with the redacted
+  `source_material_change_categories: ["web_query_url"]` signal. WCAB's raw
+  validator independently establishes both reserved URL texts and the package
+  boundary.
+
 ## 0.36.0 — 2026-08-02
 
 - Add a deterministic macro-enabled `.xlsm` case for a workbook-scoped

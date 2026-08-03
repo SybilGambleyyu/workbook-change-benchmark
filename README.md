@@ -34,7 +34,7 @@ gates, static analyzers, and agent workflows that propose workbook edits.
 
 ## Scope and non-goals
 
-Version `0.36` covers formula-to-value replacements, formula reference drift,
+Version `0.37` covers formula-to-value replacements, formula reference drift,
 value changes with downstream effects, external formula references, named
 ranges, data validation, conditional formatting, sheet visibility, direct cell
 and workbook-structure protection, calculation settings, static cycles,
@@ -63,8 +63,14 @@ a value. It also covers
 new `INDIRECT` references whose dependency target comes from workbook text,
 unchanged `INDIRECT` and `OFFSET` formulas whose address or displacement driver
 changes, an external-data connection whose refresh-on-open behavior changes
-without any worksheet-cell edit, and an external-workbook link policy that
-switches from never to always updating when the workbook opens. It also covers
+without any worksheet-cell edit, and a separate connection whose raw web-query
+URL moves between two reserved `example.invalid` endpoints while its identity,
+refresh controls, visible saved cells, and formula context remain fixed. It
+records the stored endpoint only: it does not resolve, open, fetch,
+authenticate to, trust, refresh, calculate, or otherwise interact with either
+source, and does not claim a client returns a value. It also covers an
+external-workbook link policy that switches from never to always updating when
+the workbook opens. It also covers
 an unchanged external-workbook formula whose local `externalLink` package
 relationship moves to a different reserved source while its formula text and
 local downstream dependency remain fixed. It records that stored relationship

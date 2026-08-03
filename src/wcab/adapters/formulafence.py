@@ -60,6 +60,10 @@ _FACT_TO_CHANGE: dict[str, tuple[str, str | None]] = {
         "external_data_connections_changed",
         None,
     ),
+    "external_data_connection_web_query_url_changed": (
+        "external_data_connections_changed",
+        None,
+    ),
     "query_table_refresh_on_load_changed": ("query_table_refresh_controls_changed", None),
     "cell_hyperlink_target_changed": ("cell_hyperlink_controls_changed", None),
     "pivot_cache_refresh_on_load_changed": ("pivot_cache_refresh_controls_changed", None),
@@ -256,6 +260,90 @@ def _external_data_connection_refresh_on_load_observed(
     return (
         refresh_value(before_connections) is before_refresh_on_load
         and refresh_value(after_connections) is after_refresh_on_load
+    )
+
+
+def _external_data_connection_web_query_url_details_observed(
+    details: Any,
+    fact: dict[str, Any],
+) -> bool:
+    """Require FormulaFence's exact redacted URL-retarget evidence.
+
+    WCAB verifies the raw URL text separately. FormulaFence must expose only
+    the one safe category and its stable connection profile, never either URL.
+    """
+
+    if (
+        fact.get("connection_id") != 1
+        or fact.get("connection_member") != "xl/connections.xml"
+        or fact.get("workbook_relationships_member") != "xl/_rels/workbook.xml.rels"
+        or fact.get("relationship_id") != "rIdWCABExternalDataConnection"
+        or fact.get("relationship_type")
+        != "http://schemas.openxmlformats.org/officeDocument/2006/relationships/connections"
+        or fact.get("connection_content_type")
+        != "application/vnd.openxmlformats-officedocument.spreadsheetml.connections+xml"
+        or fact.get("baseline_url") != "https://approved.example.invalid/wcab-external-data-source"
+        or fact.get("candidate_url") != "https://review.example.invalid/wcab-external-data-source"
+        or fact.get("refresh_on_load") is not False
+        or not isinstance(details, dict)
+    ):
+        return False
+    profile = {
+        "id": 1,
+        "source_type": "web_query",
+        "deleted": False,
+        "refresh_on_load": False,
+        "refresh_interval_minutes": None,
+        "background": False,
+        "keep_alive": False,
+        "save_data": False,
+        "save_password": False,
+        "has_source_file": False,
+        "has_connection_file": False,
+        "only_use_connection_file": False,
+        "reconnection_method": "as_required",
+        "credential_method": "integrated",
+        "minimum_refreshable_version": 0,
+        "has_single_sign_on_id": False,
+        "awaiting_initial_refresh": False,
+        "has_name": True,
+        "has_description": False,
+        "source_components": ["web_query"],
+        "parameter_count": 0,
+        "parameters_refresh_on_change": 0,
+        "opaque_metadata": {"present": False, "count": 0},
+    }
+    return details == {
+        "before": [profile],
+        "after": [profile],
+        "source_configuration_material_changed": True,
+        "source_material_change_categories": ["web_query_url"],
+    }
+
+
+def _external_data_connection_web_query_url_observed(
+    change: dict[str, Any],
+    fact: dict[str, Any],
+) -> bool:
+    """Match FormulaFence's high-severity connection source evidence."""
+
+    return (
+        change.get("kind") == "external_data_connections_changed"
+        and change.get("severity") == "high"
+        and _external_data_connection_web_query_url_details_observed(change.get("details"), fact)
+    )
+
+
+def _external_data_connection_web_query_url_finding_observed(
+    finding: dict[str, Any],
+    fact: dict[str, Any],
+) -> bool:
+    """Require FormulaFence's matching high-severity FF023 finding."""
+
+    return (
+        finding.get("rule_id") == "FF023"
+        and finding.get("severity") == "high"
+        and _external_data_connection_web_query_url_details_observed(finding.get("details"), fact)
     )
 
 
@@ -2474,6 +2562,16 @@ def evaluate_diff_case(case_dir: str | Path, *, executable: str = "formulafence"
                 _external_data_connection_refresh_on_load_observed(change, fact)
                 for change in changes
                 if isinstance(change, dict)
+            )
+        if kind == "external_data_connection_web_query_url_changed":
+            observed = any(
+                _external_data_connection_web_query_url_observed(change, fact)
+                for change in changes
+                if isinstance(change, dict)
+            ) and any(
+                _external_data_connection_web_query_url_finding_observed(finding, fact)
+                for finding in findings
+                if isinstance(finding, dict)
             )
         if kind == "query_table_refresh_on_load_changed":
             observed = any(

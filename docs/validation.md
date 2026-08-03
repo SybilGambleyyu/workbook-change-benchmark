@@ -1,6 +1,6 @@
 # Validation record
 
-This record describes the WCAB 0.36.0 / schema-version-3 validation run. It is
+This record describes the WCAB 0.37.0 / schema-version-3 validation run. It is
 reproducible from this repository; no network service or private workbook is
 required.
 
@@ -32,20 +32,31 @@ wcab validate --fixtures fixtures
 
 Results:
 
-- 53 cases: 52 paired-workbook cases and one directory portfolio case.
-- 55 observable truth facts across 43 `block` and 10 `review` cases.
+- 54 cases: 53 paired-workbook cases and one directory portfolio case.
+- 56 observable truth facts across 44 `block` and 10 `review` cases.
 - Three scoreable coverage expectations: one newly introduced `INDIRECT`
   boundary and two unchanged-formula selector changes (`INDIRECT` address text
   and `OFFSET` column displacement).
-- 162 generated fixture files: 108 workbooks, 53 truth manifests, and one JSONL
+- 165 generated fixture files: 110 workbooks, 54 truth manifests, and one JSONL
   case catalogue, all generated from source.
-- Two hundred forty-eight unit tests passed locally under Python 3.13, including
+- Two hundred fifty-four unit tests passed locally under Python 3.13, including
   independent regeneration and byte-for-byte fixture-tree equality.
-- The fixture validator accepted all 53 cases.
-- The external-data pair has identical package members except for
+- The fixture validator accepted all 54 cases.
+- The external-data refresh pair has identical package members except for
   `xl/connections.xml`; both archives pass ZIP integrity checks and remain
   readable by openpyxl. Its relationship-backed source is a non-routable
   `example.invalid` URL.
+- The external-data web-query source pair has identical package members except
+  for `xl/connections.xml`; both archives pass ZIP integrity checks and remain
+  readable by openpyxl. Its one relationship-backed connection retains ID 1,
+  type 4, name, `refreshOnLoad=false`, `refreshedVersion=1`, workbook
+  relationship, content type, saved `ImportedData!B2=100` cell, and
+  `ImportedData!B2 → Summary!B2 → Dashboard!B4` formula context while raw
+  `webPr/@url` moves from the reserved `approved.example.invalid` endpoint to
+  `review.example.invalid`. The validator compares the connection part after
+  removing only that URL and does not resolve, open, fetch, authenticate to,
+  trust, refresh, calculate, or otherwise interact with either endpoint, or
+  claim a client result.
 - The QueryTable pair has identical package members except for
   `xl/queryTables/queryTable1.xml`; both archives pass ZIP integrity checks and
   remain readable by openpyxl. Its direct `ImportedData` worksheet-to-QueryTable
@@ -328,7 +339,7 @@ Results:
 
 ## Distribution supplement
 
-The 0.36.0 release retains the one-row-per-case `manifest.jsonl` catalogue and
+The 0.37.0 release retains the one-row-per-case `manifest.jsonl` catalogue and
 the tool-neutral observation protocol at version 2. Each catalogue row retains
 the schema-version-3 truth contract and includes byte counts and SHA-256
 digests for the workbooks it names.
@@ -336,24 +347,26 @@ digests for the workbooks it names.
 Commands:
 
 ```bash
-python -m build --outdir /tmp/wcab-v036-dist
-twine check /tmp/wcab-v036-dist/*
-python -m venv /tmp/wcab-v036-wheel-test
-/tmp/wcab-v036-wheel-test/bin/python -m pip install \
-  /tmp/wcab-v036-dist/workbook_change_benchmark-0.36.0-py3-none-any.whl
-/tmp/wcab-v036-wheel-test/bin/python -c 'import wcab; print(wcab.__version__)'
-/tmp/wcab-v036-wheel-test/bin/wcab validate --fixtures fixtures
-/tmp/wcab-v036-wheel-test/bin/wcab manifest --fixtures fixtures --output /tmp/wcab-v036-wheel-manifest.jsonl
-cmp fixtures/manifest.jsonl /tmp/wcab-v036-wheel-manifest.jsonl
-/tmp/wcab-v036-wheel-test/bin/wcab observation-template --fixtures fixtures \
-  --output /tmp/wcab-v036-wheel-observations.json
-/tmp/wcab-v036-wheel-test/bin/wcab score --fixtures fixtures \
-  --observations /tmp/wcab-v036-wheel-observations.json
-python -m venv /tmp/wcab-v036-sdist-test
-/tmp/wcab-v036-sdist-test/bin/python -m pip install \
-  /tmp/wcab-v036-dist/workbook_change_benchmark-0.36.0.tar.gz
-/tmp/wcab-v036-sdist-test/bin/python -c 'import wcab; print(wcab.__version__)'
-/tmp/wcab-v036-sdist-test/bin/wcab validate --fixtures fixtures
+python -m build --outdir /tmp/wcab-v037-dist
+twine check /tmp/wcab-v037-dist/*
+python -m venv /tmp/wcab-v037-wheel-test
+/tmp/wcab-v037-wheel-test/bin/python -m pip install \
+  /tmp/wcab-v037-dist/workbook_change_benchmark-0.37.0-py3-none-any.whl
+/tmp/wcab-v037-wheel-test/bin/python -c 'import wcab; print(wcab.__version__)'
+/tmp/wcab-v037-wheel-test/bin/wcab validate --fixtures fixtures
+/tmp/wcab-v037-wheel-test/bin/wcab manifest --fixtures fixtures --output /tmp/wcab-v037-wheel-manifest.jsonl
+cmp fixtures/manifest.jsonl /tmp/wcab-v037-wheel-manifest.jsonl
+/tmp/wcab-v037-wheel-test/bin/wcab observation-template --fixtures fixtures \
+  --output /tmp/wcab-v037-wheel-observations.json
+/tmp/wcab-v037-wheel-test/bin/wcab score --fixtures fixtures \
+  --observations /tmp/wcab-v037-wheel-observations.json
+python -m venv /tmp/wcab-v037-sdist-test
+/tmp/wcab-v037-sdist-test/bin/python -m pip install \
+  /tmp/wcab-v037-dist/workbook_change_benchmark-0.37.0.tar.gz
+/tmp/wcab-v037-sdist-test/bin/python -c 'import wcab; print(wcab.__version__)'
+/tmp/wcab-v037-sdist-test/bin/wcab validate --fixtures fixtures
+/tmp/wcab-v037-sdist-test/bin/wcab manifest --fixtures fixtures --output /tmp/wcab-v037-sdist-manifest.jsonl
+cmp fixtures/manifest.jsonl /tmp/wcab-v037-sdist-manifest.jsonl
 ```
 
 Results:
@@ -363,20 +376,20 @@ Results:
   their uploaded assets in the GitHub release, avoiding a self-referential
   source-distribution checksum in this record.
 - Fresh Python 3.13 wheel and source-distribution installations both reported
-  version 0.36.0 and validated all 53 fixtures; both emitted byte-identical
+  version 0.37.0 and validated all 54 fixtures; both emitted byte-identical
   JSONL output.
-- The full 248-test suite, lint, and format checks passed locally under Python
+- The full 254-test suite, lint, and format checks passed locally under Python
   3.13.
 - The generated unsupported template scored as zero analyzed coverage, zero
   expected-fact recall, and zero coverage-disclosure recall, confirming that
   unsupported cases cannot become a pass.
-- The FormulaFence normalizer emitted 54 matched facts, one intentionally
+- The FormulaFence normalizer emitted 55 matched facts, one intentionally
   unmapped fact, three matched coverage declarations, and no invented review
   disposition.
 
 ## FormulaFence reference adapter
 
-FormulaFence 0.220.0 was installed from the local checked-out release source
+FormulaFence 0.221.0 was installed from the local checked-out release source
 and invoked only against WCAB's generated files:
 
 ```bash
@@ -385,9 +398,9 @@ wcab formulafence --fixtures fixtures --strict
 
 Results:
 
-- All 54 currently mappable diff/portfolio facts were observed.
+- All 55 currently mappable diff/portfolio facts were observed.
 - All three mappable coverage expectations were matched; no mapped fact,
-  coverage expectation, or targeted lint rule was missed across all 53 cases.
+  coverage expectation, or targeted lint rule was missed across all 54 cases.
 - The schema-version-2 structured Table scope case was observed as a
   `table_definition_changed` diff, even though its summary formula text stays
   unchanged.
@@ -441,6 +454,18 @@ Results:
   `external_data_connections_changed` connection-ID-1 `refresh_on_load`
   false-to-true transition and `FF023`. The report omitted the synthetic
   connection name and endpoint; neither tool opened or refreshed it.
+- The WCAB 0.37 external-data web-query source case was observed as one exact
+  high-severity `external_data_connections_changed` record and `FF023`.
+  FormulaFence's before/after profiles retained the same safe one-web-query
+  connection description while reporting
+  `source_configuration_material_changed=true` and exactly
+  `source_material_change_categories: ["web_query_url"]`. It exposed neither
+  endpoint, connection string, command, parameter, XML, fingerprint, or
+  package-member boundary. WCAB independently established the reserved URL
+  transition, fixed connection graph/controls/saved cells/formulas, and
+  `xl/connections.xml`-only boundary; neither report opened, fetched,
+  authenticated to, trusted, refreshed, calculated, or otherwise interacted
+  with a source, or claimed a client result.
 - The WCAB 0.30 QueryTable case was observed as one exact
   `query_table_refresh_controls_changed` record and `FF023`: FormulaFence's
   redacted profile retained one `ImportedData` table, connection ID 1, fixed

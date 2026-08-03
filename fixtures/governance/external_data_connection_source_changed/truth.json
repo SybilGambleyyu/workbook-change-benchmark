@@ -1,0 +1,67 @@
+{
+  "coverage": [
+    "The pair changes only raw xl/connections.xml webPr/@url from one reserved example.invalid endpoint to another. It does not edit ordinary cells, formulas, calculation properties, connection identity, connection refresh controls, content types, or relationships.",
+    "The URLs are synthetic and non-routable. The benchmark records only their stored text and does not open a connection, fetch a URL, refresh a query, materialize rows, calculate a workbook, inspect credentials or trust, or claim that a client returns a value.",
+    "The stable saved cells and direct formula path are context only; a stored source declaration does not prove source reachability, returned data, or a recalculated display."
+  ],
+  "coverage_expectations": [],
+  "facts": [
+    {
+      "baseline_url": "https://approved.example.invalid/wcab-external-data-source",
+      "candidate_url": "https://review.example.invalid/wcab-external-data-source",
+      "connection_content_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.connections+xml",
+      "connection_id": 1,
+      "connection_member": "xl/connections.xml",
+      "dashboard_cell": "B4",
+      "dashboard_formula": "=Summary!$B$2",
+      "dashboard_sheet": "Dashboard",
+      "kind": "external_data_connection_web_query_url_changed",
+      "refresh_on_load": false,
+      "relationship_id": "rIdWCABExternalDataConnection",
+      "relationship_type": "http://schemas.openxmlformats.org/officeDocument/2006/relationships/connections",
+      "saved_value": 100,
+      "saved_value_cell": "B2",
+      "saved_value_sheet": "ImportedData",
+      "summary_cell": "B2",
+      "summary_formula": "=ImportedData!$B$2",
+      "summary_sheet": "Summary",
+      "workbook_relationships_member": "xl/_rels/workbook.xml.rels"
+    }
+  ],
+  "family": "governance",
+  "id": "governance.external_data_connection_source_changed",
+  "must_reach": [
+    {
+      "source": {
+        "cell": "B2",
+        "sheet": "ImportedData"
+      },
+      "targets": [
+        {
+          "cell": "B2",
+          "sheet": "Summary"
+        },
+        {
+          "cell": "B4",
+          "sheet": "Dashboard"
+        }
+      ]
+    },
+    {
+      "source": {
+        "cell": "B2",
+        "sheet": "Summary"
+      },
+      "targets": [
+        {
+          "cell": "B4",
+          "sheet": "Dashboard"
+        }
+      ]
+    }
+  ],
+  "review_expectation": "block",
+  "schema_version": 3,
+  "title": "An external-data web query points to a different stored source",
+  "topology": "pair"
+}

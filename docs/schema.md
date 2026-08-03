@@ -76,6 +76,10 @@ content type, local Tables, and opaque model payload. It isolates one raw
 0.36 adds a macro-enabled XLM automatic-macro binding transition with a fixed,
 very-hidden macro sheet and fixed package shape; it records only the stored
 `_xlnm.Auto_Open` dispatch declaration without claiming macro execution.
+WCAB 0.37 adds a relationship-backed external-data web-query source transition
+with unchanged connection controls, saved cells, formulas, and every package
+member except `xl/connections.xml`; it records only the stored endpoint
+declaration without contacting it.
 Version 2 remains
 available in the immutable v0.2.0 and v0.3.0 releases.
 
@@ -132,6 +136,7 @@ Facts are observed directly from the fixture files by `wcab validate`.
 | `workbook_date_system_changed` | `baseline_date_1904`, `candidate_date_1904`, `date_compatibility`, `serial_sheet`, `serial_cell`, `serial_value`, `number_format`, `formula_sheet`, `formula_cell`, `formula`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | Raw `workbookPr/@date1904` changes from `false` to `true` while explicit compatibility remains `true`; the raw numeric serial, custom date format, local formulas, and every package member except `xl/workbook.xml` remain unchanged. The validator does not calculate, convert, or infer displayed dates. |
 | `formula_cached_result_changed` | `sheet`, `cell`, `formula`, `input_sheet`, `input_cell`, `input_value`, `result_type`, `baseline_cached_result`, `candidate_cached_result` | One raw numeric formula-cell `<v>` value changes while its raw `<f>` expression, direct input, calculation properties, and every other package member remain unchanged. The validator reads OOXML only; it does not calculate, validate, or interpret the saved result. |
 | `external_data_connection_refresh_on_load_changed` | `connection_id`, `baseline_refresh_on_load`, `candidate_refresh_on_load` | The relationship-backed connection with this workbook-local ID explicitly changes `refreshOnLoad` from `false` to `true`. The validator reads raw OOXML only. |
+| `external_data_connection_web_query_url_changed` | `connection_id`, `connection_member`, `connection_content_type`, `workbook_relationships_member`, `relationship_id`, `relationship_type`, `refresh_on_load`, `baseline_url`, `candidate_url`, `saved_value_sheet`, `saved_value_cell`, `saved_value`, `summary_sheet`, `summary_cell`, `summary_formula`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | One relationship-backed web-query connection retains its ID, type, refresh controls, relationship, content type, stored imported cell, ordinary formulas, calculation properties, and every package member except `xl/connections.xml` while raw `webPr/@url` moves between declared reserved URLs. The validator reads local OOXML only; it does not resolve, open, fetch, authenticate to, trust, refresh, calculate, or claim a client result. |
 | `query_table_refresh_on_load_changed` | `sheet`, `connection_id`, `connection_member`, `connection_url`, `query_table_member`, `worksheet_member`, `worksheet_relationships_member`, `relationship_id`, `relationship_type`, `baseline_refresh_on_load`, `candidate_refresh_on_load`, `background_refresh`, `refresh_disabled`, `remove_data_on_save`, `fill_formulas`, `connection_edit_disabled`, `growth_behavior`, `saved_value_cell`, `saved_value`, `summary_sheet`, `summary_cell`, `summary_formula`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | One direct internal worksheet QueryTable relationship and one fixed internal workbook connection retain their controls, saved cells, formulas, calculation properties, and every package member except the QueryTable part while raw `queryTable/@refreshOnLoad` changes from `false` to `true`. The validator does not open a connection, fetch a URL, refresh, materialize data, calculate, or claim a client result. |
 | `cell_hyperlink_target_changed` | `sheet`, `cell`, `cell_value`, `worksheet_member`, `worksheet_relationships_member`, `relationship_id`, `relationship_type`, `target_mode`, `baseline_target`, `candidate_target`, `summary_sheet`, `summary_cell`, `summary_formula`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | One worksheet `hyperlink` declaration retains its visible cell value, relationship ID/type/mode, no local location/display/tooltip, formulas, calculation properties, and every package member except its worksheet relationship part while the one external relationship `Target` moves between the declared reserved URLs. The validator does not resolve, open, fetch, visit, execute, calculate, or claim that a client follows a target. |
 | `pivot_cache_refresh_on_load_changed` | `cache_id`, `source_type`, `source_sheet`, `source_ref`, `pivot_sheet`, `pivot_ref`, `pivot_output_cell`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula`, `baseline_refresh_on_load`, `candidate_refresh_on_load` | One relationship-bound local worksheet PivotCache changes raw `refreshOnLoad` from `false` to `true`; its source binding, PivotTable location, stored report/dashboard cells, calculation properties, and every package member except its cache definition remain unchanged. The validator neither refreshes nor renders a PivotTable. |
@@ -570,6 +575,25 @@ metadata, and payload SHA-256, then compares workbook XML with just that target
 key erased. It does not deserialize an Analysis Services stream, evaluate DAX,
 load or refresh a model, calculate or render a report, infer model-to-cell
 impact, or claim client behavior.
+
+## External-data web-query source declarations
+
+External-data connections can store provider, server, authentication, command,
+and refresh settings outside worksheet cells. For a web query, the Open XML
+[`webPr` element](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.spreadsheet.webqueryproperties?view=openxml-3.0.0)
+holds the stored URL and request controls. Those source declarations are a
+review surface even when imported cells and ordinary formulas remain fixed.
+
+WCAB 0.37 isolates one relationship-backed `xl/connections.xml` web-query
+connection. Only raw `webPr/@url` moves from the reserved
+`approved.example.invalid` endpoint to `review.example.invalid`; the connection
+ID/type/name, refresh controls, relationship, content type, saved
+`ImportedData!B2=100` cell, `ImportedData!B2 → Summary!B2 → Dashboard!B4`
+formula context, calculation properties, and every other package member remain
+unchanged. The raw validator checks the local package graph and compares the
+connection part after removing only the URL. It does not resolve, open, fetch,
+authenticate to, trust, refresh, calculate, or otherwise interact with either
+endpoint, or claim a client result.
 
 ## XLM Auto_Open binding
 

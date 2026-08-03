@@ -61,6 +61,10 @@ _QUERY_TABLE_CONTENT_TYPE = (
 _QUERY_TABLE_CONNECTIONS_CONTENT_TYPE = (
     "application/vnd.openxmlformats-officedocument.spreadsheetml.connections+xml"
 )
+_EXTERNAL_DATA_CONNECTIONS_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/connections"
+_EXTERNAL_DATA_CONNECTIONS_CONTENT_TYPE = (
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.connections+xml"
+)
 _POWER_PIVOT_DATA_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/powerPivotData"
 _POWER_PIVOT_DATA_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.model+data"
 _POWER_PIVOT_DATA_PAYLOAD = (
@@ -155,29 +159,44 @@ def _defined_name_text(workbook: Workbook, name: str) -> str | None:
     return None if definition is None else definition.attr_text
 
 
-def _external_data_connection_refresh_on_load(path: Path, connection_id: int) -> bool | None:
-    """Read a relationship-backed connection's explicit refresh-on-open flag.
+def _raw_external_data_connection_state(
+    path: Path,
+    connection_id: int,
+) -> dict[str, Any] | None:
+    """Read WCAB's compact relationship-backed web connection locally.
 
-    This intentionally validates only the generated fixture's small raw-OOXML
-    contract. It neither resolves a target nor loads a workbook through a
-    library that might discard the connection part.
+    This accepts only the generated one-connection package shape. It retains a
+    stored URL as text but never resolves, opens, fetches, authenticates to,
+    trusts, refreshes, or otherwise interacts with it.
     """
 
     try:
         with ZipFile(path) as archive:
             relationships = ElementTree.fromstring(archive.read("xl/_rels/workbook.xml.rels"))
             relationship_tag = f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationship"
-            relationship_exists = any(
-                relationship.get("Type") == f"{_DOCUMENT_RELATIONSHIPS_NS}/connections"
-                and relationship.get("Target") == "connections.xml"
+            connection_relationships = [
+                relationship
                 for relationship in relationships.findall(relationship_tag)
-            )
-            if not relationship_exists:
+                if relationship.get("Type") == _EXTERNAL_DATA_CONNECTIONS_RELATIONSHIP
+                and relationship.get("Target") == "connections.xml"
+                and relationship.get("TargetMode") is None
+            ]
+            if len(connection_relationships) != 1:
                 return None
             connections = ElementTree.fromstring(archive.read("xl/connections.xml"))
+            content_types = ElementTree.fromstring(archive.read("[Content_Types].xml"))
     except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
         return None
+
     connection_tag = f"{{{_SPREADSHEETML_NS}}}connection"
+    web_properties_tag = f"{{{_SPREADSHEETML_NS}}}webPr"
+    if (
+        connections.tag != f"{{{_SPREADSHEETML_NS}}}connections"
+        or connections.attrib
+        or len(connections) != 1
+        or any(connection.tag != connection_tag for connection in connections)
+    ):
+        return None
     matches = [
         connection
         for connection in connections.findall(connection_tag)
@@ -185,8 +204,69 @@ def _external_data_connection_refresh_on_load(path: Path, connection_id: int) ->
     ]
     if len(matches) != 1:
         return None
-    flag = matches[0].get("refreshOnLoad")
-    return {"0": False, "1": True}.get(flag)
+    connection = matches[0]
+    web_properties = connection.findall(web_properties_tag)
+    if len(connection) != 1 or len(web_properties) != 1 or len(web_properties[0]):
+        return None
+    url = web_properties[0].get("url")
+    if not isinstance(url, str) or not url:
+        return None
+    override_tag = f"{{{_CONTENT_TYPES_NS}}}Override"
+    connection_overrides = [
+        override
+        for override in content_types.findall(override_tag)
+        if override.get("PartName") == "/xl/connections.xml"
+    ]
+    if len(connection_overrides) != 1 or set(connection_overrides[0].attrib) != {
+        "PartName",
+        "ContentType",
+    }:
+        return None
+    return {
+        "workbook_relationships_member": "xl/_rels/workbook.xml.rels",
+        "connection_member": "xl/connections.xml",
+        "relationship_attributes": tuple(sorted(connection_relationships[0].attrib.items())),
+        "connection_attributes": tuple(sorted(connection.attrib.items())),
+        "web_properties_attributes": tuple(sorted(web_properties[0].attrib.items())),
+        "connection_content_type_attributes": tuple(sorted(connection_overrides[0].attrib.items())),
+        "url": url,
+    }
+
+
+def _external_data_connection_refresh_on_load(path: Path, connection_id: int) -> bool | None:
+    """Read the generated connection's explicit refresh-on-open flag."""
+
+    state = _raw_external_data_connection_state(path, connection_id)
+    if state is None:
+        return None
+    attributes = dict(state["connection_attributes"])
+    return {"0": False, "1": True}.get(attributes.get("refreshOnLoad"))
+
+
+def _external_data_connection_without_web_query_url(path: Path, connection_id: int) -> bytes | None:
+    """Return one generated Connections part with only its web URL erased."""
+
+    if _raw_external_data_connection_state(path, connection_id) is None:
+        return None
+    try:
+        with ZipFile(path) as archive:
+            connections = ElementTree.fromstring(archive.read("xl/connections.xml"))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    connection_tag = f"{{{_SPREADSHEETML_NS}}}connection"
+    web_properties_tag = f"{{{_SPREADSHEETML_NS}}}webPr"
+    matches = [
+        connection
+        for connection in connections.findall(connection_tag)
+        if connection.get("id") == str(connection_id)
+    ]
+    if len(matches) != 1:
+        return None
+    web_properties = matches[0].findall(web_properties_tag)
+    if len(web_properties) != 1 or "url" not in web_properties[0].attrib:
+        return None
+    web_properties[0].attrib.pop("url")
+    return ElementTree.tostring(connections, encoding="utf-8", xml_declaration=True)
 
 
 def _raw_query_table_refresh_state(path: Path, sheet_name: str) -> dict[str, Any] | None:
@@ -6737,6 +6817,161 @@ def _validate_fact(
             and before_refresh_on_load is fact.get("baseline_refresh_on_load")
             and after_refresh_on_load is fact.get("candidate_refresh_on_load"),
             f"{truth['id']}: expected connection {connection_id!r} refresh-on-open false -> true",
+            errors,
+        )
+        return
+
+    if kind == "external_data_connection_web_query_url_changed":
+        connection_id = fact.get("connection_id")
+        connection_member = fact.get("connection_member")
+        workbook_relationships_member = fact.get("workbook_relationships_member")
+        relationship_id = fact.get("relationship_id")
+        relationship_type = fact.get("relationship_type")
+        connection_content_type = fact.get("connection_content_type")
+        baseline_url = fact.get("baseline_url")
+        candidate_url = fact.get("candidate_url")
+        saved_value_sheet = fact.get("saved_value_sheet")
+        saved_value_cell = fact.get("saved_value_cell")
+        saved_value = fact.get("saved_value")
+        summary_sheet = fact.get("summary_sheet")
+        summary_cell = fact.get("summary_cell")
+        summary_formula = fact.get("summary_formula")
+        dashboard_sheet = fact.get("dashboard_sheet")
+        dashboard_cell = fact.get("dashboard_cell")
+        dashboard_formula = fact.get("dashboard_formula")
+        before_state = (
+            _raw_external_data_connection_state(baseline_path, connection_id)
+            if isinstance(connection_id, int)
+            else None
+        )
+        after_state = (
+            _raw_external_data_connection_state(candidate_path, connection_id)
+            if isinstance(connection_id, int)
+            else None
+        )
+        before_saved_value = (
+            _raw_cell_state(baseline_path, saved_value_sheet, saved_value_cell)
+            if isinstance(saved_value_sheet, str) and isinstance(saved_value_cell, str)
+            else None
+        )
+        after_saved_value = (
+            _raw_cell_state(candidate_path, saved_value_sheet, saved_value_cell)
+            if isinstance(saved_value_sheet, str) and isinstance(saved_value_cell, str)
+            else None
+        )
+        before_summary = (
+            _raw_cell_state(baseline_path, summary_sheet, summary_cell)
+            if isinstance(summary_sheet, str) and isinstance(summary_cell, str)
+            else None
+        )
+        after_summary = (
+            _raw_cell_state(candidate_path, summary_sheet, summary_cell)
+            if isinstance(summary_sheet, str) and isinstance(summary_cell, str)
+            else None
+        )
+        before_dashboard = (
+            _raw_cell_state(baseline_path, dashboard_sheet, dashboard_cell)
+            if isinstance(dashboard_sheet, str) and isinstance(dashboard_cell, str)
+            else None
+        )
+        after_dashboard = (
+            _raw_cell_state(candidate_path, dashboard_sheet, dashboard_cell)
+            if isinstance(dashboard_sheet, str) and isinstance(dashboard_cell, str)
+            else None
+        )
+        expected_relationship_attributes = (
+            tuple(
+                sorted(
+                    {
+                        "Id": relationship_id,
+                        "Type": relationship_type,
+                        "Target": "connections.xml",
+                    }.items()
+                )
+            )
+            if isinstance(relationship_id, str) and isinstance(relationship_type, str)
+            else None
+        )
+        expected_connection_attributes = tuple(
+            sorted(
+                {
+                    "id": str(connection_id),
+                    "name": "WCAB synthetic external-data connection",
+                    "refreshedVersion": "1",
+                    "refreshOnLoad": "0",
+                    "type": "4",
+                }.items()
+            )
+        )
+        expected_content_type_attributes = (
+            tuple(
+                sorted(
+                    {
+                        "PartName": f"/{connection_member}",
+                        "ContentType": connection_content_type,
+                    }.items()
+                )
+            )
+            if isinstance(connection_member, str) and isinstance(connection_content_type, str)
+            else None
+        )
+        graph = _direct_graph(candidate)
+        _assert(
+            isinstance(connection_id, int)
+            and isinstance(connection_member, str)
+            and isinstance(workbook_relationships_member, str)
+            and isinstance(baseline_url, str)
+            and isinstance(candidate_url, str)
+            and baseline_url != candidate_url
+            and fact.get("refresh_on_load") is False
+            and isinstance(saved_value_sheet, str)
+            and isinstance(saved_value_cell, str)
+            and isinstance(saved_value, int)
+            and isinstance(summary_sheet, str)
+            and isinstance(summary_cell, str)
+            and isinstance(summary_formula, str)
+            and isinstance(dashboard_sheet, str)
+            and isinstance(dashboard_cell, str)
+            and isinstance(dashboard_formula, str)
+            and before_state is not None
+            and after_state is not None
+            and before_state["workbook_relationships_member"] == workbook_relationships_member
+            and after_state["workbook_relationships_member"] == workbook_relationships_member
+            and before_state["connection_member"] == connection_member
+            and after_state["connection_member"] == connection_member
+            and before_state["relationship_attributes"] == expected_relationship_attributes
+            and after_state["relationship_attributes"] == expected_relationship_attributes
+            and before_state["connection_attributes"] == expected_connection_attributes
+            and after_state["connection_attributes"] == expected_connection_attributes
+            and before_state["connection_content_type_attributes"]
+            == expected_content_type_attributes
+            and after_state["connection_content_type_attributes"]
+            == expected_content_type_attributes
+            and before_state["web_properties_attributes"] == (("url", baseline_url),)
+            and after_state["web_properties_attributes"] == (("url", candidate_url),)
+            and before_state["url"] == baseline_url
+            and after_state["url"] == candidate_url
+            and before_saved_value is not None
+            and after_saved_value is not None
+            and before_saved_value == after_saved_value
+            and before_saved_value[4] == str(saved_value)
+            and before_summary is not None
+            and after_summary is not None
+            and before_summary == after_summary
+            and before_summary[3] == summary_formula
+            and before_dashboard is not None
+            and after_dashboard is not None
+            and before_dashboard == after_dashboard
+            and before_dashboard[3] == dashboard_formula
+            and _external_data_connection_without_web_query_url(baseline_path, connection_id)
+            == _external_data_connection_without_web_query_url(candidate_path, connection_id)
+            and _xlsx_member_differences(baseline_path, candidate_path) == {connection_member}
+            and _calculation_properties(baseline_path) == _calculation_properties(candidate_path)
+            and (summary_sheet, summary_cell)
+            in graph.get((saved_value_sheet, saved_value_cell), set())
+            and (dashboard_sheet, dashboard_cell)
+            in graph.get((summary_sheet, summary_cell), set()),
+            f"{truth['id']}: expected one stable external-data web-query URL retarget with saved cells and local formulas unchanged",
             errors,
         )
         return

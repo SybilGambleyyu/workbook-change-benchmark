@@ -212,6 +212,21 @@ _OLE_OBJECT_DASHBOARD_FORMULA = "=Model!$B$2"
 _OLE_OBJECT_PAYLOAD = (
     b"WCAB opaque synthetic embedded-object fixture bytes; never deserialized or opened."
 )
+_EXTERNAL_DATA_CONNECTIONS_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/connections"
+_EXTERNAL_DATA_CONNECTIONS_CONTENT_TYPE = (
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.connections+xml"
+)
+_EXTERNAL_DATA_CONNECTION_MEMBER = "xl/connections.xml"
+_EXTERNAL_DATA_CONNECTION_WORKBOOK_RELATIONSHIP_ID = "rIdWCABExternalDataConnection"
+_EXTERNAL_DATA_CONNECTION_ID = 1
+_EXTERNAL_DATA_CONNECTION_NAME = "WCAB synthetic external-data connection"
+_EXTERNAL_DATA_CONNECTION_REFRESH_URL = "https://example.invalid/wcab-external-data-refresh"
+_EXTERNAL_DATA_CONNECTION_SOURCE_BASELINE_URL = (
+    "https://approved.example.invalid/wcab-external-data-source"
+)
+_EXTERNAL_DATA_CONNECTION_SOURCE_CANDIDATE_URL = (
+    "https://review.example.invalid/wcab-external-data-source"
+)
 _QUERY_TABLE_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/queryTable"
 _QUERY_TABLE_CONNECTIONS_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/connections"
 _QUERY_TABLE_CONTENT_TYPE = (
@@ -2367,12 +2382,13 @@ def _add_dynamic_array_metadata(path: Path) -> None:
     _rewrite_xlsx_parts(path, mutate)
 
 
-def _add_external_data_connection(path: Path, *, refresh_on_load: bool) -> None:
+def _add_external_data_connection(path: Path, *, refresh_on_load: bool, url: str) -> None:
     """Add one relationship-backed, non-routable external-data connection.
 
-    A reserved ``.invalid`` URL makes the generated package inspectable while
-    ensuring the benchmark fixture never names a real provider. The only
-    baseline/candidate difference is the connection's ``refreshOnLoad`` flag.
+    The caller supplies a reserved ``.invalid`` URL, keeping generated source
+    declarations inspectable without naming a real provider. Individual cases
+    choose whether their isolated difference is this source text or the stored
+    connection ``refreshOnLoad`` flag.
     """
 
     def serialize(root: ElementTree.Element) -> bytes:
@@ -2381,16 +2397,15 @@ def _add_external_data_connection(path: Path, *, refresh_on_load: bool) -> None:
     def mutate(members: dict[str, bytes]) -> None:
         content_types = ElementTree.fromstring(members["[Content_Types].xml"])
         override_tag = f"{{{_CONTENT_TYPES_NS}}}Override"
-        if not any(item.get("PartName") == "/xl/connections.xml" for item in content_types):
+        if not any(
+            item.get("PartName") == f"/{_EXTERNAL_DATA_CONNECTION_MEMBER}" for item in content_types
+        ):
             ElementTree.SubElement(
                 content_types,
                 override_tag,
                 {
-                    "PartName": "/xl/connections.xml",
-                    "ContentType": (
-                        "application/vnd.openxmlformats-officedocument."
-                        "spreadsheetml.connections+xml"
-                    ),
+                    "PartName": f"/{_EXTERNAL_DATA_CONNECTION_MEMBER}",
+                    "ContentType": _EXTERNAL_DATA_CONNECTIONS_CONTENT_TYPE,
                 },
             )
         members["[Content_Types].xml"] = serialize(content_types)
@@ -2401,8 +2416,8 @@ def _add_external_data_connection(path: Path, *, refresh_on_load: bool) -> None:
             relationships,
             relationship_tag,
             {
-                "Id": "rIdWCABExternalDataConnection",
-                "Type": f"{_DOCUMENT_RELATIONSHIPS_NS}/connections",
+                "Id": _EXTERNAL_DATA_CONNECTION_WORKBOOK_RELATIONSHIP_ID,
+                "Type": _EXTERNAL_DATA_CONNECTIONS_RELATIONSHIP,
                 "Target": "connections.xml",
             },
         )
@@ -2413,8 +2428,8 @@ def _add_external_data_connection(path: Path, *, refresh_on_load: bool) -> None:
             connections,
             f"{{{_SPREADSHEETML_NS}}}connection",
             {
-                "id": "1",
-                "name": "WCAB synthetic external-data connection",
+                "id": str(_EXTERNAL_DATA_CONNECTION_ID),
+                "name": _EXTERNAL_DATA_CONNECTION_NAME,
                 "type": "4",
                 "refreshedVersion": "1",
                 "refreshOnLoad": "1" if refresh_on_load else "0",
@@ -2423,9 +2438,9 @@ def _add_external_data_connection(path: Path, *, refresh_on_load: bool) -> None:
         ElementTree.SubElement(
             connection,
             f"{{{_SPREADSHEETML_NS}}}webPr",
-            {"url": "https://example.invalid/wcab-external-data-refresh"},
+            {"url": url},
         )
-        members["xl/connections.xml"] = serialize(connections)
+        members[_EXTERNAL_DATA_CONNECTION_MEMBER] = serialize(connections)
 
     _rewrite_xlsx_parts(path, mutate)
 
@@ -5094,8 +5109,16 @@ def _build_governance_external_data_refresh(root: Path) -> None:
     candidate = directory / "candidate.xlsx"
     _save_workbook(_external_data_refresh_workbook(), baseline)
     _save_workbook(_external_data_refresh_workbook(), candidate)
-    _add_external_data_connection(baseline, refresh_on_load=False)
-    _add_external_data_connection(candidate, refresh_on_load=True)
+    _add_external_data_connection(
+        baseline,
+        refresh_on_load=False,
+        url=_EXTERNAL_DATA_CONNECTION_REFRESH_URL,
+    )
+    _add_external_data_connection(
+        candidate,
+        refresh_on_load=True,
+        url=_EXTERNAL_DATA_CONNECTION_REFRESH_URL,
+    )
     _write_json(
         directory / "truth.json",
         _truth(
@@ -5106,7 +5129,7 @@ def _build_governance_external_data_refresh(root: Path) -> None:
             facts=[
                 {
                     "kind": "external_data_connection_refresh_on_load_changed",
-                    "connection_id": 1,
+                    "connection_id": _EXTERNAL_DATA_CONNECTION_ID,
                     "baseline_refresh_on_load": False,
                     "candidate_refresh_on_load": True,
                 }
@@ -5114,6 +5137,77 @@ def _build_governance_external_data_refresh(root: Path) -> None:
             coverage=[
                 "The connection endpoint is synthetic and non-routable; the benchmark never opens it or tests credentials, trust, or returned data.",
                 "The observable contract is the stored refresh-on-open control, not a claim that downstream saved values will recalculate.",
+            ],
+        ),
+    )
+
+
+def _build_governance_external_data_connection_source(root: Path) -> None:
+    """Build a pair whose only stored difference is a web-query endpoint."""
+
+    directory = root / "governance" / "external_data_connection_source_changed"
+    directory.mkdir(parents=True, exist_ok=True)
+    baseline = directory / "baseline.xlsx"
+    candidate = directory / "candidate.xlsx"
+    _save_workbook(_external_data_refresh_workbook(), baseline)
+    _save_workbook(_external_data_refresh_workbook(), candidate)
+    _add_external_data_connection(
+        baseline,
+        refresh_on_load=False,
+        url=_EXTERNAL_DATA_CONNECTION_SOURCE_BASELINE_URL,
+    )
+    _add_external_data_connection(
+        candidate,
+        refresh_on_load=False,
+        url=_EXTERNAL_DATA_CONNECTION_SOURCE_CANDIDATE_URL,
+    )
+    _write_json(
+        directory / "truth.json",
+        _truth(
+            case_id="governance.external_data_connection_source_changed",
+            title="An external-data web query points to a different stored source",
+            family="governance",
+            review_expectation="block",
+            facts=[
+                {
+                    "kind": "external_data_connection_web_query_url_changed",
+                    "connection_id": _EXTERNAL_DATA_CONNECTION_ID,
+                    "connection_member": _EXTERNAL_DATA_CONNECTION_MEMBER,
+                    "workbook_relationships_member": "xl/_rels/workbook.xml.rels",
+                    "relationship_id": _EXTERNAL_DATA_CONNECTION_WORKBOOK_RELATIONSHIP_ID,
+                    "relationship_type": _EXTERNAL_DATA_CONNECTIONS_RELATIONSHIP,
+                    "connection_content_type": _EXTERNAL_DATA_CONNECTIONS_CONTENT_TYPE,
+                    "baseline_url": _EXTERNAL_DATA_CONNECTION_SOURCE_BASELINE_URL,
+                    "candidate_url": _EXTERNAL_DATA_CONNECTION_SOURCE_CANDIDATE_URL,
+                    "refresh_on_load": False,
+                    "saved_value_sheet": "ImportedData",
+                    "saved_value_cell": "B2",
+                    "saved_value": 100,
+                    "summary_sheet": "Summary",
+                    "summary_cell": "B2",
+                    "summary_formula": "=ImportedData!$B$2",
+                    "dashboard_sheet": "Dashboard",
+                    "dashboard_cell": "B4",
+                    "dashboard_formula": "=Summary!$B$2",
+                }
+            ],
+            must_reach=[
+                {
+                    "source": {"sheet": "ImportedData", "cell": "B2"},
+                    "targets": [
+                        {"sheet": "Summary", "cell": "B2"},
+                        {"sheet": "Dashboard", "cell": "B4"},
+                    ],
+                },
+                {
+                    "source": {"sheet": "Summary", "cell": "B2"},
+                    "targets": [{"sheet": "Dashboard", "cell": "B4"}],
+                },
+            ],
+            coverage=[
+                "The pair changes only raw xl/connections.xml webPr/@url from one reserved example.invalid endpoint to another. It does not edit ordinary cells, formulas, calculation properties, connection identity, connection refresh controls, content types, or relationships.",
+                "The URLs are synthetic and non-routable. The benchmark records only their stored text and does not open a connection, fetch a URL, refresh a query, materialize rows, calculate a workbook, inspect credentials or trust, or claim that a client returns a value.",
+                "The stable saved cells and direct formula path are context only; a stored source declaration does not prove source reachability, returned data, or a recalculated display.",
             ],
         ),
     )
@@ -6470,6 +6564,7 @@ _BUILDERS: tuple[Callable[[Path], None], ...] = (
     _build_governance_formula_cached_result,
     _build_governance_static_cycle,
     _build_governance_external_data_refresh,
+    _build_governance_external_data_connection_source,
     _build_governance_query_table_refresh,
     _build_governance_cell_hyperlink_target,
     _build_governance_pivot_cache_refresh,
@@ -6525,6 +6620,7 @@ CASE_IDS = (
     "governance.formula_cached_result_changed",
     "governance.static_cycle_introduced",
     "governance.external_data_refresh_on_open",
+    "governance.external_data_connection_source_changed",
     "governance.query_table_refresh_on_open",
     "governance.cell_hyperlink_target_changed",
     "governance.pivot_cache_refresh_on_open",

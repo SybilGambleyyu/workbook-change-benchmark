@@ -93,6 +93,30 @@ The validator reads local OOXML only, never resolves, opens, fetches,
 authenticates to, trusts, refreshes, or calculates either source, and does not
 claim that any client updates a link or returns a value.
 
+## External-data source endpoints can move without changing visible cells
+
+Microsoft's [external-connection format documentation](https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-xls/69df8d03-b6fd-45cd-a0a0-9b026e50a3d9)
+shows that a workbook connection can store provider, server, authentication,
+command, and refresh material outside ordinary cells. For web queries, the
+Open XML [`webPr` reference](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.spreadsheet.webqueryproperties?view=openxml-3.0.0)
+identifies the stored URL and request controls. A source retarget can therefore
+be material to review even when imported saved values and local formulas look
+unchanged.
+
+WCAB 0.37 isolates that declaration using one local relationship-backed
+web-query connection. Only its raw `webPr/@url` moves from
+`approved.example.invalid` to `review.example.invalid`; connection identity and
+refresh controls, relationship and content-type bindings, saved
+`ImportedData!B2=100`, the `ImportedData!B2 → Summary!B2 → Dashboard!B4`
+formula path, calculation properties, and every other package member stay
+fixed. The validator reads local OOXML and compares `xl/connections.xml` after
+removing only the URL. It never opens, fetches, authenticates to, trusts,
+refreshes, or otherwise interacts with either endpoint, evaluates formulas, or
+claims a client result. The fixture also motivates FormulaFence's safe
+`web_query_url` category: it identifies the class of changed sensitive source
+material without emitting either endpoint, a command, a parameter, or a
+fingerprint.
+
 ## External sources can hide in defined names without an externalLink part
 
 Microsoft's [workbook-link guidance](https://support.microsoft.com/en-us/excel/manage-workbook-links)
