@@ -1,0 +1,42 @@
+{
+  "coverage": [
+    "The pair changes only xl/worksheets/sheet1.xml sheetProtection/@sort from \"1\" (locked) to \"0\" while sheet protection remains enabled. It does not edit cells, formulas, calculation properties, styles, or workbook-level protection.",
+    "The fact is the stored sort-permission transition on one protected worksheet. WCAB does not test a password, encryption, authorization, editable ranges, whether a client permits a particular sort, or what a sort would change.",
+    "Controls!D2 and its direct Dashboard!B4 consumer remain fixed. That local formula path is review context only, not an assertion that sorting changes either stored value or calculation result."
+  ],
+  "coverage_expectations": [],
+  "facts": [
+    {
+      "baseline_sort_locked": true,
+      "candidate_sort_locked": false,
+      "dashboard_cell": "B4",
+      "dashboard_formula": "=Controls!$D$2",
+      "dashboard_sheet": "Dashboard",
+      "formula": "=B2*C2",
+      "formula_cell": "D2",
+      "kind": "sheet_protection_sort_permission_enabled",
+      "sheet": "Controls",
+      "worksheet_member": "xl/worksheets/sheet1.xml"
+    }
+  ],
+  "family": "governance",
+  "id": "governance.sheet_protection_sort_permission_enabled",
+  "must_reach": [
+    {
+      "source": {
+        "cell": "D2",
+        "sheet": "Controls"
+      },
+      "targets": [
+        {
+          "cell": "B4",
+          "sheet": "Dashboard"
+        }
+      ]
+    }
+  ],
+  "review_expectation": "block",
+  "schema_version": 3,
+  "title": "A protected sheet permits sorting without a cell edit",
+  "topology": "pair"
+}

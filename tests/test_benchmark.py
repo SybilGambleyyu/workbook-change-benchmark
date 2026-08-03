@@ -251,6 +251,88 @@ def _external_workbook_link_source_details() -> dict[str, object]:
     }
 
 
+def _external_defined_name_source_details() -> dict[str, object]:
+    profile = {
+        "present": True,
+        "surface_count": 1,
+        "cell_formula_surface_count": 0,
+        "defined_name_surface_count": 1,
+        "data_validation_surface_count": 0,
+        "chart_formula_surface_count": 0,
+        "opaque_chart_part_count": 0,
+        "external_reference_count": 1,
+    }
+    return {
+        "before": dict(profile),
+        "after": dict(profile),
+        "external_workbook_link_surface_material_changed": True,
+    }
+
+
+def _external_defined_name_source_definition_change_details() -> dict[str, object]:
+    return {
+        "name": "ScenarioRate",
+        "before": "'[WCABApprovedSource.xlsx]Inputs'!$B$2",
+        "after": "'[WCABReviewSource.xlsx]Inputs'!$B$2",
+    }
+
+
+def _external_defined_name_source_definition_finding_details() -> dict[str, object]:
+    return {
+        "before": "'[WCABApprovedSource.xlsx]Inputs'!$B$2",
+        "after": "'[WCABReviewSource.xlsx]Inputs'!$B$2",
+    }
+
+
+def _sheet_protection_sort_permission_details() -> dict[str, object]:
+    credential = {
+        "configured": False,
+        "has_legacy_verifier": False,
+        "has_modern_verifier": False,
+        "algorithm": None,
+        "spin_count": None,
+    }
+    before = {
+        "sheet": "Controls",
+        "sheet_type": "worksheet",
+        "enabled": True,
+        "locked_actions": [
+            "format_cells",
+            "format_columns",
+            "format_rows",
+            "insert_columns",
+            "insert_rows",
+            "insert_hyperlinks",
+            "delete_columns",
+            "delete_rows",
+            "sort",
+            "auto_filter",
+            "pivot_tables",
+        ],
+        "credential": credential,
+        "opaque_metadata": {"present": False, "count": 0},
+    }
+    return {
+        "sheet": "Controls",
+        "before": before,
+        "after": {
+            **before,
+            "locked_actions": [
+                "format_cells",
+                "format_columns",
+                "format_rows",
+                "insert_columns",
+                "insert_rows",
+                "insert_hyperlinks",
+                "delete_columns",
+                "delete_rows",
+                "auto_filter",
+                "pivot_tables",
+            ],
+        },
+    }
+
+
 def _chart_series_reference_details() -> dict[str, object]:
     profile = {
         "present": True,
@@ -886,6 +968,23 @@ def test_committed_manifest_matches_fixture_tree() -> None:
             "formula": "=B2*C2",
         }
     ]
+    sheet_protection_sort_row = next(
+        row for row in rows if row["id"] == "governance.sheet_protection_sort_permission_enabled"
+    )
+    assert sheet_protection_sort_row["facts"] == [
+        {
+            "kind": "sheet_protection_sort_permission_enabled",
+            "sheet": "Controls",
+            "worksheet_member": "xl/worksheets/sheet1.xml",
+            "baseline_sort_locked": True,
+            "candidate_sort_locked": False,
+            "formula_cell": "D2",
+            "formula": "=B2*C2",
+            "dashboard_sheet": "Dashboard",
+            "dashboard_cell": "B4",
+            "dashboard_formula": "=Controls!$D$2",
+        }
+    ]
     external_data_row = next(
         row for row in rows if row["id"] == "governance.external_data_refresh_on_open"
     )
@@ -1147,6 +1246,24 @@ def test_committed_manifest_matches_fixture_tree() -> None:
             "dashboard_sheet": "Dashboard",
             "dashboard_cell": "B4",
             "dashboard_formula": "=LinkedModel!$B$2",
+        }
+    ]
+    external_defined_name_source_row = next(
+        row for row in rows if row["id"] == "governance.external_defined_name_source_changed"
+    )
+    assert external_defined_name_source_row["facts"] == [
+        {
+            "kind": "external_defined_name_source_changed",
+            "name": "ScenarioRate",
+            "workbook_member": "xl/workbook.xml",
+            "baseline_refers_to": "'[WCABApprovedSource.xlsx]Inputs'!$B$2",
+            "candidate_refers_to": "'[WCABReviewSource.xlsx]Inputs'!$B$2",
+            "formula_sheet": "Model",
+            "formula_cell": "B2",
+            "formula": "=ScenarioRate*2",
+            "dashboard_sheet": "Dashboard",
+            "dashboard_cell": "B4",
+            "dashboard_formula": "=Model!$B$2",
         }
     ]
     iterative_calculation_row = next(
@@ -2626,6 +2743,146 @@ def test_external_workbook_link_source_pair_changes_only_its_relationship_target
     ] == ["xl/externalLinks/_rels/externalLink1.xml.rels"]
 
 
+def test_validator_rejects_a_false_external_defined_name_source_fact(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "governance" / "external_defined_name_source_changed"
+    truth_path = case / "truth.json"
+    truth = json.loads(truth_path.read_text(encoding="utf-8"))
+    truth["facts"][0]["candidate_refers_to"] = "'[WCABApprovedSource.xlsx]Inputs'!$B$2"
+    truth_path.write_text(json.dumps(truth), encoding="utf-8")
+    assert validate_case(case)
+
+
+def test_validator_rejects_a_corrupted_external_defined_name_source(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = (
+        fixture_root / "governance" / "external_defined_name_source_changed" / "candidate.xlsx"
+    )
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    members["xl/workbook.xml"] = members["xl/workbook.xml"].replace(
+        b"WCABReviewSource.xlsx", b"WCABApprovedSource.xlsx", 1
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_validator_rejects_an_external_reference_declaration_in_defined_name_pair(
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = (
+        fixture_root / "governance" / "external_defined_name_source_changed" / "candidate.xlsx"
+    )
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    members["xl/workbook.xml"] = members["xl/workbook.xml"].replace(
+        b"</workbook>", b"<externalReferences/></workbook>", 1
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_external_defined_name_source_pair_changes_only_workbook_xml(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "governance" / "external_defined_name_source_changed"
+    with ZipFile(case / "baseline.xlsx") as baseline, ZipFile(case / "candidate.xlsx") as candidate:
+        baseline_members = {
+            entry.filename: baseline.read(entry.filename) for entry in baseline.infolist()
+        }
+        candidate_members = {
+            entry.filename: candidate.read(entry.filename) for entry in candidate.infolist()
+        }
+    assert set(baseline_members) == set(candidate_members)
+    assert [
+        member
+        for member in sorted(baseline_members)
+        if baseline_members[member] != candidate_members[member]
+    ] == ["xl/workbook.xml"]
+
+
+def test_validator_rejects_a_false_sheet_protection_sort_permission_fact(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "governance" / "sheet_protection_sort_permission_enabled"
+    truth_path = case / "truth.json"
+    truth = json.loads(truth_path.read_text(encoding="utf-8"))
+    truth["facts"][0]["candidate_sort_locked"] = True
+    truth_path.write_text(json.dumps(truth), encoding="utf-8")
+    assert validate_case(case)
+
+
+def test_validator_rejects_a_corrupted_sheet_protection_sort_permission(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = (
+        fixture_root / "governance" / "sheet_protection_sort_permission_enabled" / "candidate.xlsx"
+    )
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    members["xl/worksheets/sheet1.xml"] = members["xl/worksheets/sheet1.xml"].replace(
+        b'sort="0"', b'sort="1"', 1
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_validator_rejects_an_unrelated_sheet_protection_action_change(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = (
+        fixture_root / "governance" / "sheet_protection_sort_permission_enabled" / "candidate.xlsx"
+    )
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    members["xl/worksheets/sheet1.xml"] = members["xl/worksheets/sheet1.xml"].replace(
+        b'autoFilter="1"', b'autoFilter="0"', 1
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_sheet_protection_sort_permission_pair_changes_only_controls_worksheet(
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "governance" / "sheet_protection_sort_permission_enabled"
+    with ZipFile(case / "baseline.xlsx") as baseline, ZipFile(case / "candidate.xlsx") as candidate:
+        baseline_members = {
+            entry.filename: baseline.read(entry.filename) for entry in baseline.infolist()
+        }
+        candidate_members = {
+            entry.filename: candidate.read(entry.filename) for entry in candidate.infolist()
+        }
+    assert set(baseline_members) == set(candidate_members)
+    assert [
+        member
+        for member in sorted(baseline_members)
+        if baseline_members[member] != candidate_members[member]
+    ] == ["xl/worksheets/sheet1.xml"]
+
+
 def test_validator_rejects_a_false_iterative_calculation_fact(tmp_path: Path) -> None:
     fixture_root = tmp_path / "fixtures"
     build_all(fixture_root)
@@ -3886,6 +4143,131 @@ def test_formulafence_adapter_requires_the_external_workbook_link_source_finding
     assert result["status"] == "missed"
     assert result["matched"] == []
     assert result["missed"] == ["external_workbook_link_source_changed"]
+
+
+def test_formulafence_adapter_maps_the_exact_external_defined_name_source_change(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        surface_details = _external_defined_name_source_details()
+        definition_change_details = _external_defined_name_source_definition_change_details()
+        definition_finding_details = _external_defined_name_source_definition_finding_details()
+        return {
+            "summary": {"change_count": 2},
+            "changes": [
+                {
+                    "kind": "external_workbook_link_surfaces_changed",
+                    "location": None,
+                    "details": surface_details,
+                },
+                {
+                    "kind": "defined_name_changed",
+                    "location": None,
+                    "details": definition_change_details,
+                },
+            ],
+            "findings": [
+                {"rule_id": "FF081", "details": surface_details},
+                {"rule_id": "FF008", "details": definition_finding_details},
+            ],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "external_defined_name_source_changed"
+    )
+    assert result["status"] == "matched"
+    assert result["matched"] == ["external_defined_name_source_changed"]
+
+
+def test_formulafence_adapter_requires_the_external_defined_name_definition_evidence(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        surface_details = _external_defined_name_source_details()
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "external_workbook_link_surfaces_changed",
+                    "location": None,
+                    "details": surface_details,
+                }
+            ],
+            "findings": [{"rule_id": "FF081", "details": surface_details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "external_defined_name_source_changed"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["external_defined_name_source_changed"]
+
+
+def test_formulafence_adapter_maps_the_exact_sheet_protection_sort_permission(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _sheet_protection_sort_permission_details()
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "sheet_protection_changed",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF022", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "sheet_protection_sort_permission_enabled"
+    )
+    assert result["status"] == "matched"
+    assert result["matched"] == ["sheet_protection_sort_permission_enabled"]
+
+
+def test_formulafence_adapter_rejects_an_inexact_sheet_protection_sort_permission(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _sheet_protection_sort_permission_details()
+        details["after"]["locked_actions"].append("sort")
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "sheet_protection_changed",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF022", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "sheet_protection_sort_permission_enabled"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["sheet_protection_sort_permission_enabled"]
 
 
 def test_formulafence_adapter_maps_the_exact_iterative_calculation_transition(

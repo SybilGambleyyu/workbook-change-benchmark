@@ -2867,6 +2867,114 @@ def _workbook_without_structure_lock(path: Path) -> bytes | None:
     return ElementTree.tostring(workbook, encoding="utf-8", xml_declaration=True)
 
 
+def _raw_external_defined_name_source_state(path: Path) -> dict[str, Any] | None:
+    """Read WCAB's one local defined-name external-reference declaration.
+
+    This is intentionally a narrow reader for the generated pair. It reads the
+    stored OOXML name text and confirms that the package has no relationship-
+    backed external-link declarations; it never follows the external text.
+    """
+
+    try:
+        with ZipFile(path) as archive:
+            workbook = ElementTree.fromstring(archive.read("xl/workbook.xml"))
+            external_link_members = tuple(
+                sorted(name for name in archive.namelist() if name.startswith("xl/externalLinks/"))
+            )
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    defined_names_tag = f"{{{_SPREADSHEETML_NS}}}definedNames"
+    defined_name_tag = f"{{{_SPREADSHEETML_NS}}}definedName"
+    external_references_tag = f"{{{_SPREADSHEETML_NS}}}externalReferences"
+    containers = workbook.findall(defined_names_tag)
+    if len(containers) != 1 or containers[0].attrib or len(containers[0]) != 1:
+        return None
+    definition = containers[0][0]
+    if definition.tag != defined_name_tag or set(definition.attrib) != {"name"}:
+        return None
+    name = definition.get("name")
+    refers_to = definition.text
+    if not isinstance(name, str) or not name or not isinstance(refers_to, str) or not refers_to:
+        return None
+    return {
+        "workbook_member": "xl/workbook.xml",
+        "name": name,
+        "attributes": tuple(sorted(definition.attrib.items())),
+        "refers_to": refers_to,
+        "external_references_count": len(workbook.findall(external_references_tag)),
+        "external_link_members": external_link_members,
+    }
+
+
+def _workbook_without_external_defined_name_source(path: Path) -> bytes | None:
+    """Return raw workbook XML with WCAB's sole defined-name text erased."""
+
+    if _raw_external_defined_name_source_state(path) is None:
+        return None
+    try:
+        with ZipFile(path) as archive:
+            workbook = ElementTree.fromstring(archive.read("xl/workbook.xml"))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    defined_names = workbook.find(f"{{{_SPREADSHEETML_NS}}}definedNames")
+    if defined_names is None or len(defined_names) != 1:
+        return None
+    definition = defined_names[0]
+    if definition.tag != f"{{{_SPREADSHEETML_NS}}}definedName" or definition.text is None:
+        return None
+    definition.text = None
+    return ElementTree.tostring(workbook, encoding="utf-8", xml_declaration=True)
+
+
+def _sheet_protection_sort_state(
+    path: Path, sheet_name: str
+) -> tuple[str, bool, bool, tuple[tuple[str, str], ...]] | None:
+    """Read one generated worksheet's explicit protection and sort locks."""
+
+    try:
+        with ZipFile(path) as archive:
+            worksheet_member = _worksheet_member_for_sheet(archive, sheet_name)
+            if worksheet_member is None:
+                return None
+            worksheet = ElementTree.fromstring(archive.read(worksheet_member))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    protections = worksheet.findall(f"{{{_SPREADSHEETML_NS}}}sheetProtection")
+    if len(protections) != 1:
+        return None
+    protection = protections[0]
+    protected = _ooxml_boolean(protection.get("sheet"))
+    sort_locked = _ooxml_boolean(protection.get("sort"))
+    if protected is None or sort_locked is None:
+        return None
+    return (
+        worksheet_member,
+        protected,
+        sort_locked,
+        tuple(sorted(protection.attrib.items())),
+    )
+
+
+def _worksheet_without_sheet_protection_sort_control(path: Path, sheet_name: str) -> bytes | None:
+    """Return one worksheet with its explicit ``sheetProtection/@sort`` erased."""
+
+    if _sheet_protection_sort_state(path, sheet_name) is None:
+        return None
+    try:
+        with ZipFile(path) as archive:
+            worksheet_member = _worksheet_member_for_sheet(archive, sheet_name)
+            if worksheet_member is None:
+                return None
+            worksheet = ElementTree.fromstring(archive.read(worksheet_member))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    protection = worksheet.find(f"{{{_SPREADSHEETML_NS}}}sheetProtection")
+    if protection is None or "sort" not in protection.attrib:
+        return None
+    protection.attrib.pop("sort")
+    return ElementTree.tostring(worksheet, encoding="utf-8", xml_declaration=True)
+
+
 def _xlsx_member_differences(baseline_path: Path, candidate_path: Path) -> set[str] | None:
     """Return changed member names when two small fixture archives align."""
 
@@ -3212,6 +3320,84 @@ def _validate_fact(
             and _xlsx_member_differences(baseline_path, candidate_path) == {"xl/workbook.xml"}
             and _calculation_properties(baseline_path) == _calculation_properties(candidate_path),
             f"{truth['id']}: expected only workbookProtection lockStructure true -> false with stable hidden-sheet and formula context",
+            errors,
+        )
+        return
+
+    if kind == "sheet_protection_sort_permission_enabled":
+        sheet_name = fact.get("sheet")
+        formula_cell = fact.get("formula_cell")
+        dashboard_sheet = fact.get("dashboard_sheet")
+        dashboard_cell = fact.get("dashboard_cell")
+        before_state = (
+            _sheet_protection_sort_state(baseline_path, sheet_name)
+            if isinstance(sheet_name, str)
+            else None
+        )
+        after_state = (
+            _sheet_protection_sort_state(candidate_path, sheet_name)
+            if isinstance(sheet_name, str)
+            else None
+        )
+        before_formula = (
+            _raw_cell_state(baseline_path, sheet_name, formula_cell)
+            if isinstance(sheet_name, str) and isinstance(formula_cell, str)
+            else None
+        )
+        after_formula = (
+            _raw_cell_state(candidate_path, sheet_name, formula_cell)
+            if isinstance(sheet_name, str) and isinstance(formula_cell, str)
+            else None
+        )
+        before_dashboard = (
+            _raw_cell_state(baseline_path, dashboard_sheet, dashboard_cell)
+            if isinstance(dashboard_sheet, str) and isinstance(dashboard_cell, str)
+            else None
+        )
+        after_dashboard = (
+            _raw_cell_state(candidate_path, dashboard_sheet, dashboard_cell)
+            if isinstance(dashboard_sheet, str) and isinstance(dashboard_cell, str)
+            else None
+        )
+        graph = _direct_graph(candidate)
+        _assert(
+            sheet_name == "Controls"
+            and fact.get("worksheet_member") == "xl/worksheets/sheet1.xml"
+            and fact.get("baseline_sort_locked") is True
+            and fact.get("candidate_sort_locked") is False
+            and formula_cell == "D2"
+            and fact.get("formula") == "=B2*C2"
+            and dashboard_sheet == "Dashboard"
+            and dashboard_cell == "B4"
+            and fact.get("dashboard_formula") == "=Controls!$D$2"
+            and before_state is not None
+            and after_state is not None
+            and before_state[:3] == ("xl/worksheets/sheet1.xml", True, True)
+            and after_state[:3] == ("xl/worksheets/sheet1.xml", True, False)
+            and before_state[3] != after_state[3]
+            and _ooxml_boolean(dict(before_state[3]).get("sort")) is True
+            and _ooxml_boolean(dict(after_state[3]).get("sort")) is False
+            and sheet_name in baseline.sheetnames
+            and sheet_name in candidate.sheetnames
+            and bool(baseline[sheet_name].protection.sheet)
+            and bool(candidate[sheet_name].protection.sheet)
+            and bool(baseline[sheet_name].protection.sort)
+            and not bool(candidate[sheet_name].protection.sort)
+            and before_formula is not None
+            and after_formula is not None
+            and before_formula == after_formula
+            and before_formula[3] == fact.get("formula")
+            and before_dashboard is not None
+            and after_dashboard is not None
+            and before_dashboard == after_dashboard
+            and before_dashboard[3] == fact.get("dashboard_formula")
+            and _worksheet_without_sheet_protection_sort_control(baseline_path, sheet_name)
+            == _worksheet_without_sheet_protection_sort_control(candidate_path, sheet_name)
+            and _xlsx_member_differences(baseline_path, candidate_path)
+            == {"xl/worksheets/sheet1.xml"}
+            and _calculation_properties(baseline_path) == _calculation_properties(candidate_path)
+            and (dashboard_sheet, dashboard_cell) in _reachable(graph, (sheet_name, formula_cell)),
+            f"{truth['id']}: expected only one protected-sheet sort lock true -> false with stable formula context",
             errors,
         )
         return
@@ -6540,6 +6726,86 @@ def _validate_fact(
             and _calculation_properties(baseline_path) == _calculation_properties(candidate_path)
             and (dashboard_sheet, dashboard_cell) in _reachable(graph, (sheet_name, coordinate)),
             f"{truth['id']}: expected one external-workbook source target change only with stable formulas and package graph",
+            errors,
+        )
+        return
+
+    if kind == "external_defined_name_source_changed":
+        name = fact.get("name")
+        formula_sheet = fact.get("formula_sheet")
+        formula_cell = fact.get("formula_cell")
+        dashboard_sheet = fact.get("dashboard_sheet")
+        dashboard_cell = fact.get("dashboard_cell")
+        before_state = _raw_external_defined_name_source_state(baseline_path)
+        after_state = _raw_external_defined_name_source_state(candidate_path)
+        before_formula = (
+            _raw_cell_state(baseline_path, formula_sheet, formula_cell)
+            if isinstance(formula_sheet, str) and isinstance(formula_cell, str)
+            else None
+        )
+        after_formula = (
+            _raw_cell_state(candidate_path, formula_sheet, formula_cell)
+            if isinstance(formula_sheet, str) and isinstance(formula_cell, str)
+            else None
+        )
+        before_dashboard = (
+            _raw_cell_state(baseline_path, dashboard_sheet, dashboard_cell)
+            if isinstance(dashboard_sheet, str) and isinstance(dashboard_cell, str)
+            else None
+        )
+        after_dashboard = (
+            _raw_cell_state(candidate_path, dashboard_sheet, dashboard_cell)
+            if isinstance(dashboard_sheet, str) and isinstance(dashboard_cell, str)
+            else None
+        )
+        expected_common_state = {
+            "workbook_member": "xl/workbook.xml",
+            "name": "ScenarioRate",
+            "attributes": (("name", "ScenarioRate"),),
+            "external_references_count": 0,
+            "external_link_members": (),
+        }
+        graph = _direct_graph(candidate)
+        _assert(
+            name == "ScenarioRate"
+            and fact.get("workbook_member") == "xl/workbook.xml"
+            and fact.get("baseline_refers_to") == "'[WCABApprovedSource.xlsx]Inputs'!$B$2"
+            and fact.get("candidate_refers_to") == "'[WCABReviewSource.xlsx]Inputs'!$B$2"
+            and formula_sheet == "Model"
+            and formula_cell == "B2"
+            and fact.get("formula") == "=ScenarioRate*2"
+            and dashboard_sheet == "Dashboard"
+            and dashboard_cell == "B4"
+            and fact.get("dashboard_formula") == "=Model!$B$2"
+            and before_state
+            == {
+                **expected_common_state,
+                "refers_to": "'[WCABApprovedSource.xlsx]Inputs'!$B$2",
+            }
+            and after_state
+            == {
+                **expected_common_state,
+                "refers_to": "'[WCABReviewSource.xlsx]Inputs'!$B$2",
+            }
+            and _defined_name_text(baseline, name) == fact.get("baseline_refers_to")
+            and _defined_name_text(candidate, name) == fact.get("candidate_refers_to")
+            and formula_sheet in baseline.sheetnames
+            and formula_sheet in candidate.sheetnames
+            and before_formula is not None
+            and after_formula is not None
+            and before_formula == after_formula
+            and before_formula[3] == fact.get("formula")
+            and before_dashboard is not None
+            and after_dashboard is not None
+            and before_dashboard == after_dashboard
+            and before_dashboard[3] == fact.get("dashboard_formula")
+            and _workbook_without_external_defined_name_source(baseline_path)
+            == _workbook_without_external_defined_name_source(candidate_path)
+            and _xlsx_member_differences(baseline_path, candidate_path) == {"xl/workbook.xml"}
+            and _calculation_properties(baseline_path) == _calculation_properties(candidate_path)
+            and (dashboard_sheet, dashboard_cell)
+            in _reachable(graph, (formula_sheet, formula_cell)),
+            f"{truth['id']}: expected only one local defined-name external source change with stable formula context",
             errors,
         )
         return

@@ -62,6 +62,10 @@ worksheet relationship part.
 WCAB 0.32 adds a relationship-backed external-workbook source transition with
 unchanged formula text, source-sheet declaration, local downstream formula,
 and every package member except its externalLink relationship part.
+WCAB 0.33 adds a local defined-name external-source transition with unchanged
+formula cells and every package member except `xl/workbook.xml`, plus a
+protected-sheet sort permission transition with unchanged cells, formulas,
+styles, calculation properties, and every package member except its worksheet.
 Version 2 remains
 available in the immutable v0.2.0 and v0.3.0 releases.
 
@@ -109,6 +113,7 @@ Facts are observed directly from the fixture files by `wcab validate`.
 | `ole_object_auto_load_enabled` | `sheet`, `worksheet_member`, `worksheet_relationships_member`, `relationship_id`, `relationship_type`, `target`, `embedded_object_member`, `content_type`, `prog_id`, `dv_aspect`, `shape_id`, `baseline_auto_load`, `candidate_auto_load`, `input_sheet`, `input_cell`, `input_value`, `model_sheet`, `model_cell`, `model_formula`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | One worksheet OLE declaration retains its fixed internal relationship, opaque synthetic bytes, ordinary cells, formulas, calculation properties, and every package member except its worksheet while raw `oleObject/@autoLoad` changes from false to true. The validator does not deserialize, open, render, execute, register, or invoke an object server, or claim that an object loads successfully. |
 | `sheet_visibility_changed` | `sheet`, `baseline_state`, `candidate_state` | The stored sheet state changes. |
 | `formula_cell_unlocked` | `sheet`, `cell` | A formula cell is explicitly unlocked while its sheet remains protected. |
+| `sheet_protection_sort_permission_enabled` | `sheet`, `worksheet_member`, `baseline_sort_locked`, `candidate_sort_locked`, `formula_cell`, `formula`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | One protected worksheet retains its stored protection and every other action lock while raw `sheetProtection/@sort` changes exactly from `1` (locked) to `0` (permitted). Its formula context, styles, calculation properties, and every package member except the declared worksheet remain unchanged. The validator does not test a password, encryption, authorization, editable ranges, a client sort operation, or a resulting value. |
 | `workbook_structure_lock_removed` | `baseline_lock_structure`, `candidate_lock_structure`, `hidden_sheet`, `hidden_sheet_state`, `formula_sheet`, `formula_cell`, `formula` | Raw `workbookProtection/@lockStructure` changes exactly from `true` to `false` while the declared hidden-sheet state, formula, calculation properties, and every package member except `xl/workbook.xml` remain unchanged. The validator does not test a password, encryption, authorization, or client behavior. |
 | `manual_calculation_incomplete` | none | Candidate calculation metadata is `manual` and records incomplete calculation. |
 | `iterative_calculation_enabled` | `sheet`, `cell`, `formula`, `baseline_iterate`, `candidate_iterate`, `iteration_count`, `iteration_delta` | The declared direct self-referencing formula remains unchanged while raw `calcPr/@iterate` changes exactly from `false` to `true`; the explicit count and delta remain the declared values, and all non-iteration calculation attributes are unchanged. The validator does not calculate the model. |
@@ -127,6 +132,7 @@ Facts are observed directly from the fixture files by `wcab validate`.
 | `chart_series_value_reference_changed` | `chart_sheet`, `chart_anchor`, `source_sheet`, `series_title_ref`, `category_ref`, `baseline_value_ref`, `candidate_value_ref` | One relationship-bound DrawingML chart retains its host, anchor, title/category references, source worksheet cells, and every package member except its chart part while raw `c:ser/c:val/c:numRef/c:f` moves between declared local value ranges. The validator does not calculate, refresh, or render a chart. |
 | `external_workbook_link_update_policy_changed` | `sheet`, `cell`, `formula`, `baseline_update_links`, `candidate_update_links` | The declared external-workbook formula remains unchanged while raw `workbookPr/@updateLinks` changes exactly from `never` to `always`; all other stored `workbookPr` attributes are unchanged. The validator does not resolve the source workbook. |
 | `external_workbook_link_source_changed` | `sheet`, `cell`, `formula`, `workbook_member`, `workbook_relationships_member`, `workbook_relationship_id`, `workbook_relationship_type`, `external_link_member`, `external_link_relationships_member`, `external_link_content_type`, `external_link_relationship_id`, `external_link_relationship_type`, `external_sheet`, `target_mode`, `baseline_target`, `candidate_target`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | One external-workbook formula, workbook external-reference relationship, `externalLink`/`externalBook` declaration, content type, source-sheet name, local downstream formula, and calculation properties remain unchanged while one external `externalLinkPath` relationship `Target` moves between declared reserved URLs. The validator reads local OOXML only; it does not resolve, open, fetch, authenticate to, trust, refresh, calculate, or claim that a client updates a link or returns a value. |
+| `external_defined_name_source_changed` | `name`, `workbook_member`, `baseline_refers_to`, `candidate_refers_to`, `formula_sheet`, `formula_cell`, `formula`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | One local `definedName` text moves between declared qualified external-workbook expressions while the name, local formula context, calculation properties, sheet declarations, workbook relationships, and every package member except `xl/workbook.xml` remain unchanged. The compact package deliberately has no `externalLink` part or `externalReferences` declaration. The validator does not resolve, open, fetch, authenticate to, trust, refresh, calculate, or claim a client result. |
 | `array_formula_mode_changed` | `sheet`, `cell`, `formula`, `baseline_mode`, `candidate_mode`, `baseline_output_range`, `candidate_output_range` | The declared unchanged array anchor moves from `legacy_cse` to `dynamic`, with its stored formula text and output range exactly as declared. The validator reads the raw OOXML cell-metadata binding. |
 | `static_cycle_introduced` | `cells` | Every declared direct A1 cell reaches itself in the local static dependency graph. |
 | `three_d_scope_changed` | `formula_sheet`, `formula_cell`, `inserted_sheet`, `after_sheet`, `before_sheet` | Formula text remains unchanged while a sheet is inserted inside the declared tab span. |
@@ -224,6 +230,25 @@ The validator compares raw workbook XML after removing only that attribute and
 requires `xl/workbook.xml` to be the only changed package member. It does not
 test a password, encryption, authentication, authorization, whether a hidden
 sheet is exposed, or whether a particular client enables a sheet operation.
+
+## Sheet-protection sort permission
+
+Microsoft's [Protect a worksheet guidance](https://support.microsoft.com/en-us/excel/protect-a-worksheet)
+distinguishes worksheet protection from file protection and lists **Sort** as
+one of the actions a protected worksheet can permit. The Open XML
+[`SheetProtection` reference](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.spreadsheet.sheetprotection?view=openxml-3.0.1)
+defines the stored worksheet-protection element and its action controls. That
+makes a stored action permission review-material even when no cells change.
+
+WCAB 0.33 keeps `Controls!D2=B2*C2`, its direct
+`Dashboard!B4=Controls!$D$2` consumer, worksheet protection, every other
+protection action lock, styles, calculation properties, and all non-worksheet
+package members fixed. The raw `sheetProtection/@sort` control moves exactly
+from `1` (locked) to `0` (permitted), and `xl/worksheets/sheet1.xml` is the
+only changed package member. The validator records that stored declaration
+only: it does not test a password, encryption, authentication, authorization,
+editable ranges, an actual sort operation, a client permission decision, or a
+resulting value.
 
 ## Static impact lower bounds
 
@@ -448,6 +473,28 @@ compares the relationship part after erasing `Target`, and requires it to be
 the sole package difference. It does not resolve, open, fetch, authenticate
 to, trust, refresh, calculate, or otherwise interact with either source, and
 does not claim a client updates a link or returns a value.
+
+## External defined-name source
+
+Microsoft's [workbook-link guidance](https://support.microsoft.com/en-us/excel/manage-workbook-links)
+calls out defined names as a place workbook links can be used, including its
+workflow for finding links in defined names. The Open XML
+[`DefinedNames` reference](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.spreadsheet.definednames?view=openxml-3.0.1)
+defines the workbook-level collection that stores those expressions. A source
+can therefore move inside a local name even when neither an ordinary formula
+cell nor an `externalLink` package part changes.
+
+WCAB 0.33 keeps local `Model!B2=ScenarioRate*2` and its direct
+`Dashboard!B4=Model!$B$2` consumer unchanged while the one workbook-level
+`ScenarioRate` definition moves from
+`'[WCABApprovedSource.xlsx]Inputs'!$B$2` to
+`'[WCABReviewSource.xlsx]Inputs'!$B$2`. The deliberately compact package has
+no `<externalReferences>` declaration and no `xl/externalLinks/` member. The
+raw validator requires the exact name/text transition, unchanged calculation
+properties and sheet declarations, and `xl/workbook.xml` as the only package
+difference. It does not resolve, open, fetch, authenticate to, trust, refresh,
+calculate, or otherwise interact with either synthetic source, or claim that a
+client resolves the name or returns a value.
 
 ## Workbook serial-date system
 

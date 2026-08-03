@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.33.0 — 2026-08-03
+
+- Add a deterministic external defined-name source-change case. Its local
+  `ScenarioRate` definition moves between two synthetic qualified external
+  workbook expressions while `Model!B2=ScenarioRate*2`, its direct
+  `Dashboard!B4` consumer, calculation properties, workbook relationships,
+  sheet declarations, and every package member except `xl/workbook.xml` remain
+  fixed. The deliberately compact package has no `externalLink` part or
+  `externalReferences` declaration.
+- Add a deterministic protected-sheet sort-permission case. Its raw
+  `sheetProtection/@sort` control moves from `1` (locked) to `0` (permitted)
+  while sheet protection remains enabled, all other action locks, cells,
+  formulas, styles, calculation properties, and every package member except
+  `xl/worksheets/sheet1.xml` remain fixed.
+- Add exact `external_defined_name_source_changed` and
+  `sheet_protection_sort_permission_enabled` validators, package-isolation
+  checks, corruption regressions, and narrow FormulaFence mappings. WCAB reads
+  stored local OOXML only: it neither interacts with external sources nor tests
+  passwords, authorization, a client sort operation, or a resulting value.
+
 ## 0.32.0 — 2026-08-03
 
 - Add a deterministic, relationship-backed external-workbook source-change

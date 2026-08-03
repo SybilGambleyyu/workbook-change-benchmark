@@ -34,7 +34,7 @@ gates, static analyzers, and agent workflows that propose workbook edits.
 
 ## Scope and non-goals
 
-Version `0.32` covers formula-to-value replacements, formula reference drift,
+Version `0.33` covers formula-to-value replacements, formula reference drift,
 value changes with downstream effects, external formula references, named
 ranges, data validation, conditional formatting, sheet visibility, direct cell
 and workbook-structure protection, calculation settings, static cycles,
@@ -51,6 +51,18 @@ local downstream dependency remain fixed. It records that stored relationship
 only: it does not resolve, open, fetch, authenticate to, trust, refresh,
 calculate, or otherwise interact with either source, and does not claim that a
 client updates a link or returns a value. It also covers
+one local `ScenarioRate` defined name whose qualified external-workbook source
+text changes while `Model!B2=ScenarioRate*2`, its `Dashboard!B4` consumer, and
+every package member except `xl/workbook.xml` remain fixed. It is intentionally
+not a relationship-backed `externalLink` package: WCAB records only the stored
+defined-name text, never opens either synthetic source, and makes no claim that
+a client resolves the name or returns a value. It also covers one protected
+worksheet whose explicit `sheetProtection/@sort` lock moves from `1` to `0`
+while protection remains enabled and all cells, formulas, styles, calculation
+properties, and workbook-level protection remain fixed. It records a stored
+permission only: it does not test a password, authorization, an editable range,
+whether a client permits a sort, or what a sort would change.
+It also covers
 one relationship-backed QueryTable whose own `refreshOnLoad` request moves from
 false to true while its fixed connection-level refresh control remains false,
 its synthetic non-routable endpoint, saved cells, and
@@ -326,6 +338,22 @@ generic external-relationship diff is deliberately not mapped to this precise
 fact. Neither layer resolves, opens, fetches, authenticates to, trusts,
 refreshes, calculates, or otherwise interacts with a source, or claims that a
 client updates a link or returns a value.
+For the external-defined-name source case, it requires FormulaFence's exact
+one-surface `external_workbook_link_surfaces_changed` ledger and high-severity
+`FF081`, plus its matching `defined_name_changed` record and `FF008`. The
+ledger alone is insufficient: the adapter also requires the one `ScenarioRate`
+definition to move between the two generated source expressions. WCAB's raw
+validator independently establishes the exact stored text, absence of an
+`externalLink` package, stable formulas, and workbook-XML-only boundary. Neither
+layer resolves, opens, fetches, authenticates to, trusts, refreshes, calculates,
+or otherwise interacts with either source, or claims a client result. For the
+sheet-protection sort case, it requires FormulaFence's exact
+`sheet_protection_changed` profile and high-severity `FF022`: one protected
+`Controls` worksheet retains every locked action except `sort`. WCAB's raw
+validator independently establishes the `1`-to-`0` stored transition, stable
+formula context, and worksheet-only package boundary. Neither layer tests a
+password, encryption, authorization, a client sort operation, or a resulting
+value.
 It separately requires FormulaFence's `pivot_cache_refresh_controls_changed`
 record and matching `FF023` for the local worksheet-backed PivotCache case.
 FormulaFence safely reports cache-level source/control metadata rather than

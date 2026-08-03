@@ -214,6 +214,25 @@ not sufficient evidence for this narrower fact. Neither report resolves, opens,
 fetches, authenticates to, trusts, refreshes, calculates, or otherwise
 interacts with a source, or claims that a client updates a link or returns a
 value.
+For the external-defined-name source case, it requires both one exact
+`external_workbook_link_surfaces_changed` record with high-severity `FF081`
+and one matching `defined_name_changed` record with `FF008`. The source-surface
+ledger alone is deliberately insufficient: the adapter also requires the one
+`ScenarioRate` definition to move between WCAB's two generated qualified
+expressions. FormulaFence does not expose a package-member boundary. WCAB's raw
+validator—not the adapter—then establishes the exact definition text, absence
+of an `externalLink` package and `externalReferences` declaration, stable
+formula context, and workbook-XML-only package difference. Neither layer
+resolves, opens, fetches, authenticates to, trusts, refreshes, calculates, or
+otherwise interacts with a source, or claims a client result.
+For the sheet-protection sort-permission case, it requires one exact
+`sheet_protection_changed` record with high-severity `FF022`: the protected
+`Controls` profile must retain every action lock except `sort`, which moves from
+locked to permitted. FormulaFence does not establish the raw attribute or
+package boundary. WCAB's raw validator—not the adapter—then establishes the
+exact `1`-to-`0` transition, stable formulas, and worksheet-only package
+difference. Neither layer tests a password, encryption, authorization, an
+actual client sort operation, or a resulting value.
 For the PivotCache case,
 it requires one exact
 `pivot_cache_refresh_controls_changed` record and matching `FF023`: its

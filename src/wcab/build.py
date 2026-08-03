@@ -64,6 +64,15 @@ _EXTERNAL_WORKBOOK_LINK_BASELINE_TARGET = (
 _EXTERNAL_WORKBOOK_LINK_CANDIDATE_TARGET = (
     "https://review.example.invalid/wcab-external-workbook/WCABSource.xlsx"
 )
+_EXTERNAL_DEFINED_NAME_SOURCE_NAME = "ScenarioRate"
+_EXTERNAL_DEFINED_NAME_SOURCE_BASELINE_REFERS_TO = "'[WCABApprovedSource.xlsx]Inputs'!$B$2"
+_EXTERNAL_DEFINED_NAME_SOURCE_CANDIDATE_REFERS_TO = "'[WCABReviewSource.xlsx]Inputs'!$B$2"
+_EXTERNAL_DEFINED_NAME_SOURCE_MODEL_SHEET = "Model"
+_EXTERNAL_DEFINED_NAME_SOURCE_MODEL_CELL = "B2"
+_EXTERNAL_DEFINED_NAME_SOURCE_MODEL_FORMULA = "=ScenarioRate*2"
+_EXTERNAL_DEFINED_NAME_SOURCE_DASHBOARD_SHEET = "Dashboard"
+_EXTERNAL_DEFINED_NAME_SOURCE_DASHBOARD_CELL = "B4"
+_EXTERNAL_DEFINED_NAME_SOURCE_DASHBOARD_FORMULA = "=Model!$B$2"
 _ITERATIVE_CALCULATION_FORMULA = "=(B2+Inputs!$B$2)/2"
 _ITERATION_COUNT = 100
 _ITERATION_DELTA = 0.001
@@ -354,6 +363,12 @@ _WORKBOOK_STRUCTURE_PROTECTION_INPUT_SHEET = "Inputs"
 _WORKBOOK_STRUCTURE_PROTECTION_HIDDEN_SHEET = "ReviewControls"
 _WORKBOOK_STRUCTURE_PROTECTION_FORMULA_CELL = "D2"
 _WORKBOOK_STRUCTURE_PROTECTION_FORMULA = "=B2*C2"
+_SHEET_PROTECTION_SORT_SHEET = "Controls"
+_SHEET_PROTECTION_SORT_FORMULA_CELL = "D2"
+_SHEET_PROTECTION_SORT_FORMULA = "=B2*C2"
+_SHEET_PROTECTION_SORT_DASHBOARD_SHEET = "Dashboard"
+_SHEET_PROTECTION_SORT_DASHBOARD_CELL = "B4"
+_SHEET_PROTECTION_SORT_DASHBOARD_FORMULA = "=Controls!$D$2"
 _CHART_SERIES_SOURCE_SHEET = "Source"
 _CHART_SERIES_DASHBOARD_SHEET = "Dashboard"
 _CHART_SERIES_ANCHOR = "D2"
@@ -1424,6 +1439,32 @@ def _governance_workbook() -> Workbook:
     return workbook
 
 
+def _sheet_protection_sort_permission_workbook() -> Workbook:
+    """Build a protected calculation sheet with one stored sort control.
+
+    The candidate keeps sheet protection enabled and changes only the explicit
+    ``sheetProtection/@sort`` lock. The fixture records that stored permission
+    boundary; it does not ask Excel to sort anything or assert a client action.
+    """
+
+    workbook = Workbook()
+    _configure_workbook(workbook, title="WCAB sheet-protection sort fixture")
+    controls = workbook.active
+    controls.title = _SHEET_PROTECTION_SORT_SHEET
+    controls.append(["Control", "Units", "Rate", "Calculated amount"])
+    controls["A2"] = "Approved estimate"
+    controls["B2"] = 12
+    controls["C2"] = 5
+    controls[_SHEET_PROTECTION_SORT_FORMULA_CELL] = _SHEET_PROTECTION_SORT_FORMULA
+    controls.protection.sheet = True
+    controls.protection.enable()
+
+    dashboard = workbook.create_sheet(_SHEET_PROTECTION_SORT_DASHBOARD_SHEET)
+    dashboard["A1"] = "Board output"
+    dashboard[_SHEET_PROTECTION_SORT_DASHBOARD_CELL] = _SHEET_PROTECTION_SORT_DASHBOARD_FORMULA
+    return workbook
+
+
 def _workbook_structure_protection_workbook() -> Workbook:
     """Build a structural-lock fixture without workbook encryption.
 
@@ -1826,6 +1867,37 @@ def _external_workbook_link_policy_workbook() -> Workbook:
     dashboard = workbook.create_sheet("Dashboard")
     dashboard["A1"] = "Board output"
     dashboard["B4"] = "=LinkedModel!$B$2"
+    return workbook
+
+
+def _external_defined_name_source_workbook() -> Workbook:
+    """Build a model whose local name is a stored external reference.
+
+    The source workbooks are synthetic and absent. The workbook contains no
+    relationship-backed ``externalLink`` package: its sole external reference
+    is text stored in the local defined name. This keeps the case distinct from
+    the relationship-target fixture while preserving an ordinary local formula
+    path for review context.
+    """
+
+    workbook = Workbook()
+    _configure_workbook(workbook, title="WCAB external defined-name source fixture")
+    model = workbook.active
+    model.title = _EXTERNAL_DEFINED_NAME_SOURCE_MODEL_SHEET
+    model["A1"] = "Scenario-adjusted rate"
+    model[_EXTERNAL_DEFINED_NAME_SOURCE_MODEL_CELL] = _EXTERNAL_DEFINED_NAME_SOURCE_MODEL_FORMULA
+
+    dashboard = workbook.create_sheet(_EXTERNAL_DEFINED_NAME_SOURCE_DASHBOARD_SHEET)
+    dashboard["A1"] = "Board output"
+    dashboard[_EXTERNAL_DEFINED_NAME_SOURCE_DASHBOARD_CELL] = (
+        _EXTERNAL_DEFINED_NAME_SOURCE_DASHBOARD_FORMULA
+    )
+    workbook.defined_names.add(
+        DefinedName(
+            _EXTERNAL_DEFINED_NAME_SOURCE_NAME,
+            attr_text=_EXTERNAL_DEFINED_NAME_SOURCE_BASELINE_REFERS_TO,
+        )
+    )
     return workbook
 
 
@@ -4195,6 +4267,59 @@ def _build_governance_protection(root: Path) -> None:
     _write_pair(root / "governance" / "formula_cell_unlocked", _governance_workbook, mutate, truth)
 
 
+def _build_governance_sheet_protection_sort_permission(root: Path) -> None:
+    """Build a pair that enables sorting while retaining sheet protection."""
+
+    def mutate(workbook: Workbook) -> None:
+        workbook[_SHEET_PROTECTION_SORT_SHEET].protection.sort = False
+
+    truth = _truth(
+        case_id="governance.sheet_protection_sort_permission_enabled",
+        title="A protected sheet permits sorting without a cell edit",
+        family="governance",
+        review_expectation="block",
+        facts=[
+            {
+                "kind": "sheet_protection_sort_permission_enabled",
+                "sheet": _SHEET_PROTECTION_SORT_SHEET,
+                "worksheet_member": "xl/worksheets/sheet1.xml",
+                "baseline_sort_locked": True,
+                "candidate_sort_locked": False,
+                "formula_cell": _SHEET_PROTECTION_SORT_FORMULA_CELL,
+                "formula": _SHEET_PROTECTION_SORT_FORMULA,
+                "dashboard_sheet": _SHEET_PROTECTION_SORT_DASHBOARD_SHEET,
+                "dashboard_cell": _SHEET_PROTECTION_SORT_DASHBOARD_CELL,
+                "dashboard_formula": _SHEET_PROTECTION_SORT_DASHBOARD_FORMULA,
+            }
+        ],
+        must_reach=[
+            {
+                "source": {
+                    "sheet": _SHEET_PROTECTION_SORT_SHEET,
+                    "cell": _SHEET_PROTECTION_SORT_FORMULA_CELL,
+                },
+                "targets": [
+                    {
+                        "sheet": _SHEET_PROTECTION_SORT_DASHBOARD_SHEET,
+                        "cell": _SHEET_PROTECTION_SORT_DASHBOARD_CELL,
+                    }
+                ],
+            }
+        ],
+        coverage=[
+            'The pair changes only xl/worksheets/sheet1.xml sheetProtection/@sort from "1" (locked) to "0" while sheet protection remains enabled. It does not edit cells, formulas, calculation properties, styles, or workbook-level protection.',
+            "The fact is the stored sort-permission transition on one protected worksheet. WCAB does not test a password, encryption, authorization, editable ranges, whether a client permits a particular sort, or what a sort would change.",
+            "Controls!D2 and its direct Dashboard!B4 consumer remain fixed. That local formula path is review context only, not an assertion that sorting changes either stored value or calculation result.",
+        ],
+    )
+    _write_pair(
+        root / "governance" / "sheet_protection_sort_permission_enabled",
+        _sheet_protection_sort_permission_workbook,
+        mutate,
+        truth,
+    )
+
+
 def _build_governance_workbook_structure_protection(root: Path) -> None:
     def mutate(workbook: Workbook) -> None:
         workbook.security.lockStructure = False
@@ -5149,6 +5274,63 @@ def _build_governance_external_workbook_link_source(root: Path) -> None:
     )
 
 
+def _build_governance_external_defined_name_source(root: Path) -> None:
+    """Build a pair whose local defined name moves between absent sources."""
+
+    def mutate(workbook: Workbook) -> None:
+        workbook.defined_names[_EXTERNAL_DEFINED_NAME_SOURCE_NAME] = DefinedName(
+            _EXTERNAL_DEFINED_NAME_SOURCE_NAME,
+            attr_text=_EXTERNAL_DEFINED_NAME_SOURCE_CANDIDATE_REFERS_TO,
+        )
+
+    truth = _truth(
+        case_id="governance.external_defined_name_source_changed",
+        title="A defined name points to a different external workbook source",
+        family="governance",
+        review_expectation="block",
+        facts=[
+            {
+                "kind": "external_defined_name_source_changed",
+                "name": _EXTERNAL_DEFINED_NAME_SOURCE_NAME,
+                "workbook_member": "xl/workbook.xml",
+                "baseline_refers_to": _EXTERNAL_DEFINED_NAME_SOURCE_BASELINE_REFERS_TO,
+                "candidate_refers_to": _EXTERNAL_DEFINED_NAME_SOURCE_CANDIDATE_REFERS_TO,
+                "formula_sheet": _EXTERNAL_DEFINED_NAME_SOURCE_MODEL_SHEET,
+                "formula_cell": _EXTERNAL_DEFINED_NAME_SOURCE_MODEL_CELL,
+                "formula": _EXTERNAL_DEFINED_NAME_SOURCE_MODEL_FORMULA,
+                "dashboard_sheet": _EXTERNAL_DEFINED_NAME_SOURCE_DASHBOARD_SHEET,
+                "dashboard_cell": _EXTERNAL_DEFINED_NAME_SOURCE_DASHBOARD_CELL,
+                "dashboard_formula": _EXTERNAL_DEFINED_NAME_SOURCE_DASHBOARD_FORMULA,
+            }
+        ],
+        must_reach=[
+            {
+                "source": {
+                    "sheet": _EXTERNAL_DEFINED_NAME_SOURCE_MODEL_SHEET,
+                    "cell": _EXTERNAL_DEFINED_NAME_SOURCE_MODEL_CELL,
+                },
+                "targets": [
+                    {
+                        "sheet": _EXTERNAL_DEFINED_NAME_SOURCE_DASHBOARD_SHEET,
+                        "cell": _EXTERNAL_DEFINED_NAME_SOURCE_DASHBOARD_CELL,
+                    }
+                ],
+            }
+        ],
+        coverage=[
+            "The pair changes only the one local xl/workbook.xml definedName text for ScenarioRate. The formula cells, calculation properties, sheet declarations, workbook relationships, and all other package members remain unchanged.",
+            "Both stored expressions are qualified references to synthetic absent workbooks. This compact package has no externalLink part or workbook externalReferences declaration; WCAB records the local defined-name text only.",
+            "WCAB does not resolve, open, fetch, authenticate to, trust, refresh, calculate, or otherwise interact with either source, and does not claim that a client updates the name or returns a value. The stable Model!B2-to-Dashboard!B4 path is local review context only.",
+        ],
+    )
+    _write_pair(
+        root / "governance" / "external_defined_name_source_changed",
+        _external_defined_name_source_workbook,
+        mutate,
+        truth,
+    )
+
+
 def _build_structural_chart_series_reference(root: Path) -> None:
     """Build a dashboard chart whose local value-series binding changes."""
 
@@ -5502,6 +5684,7 @@ _BUILDERS: tuple[Callable[[Path], None], ...] = (
     _build_governance_ole_object_auto_load,
     _build_governance_visibility,
     _build_governance_protection,
+    _build_governance_sheet_protection_sort_permission,
     _build_governance_workbook_structure_protection,
     _build_governance_manual_calculation,
     _build_governance_iterative_calculation,
@@ -5515,6 +5698,7 @@ _BUILDERS: tuple[Callable[[Path], None], ...] = (
     _build_governance_pivot_cache_refresh,
     _build_governance_external_workbook_link_update_policy,
     _build_governance_external_workbook_link_source,
+    _build_governance_external_defined_name_source,
     _build_structural_pivot_data_field_aggregation,
     _build_structural_pivot_slicer_selection,
     _build_structural_power_query_m_filter,
@@ -5551,6 +5735,7 @@ CASE_IDS = (
     "governance.ole_object_auto_load_enabled",
     "governance.hidden_sheet_revealed",
     "governance.formula_cell_unlocked",
+    "governance.sheet_protection_sort_permission_enabled",
     "governance.workbook_structure_lock_removed",
     "governance.manual_calculation_incomplete",
     "governance.iterative_calculation_enabled",
@@ -5564,6 +5749,7 @@ CASE_IDS = (
     "governance.pivot_cache_refresh_on_open",
     "governance.external_workbook_link_update_on_open",
     "governance.external_workbook_link_source_changed",
+    "governance.external_defined_name_source_changed",
     "structural.pivot_data_field_aggregation_changed",
     "structural.pivot_slicer_selection_changed",
     "structural.power_query_m_filter_changed",

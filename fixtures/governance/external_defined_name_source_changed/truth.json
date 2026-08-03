@@ -1,0 +1,43 @@
+{
+  "coverage": [
+    "The pair changes only the one local xl/workbook.xml definedName text for ScenarioRate. The formula cells, calculation properties, sheet declarations, workbook relationships, and all other package members remain unchanged.",
+    "Both stored expressions are qualified references to synthetic absent workbooks. This compact package has no externalLink part or workbook externalReferences declaration; WCAB records the local defined-name text only.",
+    "WCAB does not resolve, open, fetch, authenticate to, trust, refresh, calculate, or otherwise interact with either source, and does not claim that a client updates the name or returns a value. The stable Model!B2-to-Dashboard!B4 path is local review context only."
+  ],
+  "coverage_expectations": [],
+  "facts": [
+    {
+      "baseline_refers_to": "'[WCABApprovedSource.xlsx]Inputs'!$B$2",
+      "candidate_refers_to": "'[WCABReviewSource.xlsx]Inputs'!$B$2",
+      "dashboard_cell": "B4",
+      "dashboard_formula": "=Model!$B$2",
+      "dashboard_sheet": "Dashboard",
+      "formula": "=ScenarioRate*2",
+      "formula_cell": "B2",
+      "formula_sheet": "Model",
+      "kind": "external_defined_name_source_changed",
+      "name": "ScenarioRate",
+      "workbook_member": "xl/workbook.xml"
+    }
+  ],
+  "family": "governance",
+  "id": "governance.external_defined_name_source_changed",
+  "must_reach": [
+    {
+      "source": {
+        "cell": "B2",
+        "sheet": "Model"
+      },
+      "targets": [
+        {
+          "cell": "B4",
+          "sheet": "Dashboard"
+        }
+      ]
+    }
+  ],
+  "review_expectation": "block",
+  "schema_version": 3,
+  "title": "A defined name points to a different external workbook source",
+  "topology": "pair"
+}

@@ -42,6 +42,7 @@ _FACT_TO_CHANGE: dict[str, tuple[str, str | None]] = {
     "ole_object_auto_load_enabled": ("worksheet_embedded_controls_changed", None),
     "sheet_visibility_changed": ("sheet_visibility_changed", None),
     "formula_cell_unlocked": ("cell_protection_assignments_changed", None),
+    "sheet_protection_sort_permission_enabled": ("sheet_protection_changed", None),
     "workbook_structure_lock_removed": ("workbook_protection_changed", None),
     "manual_calculation_incomplete": ("calculation_settings_changed", None),
     "iterative_calculation_enabled": ("calculation_settings_changed", None),
@@ -67,6 +68,10 @@ _FACT_TO_CHANGE: dict[str, tuple[str, str | None]] = {
         None,
     ),
     "external_workbook_link_source_changed": ("external_link_packages_changed", None),
+    "external_defined_name_source_changed": (
+        "external_workbook_link_surfaces_changed",
+        None,
+    ),
     "static_cycle_introduced": ("formula_changed", None),
     "three_d_scope_changed": ("three_d_reference_scope_changed", "formula_location"),
     "structured_table_scope_changed": ("table_definition_changed", None),
@@ -437,6 +442,100 @@ def _external_workbook_link_source_finding_observed(
     """Require FormulaFence's matching high-severity external-link finding."""
 
     return finding.get("rule_id") == "FF025" and _external_workbook_link_source_details_observed(
+        finding.get("details"), fact
+    )
+
+
+def _external_defined_name_source_fact_is_expected(fact: dict[str, Any]) -> bool:
+    """Check the compact WCAB external-defined-name contract first."""
+
+    return (
+        fact.get("name") == "ScenarioRate"
+        and fact.get("workbook_member") == "xl/workbook.xml"
+        and fact.get("baseline_refers_to") == "'[WCABApprovedSource.xlsx]Inputs'!$B$2"
+        and fact.get("candidate_refers_to") == "'[WCABReviewSource.xlsx]Inputs'!$B$2"
+        and fact.get("formula_sheet") == "Model"
+        and fact.get("formula_cell") == "B2"
+        and fact.get("formula") == "=ScenarioRate*2"
+        and fact.get("dashboard_sheet") == "Dashboard"
+        and fact.get("dashboard_cell") == "B4"
+        and fact.get("dashboard_formula") == "=Model!$B$2"
+    )
+
+
+def _external_defined_name_source_surface_details_observed(
+    details: Any, fact: dict[str, Any]
+) -> bool:
+    """Require FormulaFence's exact one-defined-name external surface ledger."""
+
+    if not _external_defined_name_source_fact_is_expected(fact) or not isinstance(details, dict):
+        return False
+    surface = {
+        "present": True,
+        "surface_count": 1,
+        "cell_formula_surface_count": 0,
+        "defined_name_surface_count": 1,
+        "data_validation_surface_count": 0,
+        "chart_formula_surface_count": 0,
+        "opaque_chart_part_count": 0,
+        "external_reference_count": 1,
+    }
+    return details == {
+        "before": surface,
+        "after": surface,
+        "external_workbook_link_surface_material_changed": True,
+    }
+
+
+def _external_defined_name_source_definition_observed(
+    change: dict[str, Any], fact: dict[str, Any]
+) -> bool:
+    """Require the corresponding named-definition record, not just a ledger."""
+
+    return (
+        change.get("kind") == "defined_name_changed"
+        and _external_defined_name_source_fact_is_expected(fact)
+        and change.get("details")
+        == {
+            "name": "ScenarioRate",
+            "before": "'[WCABApprovedSource.xlsx]Inputs'!$B$2",
+            "after": "'[WCABReviewSource.xlsx]Inputs'!$B$2",
+        }
+    )
+
+
+def _external_defined_name_source_definition_finding_observed(
+    finding: dict[str, Any], fact: dict[str, Any]
+) -> bool:
+    """Require FormulaFence's matching defined-name finding."""
+
+    return (
+        finding.get("rule_id") == "FF008"
+        and _external_defined_name_source_fact_is_expected(fact)
+        and finding.get("details")
+        == {
+            "before": "'[WCABApprovedSource.xlsx]Inputs'!$B$2",
+            "after": "'[WCABReviewSource.xlsx]Inputs'!$B$2",
+        }
+    )
+
+
+def _external_defined_name_source_observed(change: dict[str, Any], fact: dict[str, Any]) -> bool:
+    """Match FormulaFence's external-workbook surface-change record."""
+
+    return change.get("kind") == "external_workbook_link_surfaces_changed" and (
+        _external_defined_name_source_surface_details_observed(change.get("details"), fact)
+    )
+
+
+def _external_defined_name_source_finding_observed(
+    finding: dict[str, Any], fact: dict[str, Any]
+) -> bool:
+    """Require FormulaFence's matching high-severity external-link finding."""
+
+    return finding.get(
+        "rule_id"
+    ) == "FF081" and _external_defined_name_source_surface_details_observed(
         finding.get("details"), fact
     )
 
@@ -1640,6 +1739,90 @@ def _workbook_structure_lock_removed_finding_observed(
     )
 
 
+def _sheet_protection_sort_permission_details_observed(details: Any, fact: dict[str, Any]) -> bool:
+    """Require FormulaFence's exact protected-sheet sort-lock transition."""
+
+    if (
+        fact.get("sheet") != "Controls"
+        or fact.get("worksheet_member") != "xl/worksheets/sheet1.xml"
+        or fact.get("baseline_sort_locked") is not True
+        or fact.get("candidate_sort_locked") is not False
+        or fact.get("formula_cell") != "D2"
+        or fact.get("formula") != "=B2*C2"
+        or fact.get("dashboard_sheet") != "Dashboard"
+        or fact.get("dashboard_cell") != "B4"
+        or fact.get("dashboard_formula") != "=Controls!$D$2"
+        or not isinstance(details, dict)
+    ):
+        return False
+    credential = {
+        "configured": False,
+        "has_legacy_verifier": False,
+        "has_modern_verifier": False,
+        "algorithm": None,
+        "spin_count": None,
+    }
+    before = {
+        "sheet": "Controls",
+        "sheet_type": "worksheet",
+        "enabled": True,
+        "locked_actions": [
+            "format_cells",
+            "format_columns",
+            "format_rows",
+            "insert_columns",
+            "insert_rows",
+            "insert_hyperlinks",
+            "delete_columns",
+            "delete_rows",
+            "sort",
+            "auto_filter",
+            "pivot_tables",
+        ],
+        "credential": credential,
+        "opaque_metadata": {"present": False, "count": 0},
+    }
+    return details == {
+        "sheet": "Controls",
+        "before": before,
+        "after": {
+            **before,
+            "locked_actions": [
+                "format_cells",
+                "format_columns",
+                "format_rows",
+                "insert_columns",
+                "insert_rows",
+                "insert_hyperlinks",
+                "delete_columns",
+                "delete_rows",
+                "auto_filter",
+                "pivot_tables",
+            ],
+        },
+    }
+
+
+def _sheet_protection_sort_permission_observed(
+    change: dict[str, Any], fact: dict[str, Any]
+) -> bool:
+    """Match FormulaFence's precise sheet-protection change record."""
+
+    return change.get("kind") == "sheet_protection_changed" and (
+        _sheet_protection_sort_permission_details_observed(change.get("details"), fact)
+    )
+
+
+def _sheet_protection_sort_permission_finding_observed(
+    finding: dict[str, Any], fact: dict[str, Any]
+) -> bool:
+    """Require FormulaFence's matching high-severity protection finding."""
+
+    return finding.get("rule_id") == "FF022" and _sheet_protection_sort_permission_details_observed(
+        finding.get("details"), fact
+    )
+
+
 def _what_if_data_table_input_reference_details_observed(
     details: Any, fact: dict[str, Any]
 ) -> bool:
@@ -2022,6 +2205,29 @@ def evaluate_diff_case(case_dir: str | Path, *, executable: str = "formulafence"
                 for finding in findings
                 if isinstance(finding, dict)
             )
+        if kind == "external_defined_name_source_changed":
+            observed = (
+                any(
+                    _external_defined_name_source_observed(change, fact)
+                    for change in changes
+                    if isinstance(change, dict)
+                )
+                and any(
+                    _external_defined_name_source_finding_observed(finding, fact)
+                    for finding in findings
+                    if isinstance(finding, dict)
+                )
+                and any(
+                    _external_defined_name_source_definition_observed(change, fact)
+                    for change in changes
+                    if isinstance(change, dict)
+                )
+                and any(
+                    _external_defined_name_source_definition_finding_observed(finding, fact)
+                    for finding in findings
+                    if isinstance(finding, dict)
+                )
+            )
         if kind == "iterative_calculation_enabled":
             observed = any(
                 _iterative_calculation_enabled_observed(change, fact)
@@ -2141,6 +2347,16 @@ def evaluate_diff_case(case_dir: str | Path, *, executable: str = "formulafence"
                 if isinstance(change, dict)
             ) and any(
                 _workbook_structure_lock_removed_finding_observed(finding, fact)
+                for finding in findings
+                if isinstance(finding, dict)
+            )
+        if kind == "sheet_protection_sort_permission_enabled":
+            observed = any(
+                _sheet_protection_sort_permission_observed(change, fact)
+                for change in changes
+                if isinstance(change, dict)
+            ) and any(
+                _sheet_protection_sort_permission_finding_observed(finding, fact)
                 for finding in findings
                 if isinstance(finding, dict)
             )

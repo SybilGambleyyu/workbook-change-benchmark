@@ -1,6 +1,6 @@
 # Validation record
 
-This record describes the WCAB 0.32.0 / schema-version-3 validation run. It is
+This record describes the WCAB 0.33.0 / schema-version-3 validation run. It is
 reproducible from this repository; no network service or private workbook is
 required.
 
@@ -32,16 +32,16 @@ wcab validate --fixtures fixtures
 
 Results:
 
-- 47 cases: 46 paired-workbook cases and one directory portfolio case.
-- 49 observable truth facts across 37 `block` and 10 `review` cases.
+- 49 cases: 48 paired-workbook cases and one directory portfolio case.
+- 51 observable truth facts across 39 `block` and 10 `review` cases.
 - Three scoreable coverage expectations: one newly introduced `INDIRECT`
   boundary and two unchanged-formula selector changes (`INDIRECT` address text
   and `OFFSET` column displacement).
-- 144 generated fixture files: 96 workbooks, 47 truth manifests, and one JSONL
+- 150 generated fixture files: 100 workbooks, 49 truth manifests, and one JSONL
   case catalogue, all generated from source.
-- Two hundred six unit tests passed locally under Python 3.13, including
+- Two hundred eighteen unit tests passed locally under Python 3.13, including
   independent regeneration and byte-for-byte fixture-tree equality.
-- The fixture validator accepted all 47 cases.
+- The fixture validator accepted all 49 cases.
 - The external-data pair has identical package members except for
   `xl/connections.xml`; both archives pass ZIP integrity checks and remain
   readable by openpyxl. Its relationship-backed source is a non-routable
@@ -78,6 +78,26 @@ Results:
   it did not resolve, open, fetch, authenticate to, trust, refresh, calculate,
   or otherwise interact with either source, or claim a client updates a link or
   returns a value.
+- The external-defined-name source pair has identical package members except
+  for `xl/workbook.xml`; both archives pass ZIP integrity checks and remain
+  readable by openpyxl. Its one local `ScenarioRate` definition moves exactly
+  from `'[WCABApprovedSource.xlsx]Inputs'!$B$2` to
+  `'[WCABReviewSource.xlsx]Inputs'!$B$2`, while `Model!B2=ScenarioRate*2`, its
+  direct `Dashboard!B4` consumer, calculation properties, sheet declarations,
+  and workbook relationships remain unchanged. Neither package has an
+  `externalReferences` declaration or an `xl/externalLinks/` member. The
+  validation run read local OOXML only: it did not resolve, open, fetch,
+  authenticate to, trust, refresh, calculate, or otherwise interact with a
+  source, or claim a client resolves the name or returns a value.
+- The sheet-protection sort-permission pair has identical package members
+  except for `xl/worksheets/sheet1.xml`; both archives pass ZIP integrity
+  checks and remain readable by openpyxl. Its `Controls` worksheet remains
+  protected, `Controls!D2=B2*C2` and its direct `Dashboard!B4` consumer remain
+  unchanged, and every other protection action lock, style, and calculation
+  property remains fixed while raw `sheetProtection/@sort` moves from `1`
+  (locked) to `0` (permitted). The validation run did not test a password,
+  encryption, authentication, authorization, editable ranges, a client sort
+  operation, or a resulting value.
 - The PivotCache pair has identical package members except for
   `xl/pivotCache/pivotCacheDefinition1.xml`; both archives pass ZIP integrity
   checks and remain readable by openpyxl. Its local `Source!A1:B5` worksheet
@@ -263,7 +283,7 @@ Results:
 
 ## Distribution supplement
 
-The 0.32.0 release retains the one-row-per-case `manifest.jsonl` catalogue and
+The 0.33.0 release retains the one-row-per-case `manifest.jsonl` catalogue and
 the tool-neutral observation protocol at version 2. Each catalogue row retains
 the schema-version-3 truth contract and includes byte counts and SHA-256
 digests for the workbooks it names.
@@ -271,24 +291,24 @@ digests for the workbooks it names.
 Commands:
 
 ```bash
-python -m build --outdir /tmp/wcab-v032-dist
-twine check /tmp/wcab-v032-dist/*
-python -m venv /tmp/wcab-wheel-test
-/tmp/wcab-wheel-test/bin/python -m pip install \
-  /tmp/wcab-v032-dist/workbook_change_benchmark-0.32.0-py3-none-any.whl
-/tmp/wcab-wheel-test/bin/python -c 'import wcab; print(wcab.__version__)'
-/tmp/wcab-wheel-test/bin/wcab validate --fixtures fixtures
-/tmp/wcab-wheel-test/bin/wcab manifest --fixtures fixtures --output /tmp/manifest.jsonl
-cmp fixtures/manifest.jsonl /tmp/manifest.jsonl
-/tmp/wcab-wheel-test/bin/wcab observation-template --fixtures fixtures \
-  --output /tmp/observations.json
-/tmp/wcab-wheel-test/bin/wcab score --fixtures fixtures \
-  --observations /tmp/observations.json
-python -m venv /tmp/wcab-sdist-test
-/tmp/wcab-sdist-test/bin/python -m pip install \
-  /tmp/wcab-v032-dist/workbook_change_benchmark-0.32.0.tar.gz
-/tmp/wcab-sdist-test/bin/python -c 'import wcab; print(wcab.__version__)'
-/tmp/wcab-sdist-test/bin/wcab validate --fixtures fixtures
+python -m build --outdir /tmp/wcab-v033-dist
+twine check /tmp/wcab-v033-dist/*
+python -m venv /tmp/wcab-v033-wheel-test
+/tmp/wcab-v033-wheel-test/bin/python -m pip install \
+  /tmp/wcab-v033-dist/workbook_change_benchmark-0.33.0-py3-none-any.whl
+/tmp/wcab-v033-wheel-test/bin/python -c 'import wcab; print(wcab.__version__)'
+/tmp/wcab-v033-wheel-test/bin/wcab validate --fixtures fixtures
+/tmp/wcab-v033-wheel-test/bin/wcab manifest --fixtures fixtures --output /tmp/wcab-v033-wheel-manifest.jsonl
+cmp fixtures/manifest.jsonl /tmp/wcab-v033-wheel-manifest.jsonl
+/tmp/wcab-v033-wheel-test/bin/wcab observation-template --fixtures fixtures \
+  --output /tmp/wcab-v033-wheel-observations.json
+/tmp/wcab-v033-wheel-test/bin/wcab score --fixtures fixtures \
+  --observations /tmp/wcab-v033-wheel-observations.json
+python -m venv /tmp/wcab-v033-sdist-test
+/tmp/wcab-v033-sdist-test/bin/python -m pip install \
+  /tmp/wcab-v033-dist/workbook_change_benchmark-0.33.0.tar.gz
+/tmp/wcab-v033-sdist-test/bin/python -c 'import wcab; print(wcab.__version__)'
+/tmp/wcab-v033-sdist-test/bin/wcab validate --fixtures fixtures
 ```
 
 Results:
@@ -298,14 +318,14 @@ Results:
   their uploaded assets in the GitHub release, avoiding a self-referential
   source-distribution checksum in this record.
 - Fresh Python 3.13 wheel and source-distribution installations both reported
-  version 0.32.0 and validated all 47 fixtures; both emitted byte-identical
+  version 0.33.0 and validated all 49 fixtures; both emitted byte-identical
   JSONL output.
-- The full 206-test suite, lint, and format checks passed locally under Python
+- The full 218-test suite, lint, and format checks passed locally under Python
   3.13.
 - The generated unsupported template scored as zero analyzed coverage, zero
   expected-fact recall, and zero coverage-disclosure recall, confirming that
   unsupported cases cannot become a pass.
-- The FormulaFence normalizer emitted 48 matched facts, one intentionally
+- The FormulaFence normalizer emitted 50 matched facts, one intentionally
   unmapped fact, three matched coverage declarations, and no invented review
   disposition.
 
@@ -320,9 +340,9 @@ wcab formulafence --fixtures fixtures --strict
 
 Results:
 
-- All 48 currently mappable diff/portfolio facts were observed.
+- All 50 currently mappable diff/portfolio facts were observed.
 - All three mappable coverage expectations were matched; no mapped fact,
-  coverage expectation, or targeted lint rule was missed across all 47 cases.
+  coverage expectation, or targeted lint rule was missed across all 49 cases.
 - The schema-version-2 structured Table scope case was observed as a
   `table_definition_changed` diff, even though its summary formula text stays
   unchanged.
@@ -370,6 +390,25 @@ Results:
   returns a value. FormulaFence also emitted its generic
   `external_relationships_changed` / `FF063` diagnostic; the adapter leaves it
   unmapped because it is not sufficient evidence for this narrower fact.
+- The WCAB 0.33 external-defined-name source case was observed only when both
+  FormulaFence's exact one-surface
+  `external_workbook_link_surfaces_changed` / `FF081` evidence and its exact
+  `ScenarioRate` `defined_name_changed` / `FF008` evidence agreed on the two
+  generated qualified source expressions. The surface ledger alone is not
+  sufficient. FormulaFence did not expose a package-member boundary; WCAB
+  independently established the exact definition text, absence of an
+  `externalLink` package and `externalReferences` declaration, stable formula
+  context, and workbook-XML-only difference. Neither report resolved, opened,
+  fetched, authenticated to, trusted, refreshed, calculated, or otherwise
+  interacted with a source, or claimed a client result.
+- The WCAB 0.33 sheet-protection sort-permission case was observed as one exact
+  `sheet_protection_changed` record and `FF022`: its protected `Controls`
+  profile retained every reported action lock except `sort`, which moved from
+  locked to permitted. FormulaFence did not expose the raw OOXML attribute or
+  package-member boundary; WCAB independently established the exact
+  `sheetProtection/@sort` `1`-to-`0` transition, stable formulas, and
+  worksheet-only difference. Neither report tested a password, encryption,
+  authorization, an actual client sort operation, or a resulting value.
 - The WCAB 0.14 PivotCache case was observed as one exact
   `pivot_cache_refresh_controls_changed` record and `FF023`. FormulaFence's
   redacted profile retained one local worksheet cache, ID 1, and all reported

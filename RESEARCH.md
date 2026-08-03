@@ -93,6 +93,26 @@ The validator reads local OOXML only, never resolves, opens, fetches,
 authenticates to, trusts, refreshes, or calculates either source, and does not
 claim that any client updates a link or returns a value.
 
+## External sources can hide in defined names without an externalLink part
+
+Microsoft's [workbook-link guidance](https://support.microsoft.com/en-us/excel/manage-workbook-links)
+explicitly identifies defined names as a location where workbook links may be
+used and gives a workflow for finding them. The Open XML
+[`DefinedNames` reference](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.spreadsheet.definednames?view=openxml-3.0.1)
+places those expressions in the workbook-level name collection. This is a
+separate review surface from an `externalLink` relationship graph: an ordinary
+formula can stay fixed while the name it consumes changes its qualified source.
+
+WCAB 0.33 therefore keeps `Model!B2=ScenarioRate*2` and its direct
+`Dashboard!B4=Model!$B$2` consumer unchanged while the local `ScenarioRate`
+definition moves from `'[WCABApprovedSource.xlsx]Inputs'!$B$2` to
+`'[WCABReviewSource.xlsx]Inputs'!$B$2`. Its original compact fixture has no
+`externalReferences` declaration and no `xl/externalLinks/` member; only
+`xl/workbook.xml` changes. The validator reads those local bytes and fixed
+formula context only. It never resolves, opens, fetches, authenticates to,
+trusts, refreshes, or calculates either synthetic source, and it does not claim
+that a client resolves the name or returns a value.
+
 ## Iterative calculation and intentional circular models
 
 Microsoft's [circular-reference guidance](https://support.microsoft.com/en-US/Excel/remove-or-allow-a-circular-reference-in-excel)
@@ -589,6 +609,25 @@ that member to be the sole package difference, and checks the stable hidden
 sheet and formula context. It does not test a password, encryption,
 authentication, authorization, whether a hidden sheet becomes exposed, or an
 Excel client's sheet-operation behavior.
+
+## Sheet-protection sort permission can change without a cell edit
+
+Microsoft's [Protect a worksheet guidance](https://support.microsoft.com/en-us/excel/protect-a-worksheet)
+lists **Sort** among the actions that can be permitted on a protected
+worksheet, while distinguishing worksheet protection from file protection. The
+Open XML [`SheetProtection` reference](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.spreadsheet.sheetprotection?view=openxml-3.0.1)
+defines the stored element and action attributes. This motivates a narrow
+governance-review case: a permission can change while every cell and formula is
+identical.
+
+WCAB 0.33 retains `Controls!D2=B2*C2`, its direct
+`Dashboard!B4=Controls!$D$2` consumer, enabled sheet protection, every other
+action lock, styles, and calculation properties. It changes only raw
+`sheetProtection/@sort` from `1` (locked) to `0` (permitted), leaving
+`xl/worksheets/sheet1.xml` as the sole package difference. The validator
+records that exact stored transition; it does not test a password, encryption,
+authentication, authorization, editable ranges, a client sort operation, a
+permission decision, or an output value.
 
 ## Chart series sources without a worksheet edit
 

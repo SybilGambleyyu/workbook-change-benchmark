@@ -22,7 +22,7 @@ configs:
 # Workbook Change Assurance Benchmark (WCAB)
 
 WCAB is an open, deterministic benchmark for tools that review changes to
-Excel workbooks. Each of its 47 synthetic cases supplies baseline/candidate
+Excel workbooks. Each of its 49 synthetic cases supplies baseline/candidate
 fixtures, explicit observable change facts, a reference review
 disposition, documented coverage boundaries, and—in relevant cases—a
 machine-matchable coverage expectation.
@@ -71,7 +71,11 @@ and other chart references remain fixed), an unchanged external-workbook formula
 whose `never`-to-`always` open-time update policy changes, an unchanged
 external-workbook formula whose local `externalLink` package source target
 moves between reserved `example.invalid` URLs while its formula text and local
-dependency remain fixed, an unchanged
+dependency remain fixed, a local `ScenarioRate` defined name whose qualified
+external-workbook source text changes while its `Model!B2` formula and local
+dashboard consumer remain fixed, a protected `Controls` worksheet whose stored
+sort permission moves from locked to permitted while its cells and formula
+context remain fixed, an unchanged
 direct circular formula whose iterative-calculation setting becomes enabled, an
 unchanged precision-sensitive input and formula whose calculation switches to
 precision as displayed, an unchanged legacy-CSE array formula that switches to
@@ -133,6 +137,15 @@ The external-workbook source case records a stored package relationship only:
 it does not resolve, open, fetch, authenticate to, trust, refresh, calculate,
 or otherwise interact with a source, and does not claim that a client updates a
 link or returns a value.
+
+The external-defined-name source case records local `definedName` text only:
+it has no `externalLink` package, does not resolve, open, fetch, authenticate
+to, trust, refresh, calculate, or otherwise interact with either synthetic
+source, and does not claim that a client resolves the name or returns a value.
+
+The sheet-protection sort case records a stored action permission only: it does
+not test a password, encryption, authorization, editable ranges, an actual
+client sort operation, or a resulting value.
 
 ## Use
 
