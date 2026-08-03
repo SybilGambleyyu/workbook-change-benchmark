@@ -166,6 +166,41 @@ _OLE_OBJECT_DASHBOARD_FORMULA = "=Model!$B$2"
 _OLE_OBJECT_PAYLOAD = (
     b"WCAB opaque synthetic embedded-object fixture bytes; never deserialized or opened."
 )
+_QUERY_TABLE_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/queryTable"
+_QUERY_TABLE_CONNECTIONS_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/connections"
+_QUERY_TABLE_CONTENT_TYPE = (
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.queryTable+xml"
+)
+_QUERY_TABLE_CONNECTIONS_CONTENT_TYPE = (
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.connections+xml"
+)
+_QUERY_TABLE_SHEET = "ImportedData"
+_QUERY_TABLE_WORKSHEET_MEMBER = "xl/worksheets/sheet1.xml"
+_QUERY_TABLE_WORKSHEET_RELATIONSHIPS_MEMBER = "xl/worksheets/_rels/sheet1.xml.rels"
+_QUERY_TABLE_MEMBER = "xl/queryTables/queryTable1.xml"
+_QUERY_TABLE_CONNECTION_MEMBER = "xl/connections.xml"
+_QUERY_TABLE_WORKBOOK_RELATIONSHIP_ID = "rIdWCABQueryTableConnections"
+_QUERY_TABLE_WORKSHEET_RELATIONSHIP_ID = "rIdWCABQueryTable"
+_QUERY_TABLE_CONNECTION_ID = 1
+_QUERY_TABLE_NAME = "WCAB synthetic query table"
+_QUERY_TABLE_CONNECTION_NAME = "WCAB synthetic query-table connection"
+_QUERY_TABLE_SOURCE_URL = "https://example.invalid/wcab-query-table-refresh"
+_QUERY_TABLE_BASELINE_REFRESH_ON_LOAD = False
+_QUERY_TABLE_CANDIDATE_REFRESH_ON_LOAD = True
+_QUERY_TABLE_BACKGROUND_REFRESH = False
+_QUERY_TABLE_REFRESH_DISABLED = False
+_QUERY_TABLE_REMOVE_DATA_ON_SAVE = False
+_QUERY_TABLE_FILL_FORMULAS = False
+_QUERY_TABLE_CONNECTION_EDIT_DISABLED = True
+_QUERY_TABLE_GROWTH_BEHAVIOR = "insertClear"
+_QUERY_TABLE_SAVED_VALUE_CELL = "B2"
+_QUERY_TABLE_SAVED_VALUE = 100
+_QUERY_TABLE_SUMMARY_SHEET = "Summary"
+_QUERY_TABLE_SUMMARY_CELL = "B2"
+_QUERY_TABLE_SUMMARY_FORMULA = "=ImportedData!$B$2"
+_QUERY_TABLE_DASHBOARD_SHEET = "Dashboard"
+_QUERY_TABLE_DASHBOARD_CELL = "B4"
+_QUERY_TABLE_DASHBOARD_FORMULA = "=Summary!$B$2"
 _PIVOT_CACHE_ID = 1
 _PIVOT_CACHE_SOURCE_SHEET = "Source"
 _PIVOT_CACHE_SOURCE_REF = "A1:B5"
@@ -1626,6 +1661,32 @@ def _external_data_refresh_workbook() -> Workbook:
     return workbook
 
 
+def _query_table_refresh_workbook() -> Workbook:
+    """Build stable saved cells around one raw QueryTable control.
+
+    The query table and its synthetic web-query connection are attached only
+    after openpyxl writes the ordinary workbook. The stored cells are context,
+    not an imported result: generation and validation never open a connection,
+    refresh a query, or calculate an outcome.
+    """
+
+    workbook = Workbook()
+    _configure_workbook(workbook, title="WCAB QueryTable refresh fixture")
+    imported_data = workbook.active
+    imported_data.title = _QUERY_TABLE_SHEET
+    imported_data["A1"] = "Saved query-table revenue"
+    imported_data[_QUERY_TABLE_SAVED_VALUE_CELL] = _QUERY_TABLE_SAVED_VALUE
+
+    summary = workbook.create_sheet(_QUERY_TABLE_SUMMARY_SHEET)
+    summary["A1"] = "Saved query-table revenue"
+    summary[_QUERY_TABLE_SUMMARY_CELL] = _QUERY_TABLE_SUMMARY_FORMULA
+
+    dashboard = workbook.create_sheet(_QUERY_TABLE_DASHBOARD_SHEET)
+    dashboard["A1"] = "Board output"
+    dashboard[_QUERY_TABLE_DASHBOARD_CELL] = _QUERY_TABLE_DASHBOARD_FORMULA
+    return workbook
+
+
 def _pivot_cache_refresh_workbook() -> Workbook:
     """Build an ordinary workbook around one raw PivotCache control.
 
@@ -2026,6 +2087,118 @@ def _add_external_data_connection(path: Path, *, refresh_on_load: bool) -> None:
             {"url": "https://example.invalid/wcab-external-data-refresh"},
         )
         members["xl/connections.xml"] = serialize(connections)
+
+    _rewrite_xlsx_parts(path, mutate)
+
+
+def _add_query_table_refresh_control(path: Path, *, refresh_on_load: bool) -> None:
+    """Attach one inert, relationship-backed QueryTable refresh declaration.
+
+    Both packages contain the same internal worksheet-to-QueryTable and
+    workbook-to-connections graph. The source URL is reserved and non-routable;
+    the only baseline/candidate difference is raw queryTable/@refreshOnLoad.
+    No query result, credentials, table range, or external relationship is
+    created.
+    """
+
+    def serialize(root: ElementTree.Element) -> bytes:
+        return ElementTree.tostring(root, encoding="utf-8", xml_declaration=True)
+
+    def add_override(content_types: ElementTree.Element, part_name: str, content_type: str) -> None:
+        override_tag = f"{{{_CONTENT_TYPES_NS}}}Override"
+        existing = [
+            item
+            for item in content_types.findall(override_tag)
+            if item.get("PartName") == part_name
+        ]
+        if not existing:
+            ElementTree.SubElement(
+                content_types,
+                override_tag,
+                {"PartName": part_name, "ContentType": content_type},
+            )
+            return
+        if len(existing) != 1 or existing[0].get("ContentType") != content_type:
+            raise ValueError(f"query-table fixture has unexpected content type for {part_name}")
+
+    def mutate(members: dict[str, bytes]) -> None:
+        content_types = ElementTree.fromstring(members["[Content_Types].xml"])
+        add_override(
+            content_types,
+            f"/{_QUERY_TABLE_CONNECTION_MEMBER}",
+            _QUERY_TABLE_CONNECTIONS_CONTENT_TYPE,
+        )
+        add_override(
+            content_types,
+            f"/{_QUERY_TABLE_MEMBER}",
+            _QUERY_TABLE_CONTENT_TYPE,
+        )
+        members["[Content_Types].xml"] = serialize(content_types)
+
+        relationship_tag = f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationship"
+        workbook_relationships = ElementTree.fromstring(members["xl/_rels/workbook.xml.rels"])
+        ElementTree.SubElement(
+            workbook_relationships,
+            relationship_tag,
+            {
+                "Id": _QUERY_TABLE_WORKBOOK_RELATIONSHIP_ID,
+                "Type": _QUERY_TABLE_CONNECTIONS_RELATIONSHIP,
+                "Target": "connections.xml",
+            },
+        )
+        members["xl/_rels/workbook.xml.rels"] = serialize(workbook_relationships)
+
+        if _QUERY_TABLE_WORKSHEET_RELATIONSHIPS_MEMBER in members:
+            raise ValueError("query-table fixture expected no pre-existing worksheet relationships")
+        worksheet_relationships = ElementTree.Element(
+            f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationships"
+        )
+        ElementTree.SubElement(
+            worksheet_relationships,
+            relationship_tag,
+            {
+                "Id": _QUERY_TABLE_WORKSHEET_RELATIONSHIP_ID,
+                "Type": _QUERY_TABLE_RELATIONSHIP,
+                "Target": "../queryTables/queryTable1.xml",
+            },
+        )
+        members[_QUERY_TABLE_WORKSHEET_RELATIONSHIPS_MEMBER] = serialize(worksheet_relationships)
+
+        connections = ElementTree.Element(f"{{{_SPREADSHEETML_NS}}}connections")
+        connection = ElementTree.SubElement(
+            connections,
+            f"{{{_SPREADSHEETML_NS}}}connection",
+            {
+                "id": str(_QUERY_TABLE_CONNECTION_ID),
+                "name": _QUERY_TABLE_CONNECTION_NAME,
+                "type": "4",
+                "refreshedVersion": "1",
+                "background": "0",
+                "refreshOnLoad": "0",
+            },
+        )
+        ElementTree.SubElement(
+            connection,
+            f"{{{_SPREADSHEETML_NS}}}webPr",
+            {"url": _QUERY_TABLE_SOURCE_URL},
+        )
+        members[_QUERY_TABLE_CONNECTION_MEMBER] = serialize(connections)
+
+        query_table = ElementTree.Element(
+            f"{{{_SPREADSHEETML_NS}}}queryTable",
+            {
+                "name": _QUERY_TABLE_NAME,
+                "connectionId": str(_QUERY_TABLE_CONNECTION_ID),
+                "refreshOnLoad": "1" if refresh_on_load else "0",
+                "backgroundRefresh": "1" if _QUERY_TABLE_BACKGROUND_REFRESH else "0",
+                "disableRefresh": "1" if _QUERY_TABLE_REFRESH_DISABLED else "0",
+                "removeDataOnSave": "1" if _QUERY_TABLE_REMOVE_DATA_ON_SAVE else "0",
+                "fillFormulas": "1" if _QUERY_TABLE_FILL_FORMULAS else "0",
+                "disableEdit": "1" if _QUERY_TABLE_CONNECTION_EDIT_DISABLED else "0",
+                "growShrinkType": _QUERY_TABLE_GROWTH_BEHAVIOR,
+            },
+        )
+        members[_QUERY_TABLE_MEMBER] = serialize(query_table)
 
     _rewrite_xlsx_parts(path, mutate)
 
@@ -4079,6 +4252,97 @@ def _build_governance_external_data_refresh(root: Path) -> None:
     )
 
 
+def _build_governance_query_table_refresh(root: Path) -> None:
+    """Build a pair whose QueryTable, not connection, requests refresh on open."""
+
+    directory = root / "governance" / "query_table_refresh_on_open"
+    directory.mkdir(parents=True, exist_ok=True)
+    baseline = directory / "baseline.xlsx"
+    candidate = directory / "candidate.xlsx"
+    _save_workbook(_query_table_refresh_workbook(), baseline)
+    _save_workbook(_query_table_refresh_workbook(), candidate)
+    _add_query_table_refresh_control(
+        baseline, refresh_on_load=_QUERY_TABLE_BASELINE_REFRESH_ON_LOAD
+    )
+    _add_query_table_refresh_control(
+        candidate, refresh_on_load=_QUERY_TABLE_CANDIDATE_REFRESH_ON_LOAD
+    )
+    _write_json(
+        directory / "truth.json",
+        _truth(
+            case_id="governance.query_table_refresh_on_open",
+            title="A QueryTable starts refreshing when the workbook opens",
+            family="governance",
+            review_expectation="block",
+            facts=[
+                {
+                    "kind": "query_table_refresh_on_load_changed",
+                    "sheet": _QUERY_TABLE_SHEET,
+                    "connection_id": _QUERY_TABLE_CONNECTION_ID,
+                    "connection_member": _QUERY_TABLE_CONNECTION_MEMBER,
+                    "connection_url": _QUERY_TABLE_SOURCE_URL,
+                    "query_table_member": _QUERY_TABLE_MEMBER,
+                    "worksheet_member": _QUERY_TABLE_WORKSHEET_MEMBER,
+                    "worksheet_relationships_member": _QUERY_TABLE_WORKSHEET_RELATIONSHIPS_MEMBER,
+                    "relationship_id": _QUERY_TABLE_WORKSHEET_RELATIONSHIP_ID,
+                    "relationship_type": _QUERY_TABLE_RELATIONSHIP,
+                    "baseline_refresh_on_load": _QUERY_TABLE_BASELINE_REFRESH_ON_LOAD,
+                    "candidate_refresh_on_load": _QUERY_TABLE_CANDIDATE_REFRESH_ON_LOAD,
+                    "background_refresh": _QUERY_TABLE_BACKGROUND_REFRESH,
+                    "refresh_disabled": _QUERY_TABLE_REFRESH_DISABLED,
+                    "remove_data_on_save": _QUERY_TABLE_REMOVE_DATA_ON_SAVE,
+                    "fill_formulas": _QUERY_TABLE_FILL_FORMULAS,
+                    "connection_edit_disabled": _QUERY_TABLE_CONNECTION_EDIT_DISABLED,
+                    "growth_behavior": _QUERY_TABLE_GROWTH_BEHAVIOR,
+                    "saved_value_cell": _QUERY_TABLE_SAVED_VALUE_CELL,
+                    "saved_value": _QUERY_TABLE_SAVED_VALUE,
+                    "summary_sheet": _QUERY_TABLE_SUMMARY_SHEET,
+                    "summary_cell": _QUERY_TABLE_SUMMARY_CELL,
+                    "summary_formula": _QUERY_TABLE_SUMMARY_FORMULA,
+                    "dashboard_sheet": _QUERY_TABLE_DASHBOARD_SHEET,
+                    "dashboard_cell": _QUERY_TABLE_DASHBOARD_CELL,
+                    "dashboard_formula": _QUERY_TABLE_DASHBOARD_FORMULA,
+                }
+            ],
+            must_reach=[
+                {
+                    "source": {
+                        "sheet": _QUERY_TABLE_SHEET,
+                        "cell": _QUERY_TABLE_SAVED_VALUE_CELL,
+                    },
+                    "targets": [
+                        {
+                            "sheet": _QUERY_TABLE_SUMMARY_SHEET,
+                            "cell": _QUERY_TABLE_SUMMARY_CELL,
+                        },
+                        {
+                            "sheet": _QUERY_TABLE_DASHBOARD_SHEET,
+                            "cell": _QUERY_TABLE_DASHBOARD_CELL,
+                        },
+                    ],
+                },
+                {
+                    "source": {
+                        "sheet": _QUERY_TABLE_SUMMARY_SHEET,
+                        "cell": _QUERY_TABLE_SUMMARY_CELL,
+                    },
+                    "targets": [
+                        {
+                            "sheet": _QUERY_TABLE_DASHBOARD_SHEET,
+                            "cell": _QUERY_TABLE_DASHBOARD_CELL,
+                        }
+                    ],
+                },
+            ],
+            coverage=[
+                "The pair changes only raw xl/queryTables/queryTable1.xml queryTable/@refreshOnLoad from false to true. It does not edit ordinary cells, formulas, calculation properties, the workbook connection, content types, or relationships.",
+                "The QueryTable retains one direct internal worksheet relationship and a fixed web-query connection to a reserved example.invalid URL. There is no credential, query result, table range, or external OOXML relationship.",
+                "WCAB does not open a connection, fetch a URL, refresh a query, materialize rows, calculate a workbook, or claim that a client refreshes successfully. The stable saved cells and direct formula path are context only.",
+            ],
+        ),
+    )
+
+
 def _build_governance_pivot_cache_refresh(root: Path) -> None:
     """Build a local PivotCache whose open-time refresh request changes."""
 
@@ -4849,6 +5113,7 @@ _BUILDERS: tuple[Callable[[Path], None], ...] = (
     _build_governance_formula_cached_result,
     _build_governance_static_cycle,
     _build_governance_external_data_refresh,
+    _build_governance_query_table_refresh,
     _build_governance_pivot_cache_refresh,
     _build_governance_external_workbook_link_update_policy,
     _build_structural_pivot_data_field_aggregation,
@@ -4895,6 +5160,7 @@ CASE_IDS = (
     "governance.formula_cached_result_changed",
     "governance.static_cycle_introduced",
     "governance.external_data_refresh_on_open",
+    "governance.query_table_refresh_on_open",
     "governance.pivot_cache_refresh_on_open",
     "governance.external_workbook_link_update_on_open",
     "structural.pivot_data_field_aggregation_changed",

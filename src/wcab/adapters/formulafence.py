@@ -59,6 +59,7 @@ _FACT_TO_CHANGE: dict[str, tuple[str, str | None]] = {
         "external_data_connections_changed",
         None,
     ),
+    "query_table_refresh_on_load_changed": ("query_table_refresh_controls_changed", None),
     "pivot_cache_refresh_on_load_changed": ("pivot_cache_refresh_controls_changed", None),
     "external_workbook_link_update_policy_changed": (
         "external_data_refresh_settings_changed",
@@ -244,6 +245,56 @@ def _external_data_connection_refresh_on_load_observed(
     return (
         refresh_value(before_connections) is before_refresh_on_load
         and refresh_value(after_connections) is after_refresh_on_load
+    )
+
+
+def _query_table_refresh_details_observed(details: Any, fact: dict[str, Any]) -> bool:
+    """Require FormulaFence's exact one-QueryTable refresh transition."""
+
+    if (
+        fact.get("sheet") != "ImportedData"
+        or fact.get("connection_id") != 1
+        or fact.get("baseline_refresh_on_load") is not False
+        or fact.get("candidate_refresh_on_load") is not True
+        or fact.get("background_refresh") is not False
+        or fact.get("refresh_disabled") is not False
+        or fact.get("remove_data_on_save") is not False
+        or fact.get("fill_formulas") is not False
+        or fact.get("connection_edit_disabled") is not True
+        or fact.get("growth_behavior") != "insertClear"
+        or not isinstance(details, dict)
+    ):
+        return False
+    before = {
+        "sheet": "ImportedData",
+        "connection_id": 1,
+        "refresh_on_load": False,
+        "background_refresh": False,
+        "refresh_disabled": False,
+        "remove_data_on_save": False,
+        "fill_formulas": False,
+        "connection_edit_disabled": True,
+        "growth_behavior": "insert_clear",
+        "has_name": True,
+        "has_refresh_metadata": False,
+        "opaque_metadata": {"present": False, "count": 0},
+    }
+    return details == {"before": [before], "after": [{**before, "refresh_on_load": True}]}
+
+
+def _query_table_refresh_observed(change: dict[str, Any], fact: dict[str, Any]) -> bool:
+    """Match FormulaFence's dedicated QueryTable control record."""
+
+    return change.get("kind") == "query_table_refresh_controls_changed" and (
+        _query_table_refresh_details_observed(change.get("details"), fact)
+    )
+
+
+def _query_table_refresh_finding_observed(finding: dict[str, Any], fact: dict[str, Any]) -> bool:
+    """Require FormulaFence's matching high-severity QueryTable finding."""
+
+    return finding.get("rule_id") == "FF023" and _query_table_refresh_details_observed(
+        finding.get("details"), fact
     )
 
 
@@ -1791,6 +1842,16 @@ def evaluate_diff_case(case_dir: str | Path, *, executable: str = "formulafence"
                 _external_data_connection_refresh_on_load_observed(change, fact)
                 for change in changes
                 if isinstance(change, dict)
+            )
+        if kind == "query_table_refresh_on_load_changed":
+            observed = any(
+                _query_table_refresh_observed(change, fact)
+                for change in changes
+                if isinstance(change, dict)
+            ) and any(
+                _query_table_refresh_finding_observed(finding, fact)
+                for finding in findings
+                if isinstance(finding, dict)
             )
         if kind == "external_workbook_link_update_policy_changed":
             observed = any(

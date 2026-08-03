@@ -181,6 +181,24 @@ def _pivot_cache_refresh_details() -> dict[str, object]:
     return {"before": [before], "after": [{**before, "refresh_on_load": True}]}
 
 
+def _query_table_refresh_details() -> dict[str, object]:
+    before = {
+        "sheet": "ImportedData",
+        "connection_id": 1,
+        "refresh_on_load": False,
+        "background_refresh": False,
+        "refresh_disabled": False,
+        "remove_data_on_save": False,
+        "fill_formulas": False,
+        "connection_edit_disabled": True,
+        "growth_behavior": "insert_clear",
+        "has_name": True,
+        "has_refresh_metadata": False,
+        "opaque_metadata": {"present": False, "count": 0},
+    }
+    return {"before": [before], "after": [{**before, "refresh_on_load": True}]}
+
+
 def _chart_series_reference_details() -> dict[str, object]:
     profile = {
         "present": True,
@@ -827,6 +845,41 @@ def test_committed_manifest_matches_fixture_tree() -> None:
             "candidate_refresh_on_load": True,
         }
     ]
+    query_table_row = next(
+        row for row in rows if row["id"] == "governance.query_table_refresh_on_open"
+    )
+    assert query_table_row["facts"] == [
+        {
+            "kind": "query_table_refresh_on_load_changed",
+            "sheet": "ImportedData",
+            "connection_id": 1,
+            "connection_member": "xl/connections.xml",
+            "connection_url": "https://example.invalid/wcab-query-table-refresh",
+            "query_table_member": "xl/queryTables/queryTable1.xml",
+            "worksheet_member": "xl/worksheets/sheet1.xml",
+            "worksheet_relationships_member": "xl/worksheets/_rels/sheet1.xml.rels",
+            "relationship_id": "rIdWCABQueryTable",
+            "relationship_type": (
+                "http://schemas.openxmlformats.org/officeDocument/2006/relationships/queryTable"
+            ),
+            "baseline_refresh_on_load": False,
+            "candidate_refresh_on_load": True,
+            "background_refresh": False,
+            "refresh_disabled": False,
+            "remove_data_on_save": False,
+            "fill_formulas": False,
+            "connection_edit_disabled": True,
+            "growth_behavior": "insertClear",
+            "saved_value_cell": "B2",
+            "saved_value": 100,
+            "summary_sheet": "Summary",
+            "summary_cell": "B2",
+            "summary_formula": "=ImportedData!$B$2",
+            "dashboard_sheet": "Dashboard",
+            "dashboard_cell": "B4",
+            "dashboard_formula": "=Summary!$B$2",
+        }
+    ]
     pivot_cache_row = next(
         row for row in rows if row["id"] == "governance.pivot_cache_refresh_on_open"
     )
@@ -1143,6 +1196,82 @@ def test_validator_rejects_a_false_external_data_refresh_fact(tmp_path: Path) ->
     truth["facts"][0]["candidate_refresh_on_load"] = False
     truth_path.write_text(json.dumps(truth), encoding="utf-8")
     assert validate_case(case)
+
+
+def test_validator_rejects_a_false_query_table_refresh_fact(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "governance" / "query_table_refresh_on_open"
+    truth_path = case / "truth.json"
+    truth = json.loads(truth_path.read_text(encoding="utf-8"))
+    truth["facts"][0]["candidate_refresh_on_load"] = False
+    truth_path.write_text(json.dumps(truth), encoding="utf-8")
+    assert validate_case(case)
+
+
+def test_validator_rejects_a_corrupted_query_table_refresh_flag(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = fixture_root / "governance" / "query_table_refresh_on_open" / "candidate.xlsx"
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    namespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    query_table_member = "xl/queryTables/queryTable1.xml"
+    query_table = ElementTree.fromstring(members[query_table_member])
+    assert query_table.tag == f"{{{namespace}}}queryTable"
+    query_table.set("refreshOnLoad", "0")
+    members[query_table_member] = ElementTree.tostring(
+        query_table, encoding="utf-8", xml_declaration=True
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_validator_rejects_an_unrelated_query_table_control_change(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = fixture_root / "governance" / "query_table_refresh_on_open" / "candidate.xlsx"
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    namespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    query_table_member = "xl/queryTables/queryTable1.xml"
+    query_table = ElementTree.fromstring(members[query_table_member])
+    assert query_table.tag == f"{{{namespace}}}queryTable"
+    query_table.set("disableEdit", "0")
+    members[query_table_member] = ElementTree.tostring(
+        query_table, encoding="utf-8", xml_declaration=True
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_query_table_refresh_pair_changes_only_its_query_table_part(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "governance" / "query_table_refresh_on_open"
+    with ZipFile(case / "baseline.xlsx") as baseline, ZipFile(case / "candidate.xlsx") as candidate:
+        assert baseline.testzip() is None
+        assert candidate.testzip() is None
+        baseline_members = {
+            entry.filename: baseline.read(entry.filename) for entry in baseline.infolist()
+        }
+        candidate_members = {
+            entry.filename: candidate.read(entry.filename) for entry in candidate.infolist()
+        }
+    assert set(baseline_members) == set(candidate_members)
+    assert [
+        member
+        for member in sorted(baseline_members)
+        if baseline_members[member] != candidate_members[member]
+    ] == ["xl/queryTables/queryTable1.xml"]
 
 
 def test_validator_rejects_a_false_pivot_cache_refresh_fact(tmp_path: Path) -> None:
@@ -3145,6 +3274,92 @@ def test_formulafence_adapter_requires_the_exact_external_data_refresh_transitio
     assert result["status"] == "missed"
     assert result["matched"] == []
     assert result["missed"] == ["external_data_connection_refresh_on_load_changed"]
+
+
+def test_formulafence_adapter_maps_the_exact_query_table_refresh_change(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _query_table_refresh_details()
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "query_table_refresh_controls_changed",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF023", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "query_table_refresh_on_open"
+    )
+    assert result["status"] == "matched"
+    assert result["matched"] == ["query_table_refresh_on_load_changed"]
+
+
+def test_formulafence_adapter_rejects_an_inexact_query_table_refresh_change(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _query_table_refresh_details()
+        details["after"][0]["connection_edit_disabled"] = False
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "query_table_refresh_controls_changed",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF023", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "query_table_refresh_on_open"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["query_table_refresh_on_load_changed"]
+
+
+def test_formulafence_adapter_requires_the_query_table_refresh_finding(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "query_table_refresh_controls_changed",
+                    "location": None,
+                    "details": _query_table_refresh_details(),
+                }
+            ],
+            "findings": [],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "query_table_refresh_on_open"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["query_table_refresh_on_load_changed"]
 
 
 def test_formulafence_adapter_maps_the_exact_external_workbook_link_policy(

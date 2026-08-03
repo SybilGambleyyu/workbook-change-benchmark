@@ -1,0 +1,74 @@
+{
+  "coverage": [
+    "The pair changes only raw xl/queryTables/queryTable1.xml queryTable/@refreshOnLoad from false to true. It does not edit ordinary cells, formulas, calculation properties, the workbook connection, content types, or relationships.",
+    "The QueryTable retains one direct internal worksheet relationship and a fixed web-query connection to a reserved example.invalid URL. There is no credential, query result, table range, or external OOXML relationship.",
+    "WCAB does not open a connection, fetch a URL, refresh a query, materialize rows, calculate a workbook, or claim that a client refreshes successfully. The stable saved cells and direct formula path are context only."
+  ],
+  "coverage_expectations": [],
+  "facts": [
+    {
+      "background_refresh": false,
+      "baseline_refresh_on_load": false,
+      "candidate_refresh_on_load": true,
+      "connection_edit_disabled": true,
+      "connection_id": 1,
+      "connection_member": "xl/connections.xml",
+      "connection_url": "https://example.invalid/wcab-query-table-refresh",
+      "dashboard_cell": "B4",
+      "dashboard_formula": "=Summary!$B$2",
+      "dashboard_sheet": "Dashboard",
+      "fill_formulas": false,
+      "growth_behavior": "insertClear",
+      "kind": "query_table_refresh_on_load_changed",
+      "query_table_member": "xl/queryTables/queryTable1.xml",
+      "refresh_disabled": false,
+      "relationship_id": "rIdWCABQueryTable",
+      "relationship_type": "http://schemas.openxmlformats.org/officeDocument/2006/relationships/queryTable",
+      "remove_data_on_save": false,
+      "saved_value": 100,
+      "saved_value_cell": "B2",
+      "sheet": "ImportedData",
+      "summary_cell": "B2",
+      "summary_formula": "=ImportedData!$B$2",
+      "summary_sheet": "Summary",
+      "worksheet_member": "xl/worksheets/sheet1.xml",
+      "worksheet_relationships_member": "xl/worksheets/_rels/sheet1.xml.rels"
+    }
+  ],
+  "family": "governance",
+  "id": "governance.query_table_refresh_on_open",
+  "must_reach": [
+    {
+      "source": {
+        "cell": "B2",
+        "sheet": "ImportedData"
+      },
+      "targets": [
+        {
+          "cell": "B2",
+          "sheet": "Summary"
+        },
+        {
+          "cell": "B4",
+          "sheet": "Dashboard"
+        }
+      ]
+    },
+    {
+      "source": {
+        "cell": "B2",
+        "sheet": "Summary"
+      },
+      "targets": [
+        {
+          "cell": "B4",
+          "sheet": "Dashboard"
+        }
+      ]
+    }
+  ],
+  "review_expectation": "block",
+  "schema_version": 3,
+  "title": "A QueryTable starts refreshing when the workbook opens",
+  "topology": "pair"
+}

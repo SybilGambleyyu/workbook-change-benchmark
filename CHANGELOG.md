@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.30.0 — 2026-08-03
+
+- Add a deterministic, relationship-backed QueryTable refresh-on-open case.
+  Its direct worksheet-to-QueryTable and workbook-to-connections relationships,
+  fixed non-routable synthetic web-query connection, saved cells, and
+  `ImportedData!B2 → Summary!B2 → Dashboard!B4` formula context remain fixed
+  while raw `queryTable/@refreshOnLoad` changes from false to true. The
+  connection-level `refreshOnLoad` control remains false on both sides.
+- Add the exact `query_table_refresh_on_load_changed` fact, a narrow raw-OOXML
+  graph validator, QueryTable-part-only package-isolation check, and corruption
+  regressions. WCAB records a stored request only: it does not open a
+  connection, fetch a URL, refresh a query, materialize rows, calculate a
+  workbook, or claim that a client refreshes successfully.
+- Extend the optional FormulaFence adapter to require its exact redacted
+  `query_table_refresh_controls_changed` profile and critical `FF023`, while
+  WCAB independently establishes the local relationship graph, stable
+  connection and workbook context, raw transition, and package boundary.
+
 ## 0.29.0 — 2026-08-03
 
 - Add a deterministic, relationship-backed worksheet embedded-OLE auto-load

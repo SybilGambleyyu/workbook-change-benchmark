@@ -87,6 +87,9 @@ from false to true while its synthetic local reference, locked hidden pane,
 ordinary cells, and formula context stay fixed, and one local worksheet OLE
 declaration whose raw `autoLoad` request moves from false to true while its
 internal relationship, opaque synthetic bytes, ordinary cells, and formula
+context stay fixed, a relationship-backed QueryTable whose own raw
+`refreshOnLoad` request moves from false to true while its fixed internal
+connection control, non-routable synthetic endpoint, saved cells, and formula
 context stay fixed, and a small
 multi-workbook
 portfolio.
@@ -112,6 +115,10 @@ that a task pane opens or that an add-in accesses workbook cells.
 The embedded OLE case records a stored package property only: it does not
 deserialize, open, render, execute, register, or invoke an object server, and
 it does not claim that the opaque synthetic object loads successfully.
+
+The QueryTable case records a stored package property only: it does not open a
+connection, fetch a URL, refresh a query, materialize rows, calculate a
+workbook, or claim that a client refreshes successfully.
 
 ## Use
 

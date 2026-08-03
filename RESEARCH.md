@@ -264,6 +264,31 @@ relationship. It does not deserialize, open, render, execute, register, or
 invoke an object server, and it does not claim that an object loads
 successfully.
 
+## QueryTable refresh requests are distinct from connection refresh controls
+
+Microsoft's [QueryTable.RefreshOnFileOpen reference](https://learn.microsoft.com/en-us/office/vba/api/excel.querytable.refreshonfileopen)
+defines the property as whether a QueryTable is refreshed whenever its workbook
+opens. The Open XML [`QueryTable` reference](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.spreadsheet.querytable?view=openxml-3.0.1)
+lists the raw `refreshOnLoad` attribute alongside the table's connection ID and
+other refresh controls. This is a material review surface separate from a
+workbook connection's own `refreshOnLoad` setting: a stored table-level request
+can change without a normal cell, formula, connection-control, or package
+relationship diff.
+
+WCAB 0.30 isolates that declaration in one original synthetic package. It has
+one `ImportedData` worksheet-to-QueryTable relationship, one fixed internal
+workbook-to-connections relationship, and one reserved `example.invalid`
+web-query URL. Its QueryTable `refreshOnLoad` value alone moves from false to
+true; the connection's own `refreshOnLoad=false`, QueryTable controls,
+relationships, content types, saved `ImportedData!B2=100` cell, and
+`ImportedData!B2 → Summary!B2 → Dashboard!B4` formula context remain fixed.
+The validator follows only those local OOXML parts, compares the QueryTable XML
+after erasing `refreshOnLoad`, and requires that QueryTable part to be the sole
+package difference. The fixture has no credentials, query result, table range,
+or external OOXML relationship. It does not open a connection, fetch a URL,
+refresh a query, materialize rows, calculate a workbook, or claim that a
+client refreshes successfully.
+
 ## PivotTable cache refresh requests without a cell edit
 
 Microsoft documents an option to [refresh PivotTable data when a workbook

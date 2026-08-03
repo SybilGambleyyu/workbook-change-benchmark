@@ -50,6 +50,14 @@ _OLE_OBJECT_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.oleObj
 _OLE_OBJECT_PAYLOAD = (
     b"WCAB opaque synthetic embedded-object fixture bytes; never deserialized or opened."
 )
+_QUERY_TABLE_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/queryTable"
+_QUERY_TABLE_CONNECTIONS_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/connections"
+_QUERY_TABLE_CONTENT_TYPE = (
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.queryTable+xml"
+)
+_QUERY_TABLE_CONNECTIONS_CONTENT_TYPE = (
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.connections+xml"
+)
 _SLICER_CACHE_RELATIONSHIP = "http://schemas.microsoft.com/office/2007/relationships/slicerCache"
 _DATA_MASHUP_NS = "http://schemas.microsoft.com/DataMashup"
 _POWER_QUERY_CUSTOM_XML_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/customXml"
@@ -152,6 +160,149 @@ def _external_data_connection_refresh_on_load(path: Path, connection_id: int) ->
         return None
     flag = matches[0].get("refreshOnLoad")
     return {"0": False, "1": True}.get(flag)
+
+
+def _raw_query_table_refresh_state(path: Path, sheet_name: str) -> dict[str, Any] | None:
+    """Read WCAB's compact QueryTable and connection relationship graph.
+
+    This accepts only the generated one-QueryTable package shape. It follows
+    local OOXML parts without opening a connection, fetching its stored URL,
+    refreshing a query, materializing rows, or calculating a workbook.
+    """
+
+    try:
+        with ZipFile(path) as archive:
+            worksheet_member = _worksheet_member_for_sheet(archive, sheet_name)
+            if worksheet_member is None:
+                return None
+            worksheet = ElementTree.fromstring(archive.read(worksheet_member))
+            worksheet_directory, worksheet_filename = worksheet_member.rsplit("/", maxsplit=1)
+            worksheet_relationships_member = (
+                f"{worksheet_directory}/_rels/{worksheet_filename}.rels"
+            )
+            worksheet_relationships = ElementTree.fromstring(
+                archive.read(worksheet_relationships_member)
+            )
+            relationship_tag = f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationship"
+            query_relationships = [
+                relationship
+                for relationship in worksheet_relationships.findall(relationship_tag)
+                if relationship.get("Type") == _QUERY_TABLE_RELATIONSHIP
+                and relationship.get("TargetMode") is None
+            ]
+            if len(query_relationships) != 1 or len(worksheet_relationships) != 1:
+                return None
+            query_relationship_id = query_relationships[0].get("Id")
+            if not isinstance(query_relationship_id, str):
+                return None
+            query_table_member = _relationship_part_member(
+                worksheet_relationships,
+                query_relationship_id,
+                worksheet_member,
+                relationship_type=_QUERY_TABLE_RELATIONSHIP,
+            )
+            if query_table_member is None:
+                return None
+            query_table = ElementTree.fromstring(archive.read(query_table_member))
+
+            workbook_relationships = ElementTree.fromstring(
+                archive.read("xl/_rels/workbook.xml.rels")
+            )
+            connection_relationships = [
+                relationship
+                for relationship in workbook_relationships.findall(relationship_tag)
+                if relationship.get("Type") == _QUERY_TABLE_CONNECTIONS_RELATIONSHIP
+                and relationship.get("TargetMode") is None
+            ]
+            if len(connection_relationships) != 1:
+                return None
+            connection_relationship_id = connection_relationships[0].get("Id")
+            if not isinstance(connection_relationship_id, str):
+                return None
+            connection_member = _relationship_part_member(
+                workbook_relationships,
+                connection_relationship_id,
+                "xl/workbook.xml",
+                relationship_type=_QUERY_TABLE_CONNECTIONS_RELATIONSHIP,
+            )
+            if connection_member is None:
+                return None
+            connections = ElementTree.fromstring(archive.read(connection_member))
+            content_types = ElementTree.fromstring(archive.read("[Content_Types].xml"))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError, ValueError):
+        return None
+
+    if (
+        worksheet.tag != f"{{{_SPREADSHEETML_NS}}}worksheet"
+        or query_table.tag != f"{{{_SPREADSHEETML_NS}}}queryTable"
+        or len(query_table)
+        or connections.tag != f"{{{_SPREADSHEETML_NS}}}connections"
+        or connections.attrib
+        or len(connections) != 1
+    ):
+        return None
+    connection = connections[0]
+    connection_tag = f"{{{_SPREADSHEETML_NS}}}connection"
+    web_properties_tag = f"{{{_SPREADSHEETML_NS}}}webPr"
+    web_properties = connection.findall(web_properties_tag)
+    if (
+        connection.tag != connection_tag
+        or len(connection) != 1
+        or len(web_properties) != 1
+        or len(web_properties[0])
+    ):
+        return None
+    refresh_on_load = _ooxml_boolean(query_table.get("refreshOnLoad"))
+    if refresh_on_load is None:
+        return None
+    override_tag = f"{{{_CONTENT_TYPES_NS}}}Override"
+    query_table_overrides = [
+        override
+        for override in content_types.findall(override_tag)
+        if override.get("PartName") == f"/{query_table_member}"
+    ]
+    connection_overrides = [
+        override
+        for override in content_types.findall(override_tag)
+        if override.get("PartName") == f"/{connection_member}"
+    ]
+    if len(query_table_overrides) != 1 or len(connection_overrides) != 1:
+        return None
+    return {
+        "worksheet_member": worksheet_member,
+        "worksheet_relationships_member": worksheet_relationships_member,
+        "worksheet_relationship_attributes": tuple(sorted(query_relationships[0].attrib.items())),
+        "query_table_member": query_table_member,
+        "query_table_attributes": tuple(sorted(query_table.attrib.items())),
+        "connection_relationship_attributes": tuple(
+            sorted(connection_relationships[0].attrib.items())
+        ),
+        "connection_member": connection_member,
+        "connection_attributes": tuple(sorted(connection.attrib.items())),
+        "web_properties_attributes": tuple(sorted(web_properties[0].attrib.items())),
+        "query_table_content_type_attributes": tuple(
+            sorted(query_table_overrides[0].attrib.items())
+        ),
+        "connection_content_type_attributes": tuple(sorted(connection_overrides[0].attrib.items())),
+        "refresh_on_load": refresh_on_load,
+    }
+
+
+def _query_table_without_refresh_on_load(path: Path, sheet_name: str) -> bytes | None:
+    """Return WCAB's query-table part with only its refresh-on-load flag erased."""
+
+    state = _raw_query_table_refresh_state(path, sheet_name)
+    if state is None:
+        return None
+    try:
+        with ZipFile(path) as archive:
+            query_table = ElementTree.fromstring(archive.read(state["query_table_member"]))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    if "refreshOnLoad" not in query_table.attrib:
+        return None
+    query_table.attrib.pop("refreshOnLoad")
+    return ElementTree.tostring(query_table, encoding="utf-8", xml_declaration=True)
 
 
 def _workbook_properties(path: Path) -> dict[str, str] | None:
@@ -5567,6 +5718,189 @@ def _validate_fact(
             and before_refresh_on_load is fact.get("baseline_refresh_on_load")
             and after_refresh_on_load is fact.get("candidate_refresh_on_load"),
             f"{truth['id']}: expected connection {connection_id!r} refresh-on-open false -> true",
+            errors,
+        )
+        return
+
+    if kind == "query_table_refresh_on_load_changed":
+        sheet_name = fact.get("sheet")
+        connection_id = fact.get("connection_id")
+        saved_value_cell = fact.get("saved_value_cell")
+        summary_sheet = fact.get("summary_sheet")
+        summary_cell = fact.get("summary_cell")
+        dashboard_sheet = fact.get("dashboard_sheet")
+        dashboard_cell = fact.get("dashboard_cell")
+        before_state = (
+            _raw_query_table_refresh_state(baseline_path, sheet_name)
+            if isinstance(sheet_name, str)
+            else None
+        )
+        after_state = (
+            _raw_query_table_refresh_state(candidate_path, sheet_name)
+            if isinstance(sheet_name, str)
+            else None
+        )
+        before_saved_value = (
+            _raw_cell_state(baseline_path, sheet_name, saved_value_cell)
+            if isinstance(sheet_name, str) and isinstance(saved_value_cell, str)
+            else None
+        )
+        after_saved_value = (
+            _raw_cell_state(candidate_path, sheet_name, saved_value_cell)
+            if isinstance(sheet_name, str) and isinstance(saved_value_cell, str)
+            else None
+        )
+        before_summary = (
+            _raw_cell_state(baseline_path, summary_sheet, summary_cell)
+            if isinstance(summary_sheet, str) and isinstance(summary_cell, str)
+            else None
+        )
+        after_summary = (
+            _raw_cell_state(candidate_path, summary_sheet, summary_cell)
+            if isinstance(summary_sheet, str) and isinstance(summary_cell, str)
+            else None
+        )
+        before_dashboard = (
+            _raw_cell_state(baseline_path, dashboard_sheet, dashboard_cell)
+            if isinstance(dashboard_sheet, str) and isinstance(dashboard_cell, str)
+            else None
+        )
+        after_dashboard = (
+            _raw_cell_state(candidate_path, dashboard_sheet, dashboard_cell)
+            if isinstance(dashboard_sheet, str) and isinstance(dashboard_cell, str)
+            else None
+        )
+        expected_common_state = {
+            "worksheet_member": "xl/worksheets/sheet1.xml",
+            "worksheet_relationships_member": "xl/worksheets/_rels/sheet1.xml.rels",
+            "worksheet_relationship_attributes": (
+                ("Id", "rIdWCABQueryTable"),
+                ("Target", "../queryTables/queryTable1.xml"),
+                (
+                    "Type",
+                    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/queryTable",
+                ),
+            ),
+            "query_table_member": "xl/queryTables/queryTable1.xml",
+            "connection_relationship_attributes": (
+                ("Id", "rIdWCABQueryTableConnections"),
+                ("Target", "connections.xml"),
+                (
+                    "Type",
+                    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/connections",
+                ),
+            ),
+            "connection_member": "xl/connections.xml",
+            "connection_attributes": (
+                ("background", "0"),
+                ("id", "1"),
+                ("name", "WCAB synthetic query-table connection"),
+                ("refreshOnLoad", "0"),
+                ("refreshedVersion", "1"),
+                ("type", "4"),
+            ),
+            "web_properties_attributes": (
+                ("url", "https://example.invalid/wcab-query-table-refresh"),
+            ),
+            "query_table_content_type_attributes": (
+                (
+                    "ContentType",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.queryTable+xml",
+                ),
+                ("PartName", "/xl/queryTables/queryTable1.xml"),
+            ),
+            "connection_content_type_attributes": (
+                (
+                    "ContentType",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.connections+xml",
+                ),
+                ("PartName", "/xl/connections.xml"),
+            ),
+        }
+        expected_before_query_table_attributes = (
+            ("backgroundRefresh", "0"),
+            ("connectionId", "1"),
+            ("disableEdit", "1"),
+            ("disableRefresh", "0"),
+            ("fillFormulas", "0"),
+            ("growShrinkType", "insertClear"),
+            ("name", "WCAB synthetic query table"),
+            ("refreshOnLoad", "0"),
+            ("removeDataOnSave", "0"),
+        )
+        expected_after_query_table_attributes = (
+            ("backgroundRefresh", "0"),
+            ("connectionId", "1"),
+            ("disableEdit", "1"),
+            ("disableRefresh", "0"),
+            ("fillFormulas", "0"),
+            ("growShrinkType", "insertClear"),
+            ("name", "WCAB synthetic query table"),
+            ("refreshOnLoad", "1"),
+            ("removeDataOnSave", "0"),
+        )
+        graph = _direct_graph(candidate)
+        _assert(
+            sheet_name == "ImportedData"
+            and connection_id == 1
+            and fact.get("connection_member") == "xl/connections.xml"
+            and fact.get("connection_url") == "https://example.invalid/wcab-query-table-refresh"
+            and fact.get("query_table_member") == "xl/queryTables/queryTable1.xml"
+            and fact.get("worksheet_member") == "xl/worksheets/sheet1.xml"
+            and fact.get("worksheet_relationships_member") == "xl/worksheets/_rels/sheet1.xml.rels"
+            and fact.get("relationship_id") == "rIdWCABQueryTable"
+            and fact.get("relationship_type")
+            == "http://schemas.openxmlformats.org/officeDocument/2006/relationships/queryTable"
+            and fact.get("baseline_refresh_on_load") is False
+            and fact.get("candidate_refresh_on_load") is True
+            and fact.get("background_refresh") is False
+            and fact.get("refresh_disabled") is False
+            and fact.get("remove_data_on_save") is False
+            and fact.get("fill_formulas") is False
+            and fact.get("connection_edit_disabled") is True
+            and fact.get("growth_behavior") == "insertClear"
+            and saved_value_cell == "B2"
+            and fact.get("saved_value") == 100
+            and summary_sheet == "Summary"
+            and summary_cell == "B2"
+            and fact.get("summary_formula") == "=ImportedData!$B$2"
+            and dashboard_sheet == "Dashboard"
+            and dashboard_cell == "B4"
+            and fact.get("dashboard_formula") == "=Summary!$B$2"
+            and all(
+                sheet in baseline.sheetnames and sheet in candidate.sheetnames
+                for sheet in (sheet_name, summary_sheet, dashboard_sheet)
+            )
+            and before_state is not None
+            and after_state is not None
+            and all(before_state.get(key) == value for key, value in expected_common_state.items())
+            and all(after_state.get(key) == value for key, value in expected_common_state.items())
+            and before_state["query_table_attributes"] == expected_before_query_table_attributes
+            and after_state["query_table_attributes"] == expected_after_query_table_attributes
+            and before_state["refresh_on_load"] is False
+            and after_state["refresh_on_load"] is True
+            and before_saved_value is not None
+            and before_saved_value == after_saved_value
+            and before_saved_value[0] == "xl/worksheets/sheet1.xml"
+            and before_saved_value[3] is None
+            and before_saved_value[4] == "100"
+            and before_summary is not None
+            and before_summary == after_summary
+            and before_summary[0] == "xl/worksheets/sheet2.xml"
+            and before_summary[3] == "=ImportedData!$B$2"
+            and before_dashboard is not None
+            and before_dashboard == after_dashboard
+            and before_dashboard[0] == "xl/worksheets/sheet3.xml"
+            and before_dashboard[3] == "=Summary!$B$2"
+            and _query_table_without_refresh_on_load(baseline_path, sheet_name)
+            == _query_table_without_refresh_on_load(candidate_path, sheet_name)
+            and _xlsx_member_differences(baseline_path, candidate_path)
+            == {"xl/queryTables/queryTable1.xml"}
+            and _calculation_properties(baseline_path) == _calculation_properties(candidate_path)
+            and (summary_sheet, summary_cell) in _reachable(graph, (sheet_name, saved_value_cell))
+            and (dashboard_sheet, dashboard_cell)
+            in _reachable(graph, (sheet_name, saved_value_cell)),
+            f"{truth['id']}: expected one relationship-backed QueryTable refresh-on-open false -> true with stable connection, saved cells, formulas, and package boundary",
             errors,
         )
         return

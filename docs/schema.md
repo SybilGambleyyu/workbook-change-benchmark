@@ -53,6 +53,9 @@ part.
 WCAB 0.29 adds a worksheet embedded-OLE auto-load transition with an unchanged
 internal relationship, inert synthetic bytes, cells, formulas, and every
 package member except its worksheet part.
+WCAB 0.30 adds a relationship-backed QueryTable refresh-on-open transition with
+an unchanged internal connection, saved cells, formulas, and every package
+member except its QueryTable part.
 Version 2 remains
 available in the immutable v0.2.0 and v0.3.0 releases.
 
@@ -107,6 +110,7 @@ Facts are observed directly from the fixture files by `wcab validate`.
 | `workbook_date_system_changed` | `baseline_date_1904`, `candidate_date_1904`, `date_compatibility`, `serial_sheet`, `serial_cell`, `serial_value`, `number_format`, `formula_sheet`, `formula_cell`, `formula`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | Raw `workbookPr/@date1904` changes from `false` to `true` while explicit compatibility remains `true`; the raw numeric serial, custom date format, local formulas, and every package member except `xl/workbook.xml` remain unchanged. The validator does not calculate, convert, or infer displayed dates. |
 | `formula_cached_result_changed` | `sheet`, `cell`, `formula`, `input_sheet`, `input_cell`, `input_value`, `result_type`, `baseline_cached_result`, `candidate_cached_result` | One raw numeric formula-cell `<v>` value changes while its raw `<f>` expression, direct input, calculation properties, and every other package member remain unchanged. The validator reads OOXML only; it does not calculate, validate, or interpret the saved result. |
 | `external_data_connection_refresh_on_load_changed` | `connection_id`, `baseline_refresh_on_load`, `candidate_refresh_on_load` | The relationship-backed connection with this workbook-local ID explicitly changes `refreshOnLoad` from `false` to `true`. The validator reads raw OOXML only. |
+| `query_table_refresh_on_load_changed` | `sheet`, `connection_id`, `connection_member`, `connection_url`, `query_table_member`, `worksheet_member`, `worksheet_relationships_member`, `relationship_id`, `relationship_type`, `baseline_refresh_on_load`, `candidate_refresh_on_load`, `background_refresh`, `refresh_disabled`, `remove_data_on_save`, `fill_formulas`, `connection_edit_disabled`, `growth_behavior`, `saved_value_cell`, `saved_value`, `summary_sheet`, `summary_cell`, `summary_formula`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | One direct internal worksheet QueryTable relationship and one fixed internal workbook connection retain their controls, saved cells, formulas, calculation properties, and every package member except the QueryTable part while raw `queryTable/@refreshOnLoad` changes from `false` to `true`. The validator does not open a connection, fetch a URL, refresh, materialize data, calculate, or claim a client result. |
 | `pivot_cache_refresh_on_load_changed` | `cache_id`, `source_type`, `source_sheet`, `source_ref`, `pivot_sheet`, `pivot_ref`, `pivot_output_cell`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula`, `baseline_refresh_on_load`, `candidate_refresh_on_load` | One relationship-bound local worksheet PivotCache changes raw `refreshOnLoad` from `false` to `true`; its source binding, PivotTable location, stored report/dashboard cells, calculation properties, and every package member except its cache definition remain unchanged. The validator neither refreshes nor renders a PivotTable. |
 | `pivot_data_field_aggregation_changed` | `cache_id`, `source_type`, `source_sheet`, `source_ref`, `pivot_sheet`, `pivot_ref`, `pivot_output_cell`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula`, `data_field_source_index`, `baseline_subtotal`, `candidate_subtotal` | One relationship-bound local worksheet PivotTable retains its source/cache bindings, stored report/dashboard cells, refresh control, and calculation properties while raw `dataFields/dataField/@subtotal` moves between the declared aggregate functions. Every package member except its PivotTable definition remains unchanged. The validator does not refresh, calculate, render, or infer a displayed result. |
 | `pivot_slicer_selection_changed` | `cache_id`, `source_type`, `source_sheet`, `source_ref`, `pivot_sheet`, `pivot_ref`, `pivot_output_cell`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula`, `slicer_name`, `slicer_source_name`, `slicer_pivot_table_name`, `slicer_pivot_tab_id`, `item_count`, `baseline_selected_item_index`, `candidate_selected_item_index`, `baseline_selected_value`, `candidate_selected_value` | One relationship-bound local Slicer cache retains its source/PivotCache/PivotTable bindings, stored report/dashboard cells, refresh control, and calculation properties while exactly one selected cache item moves between the declared index/value pairs. Every package member except its Slicer-cache definition remains unchanged. The validator does not create a Slicer drawing, apply a filter, refresh, calculate, render, or infer a displayed result. |
@@ -232,6 +236,26 @@ part. It does not open a connection, test credentials or Trust Center policy,
 retrieve data, calculate formulas, or infer a downstream result. Connection
 paths, URLs, names, commands, and credentials are deliberately not truth
 fields.
+
+## QueryTable refresh-on-open
+
+Microsoft's [QueryTable.RefreshOnFileOpen reference](https://learn.microsoft.com/en-us/office/vba/api/excel.querytable.refreshonfileopen)
+defines a table-level control for automatically refreshing a QueryTable when a
+workbook opens. The Open XML [`QueryTable` reference](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.spreadsheet.querytable?view=openxml-3.0.1)
+models this as `refreshOnLoad` alongside the table's `connectionId`. It is
+separate from the connection-level control: a reviewer needs to see the stored
+QueryTable request even when the connection metadata itself is unchanged.
+
+WCAB's original fixture has one `ImportedData` worksheet QueryTable relationship
+and one fixed internal workbook connection to a reserved `example.invalid` URL.
+Only `xl/queryTables/queryTable1.xml` changes: raw
+`queryTable/@refreshOnLoad` moves from `false` to `true`; the connection's own
+`refreshOnLoad=false`, all other QueryTable controls, relationships, content
+types, saved `ImportedData!B2=100` cell, and
+`ImportedData!B2 → Summary!B2 → Dashboard!B4` formula context stay fixed. The
+validator follows local OOXML relationships only and does not open a
+connection, fetch a URL, refresh a query, materialize rows, calculate a
+workbook, or claim that any client refreshes successfully.
 
 ## PivotTable cache refresh-on-open
 

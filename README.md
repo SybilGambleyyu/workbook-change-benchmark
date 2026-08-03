@@ -34,7 +34,7 @@ gates, static analyzers, and agent workflows that propose workbook edits.
 
 ## Scope and non-goals
 
-Version `0.29` covers formula-to-value replacements, formula reference drift,
+Version `0.30` covers formula-to-value replacements, formula reference drift,
 value changes with downstream effects, external formula references, named
 ranges, data validation, conditional formatting, sheet visibility, direct cell
 and workbook-structure protection, calculation settings, static cycles,
@@ -45,6 +45,14 @@ unchanged `INDIRECT` and `OFFSET` formulas whose address or displacement driver
 changes, an external-data connection whose refresh-on-open behavior changes
 without any worksheet-cell edit, and an external-workbook link policy that
 switches from never to always updating when the workbook opens. It also covers
+one relationship-backed QueryTable whose own `refreshOnLoad` request moves from
+false to true while its fixed connection-level refresh control remains false,
+its synthetic non-routable endpoint, saved cells, and
+`ImportedData!B2 → Summary!B2 → Dashboard!B4` formula context remain
+unchanged. It records a stored request only: it does not open a connection,
+fetch a URL, refresh a query, materialize rows, calculate a workbook, or claim
+that a client refreshes successfully.
+It also covers
 an unchanged direct circular formula that enables iterative calculation, an
 unchanged precision-sensitive input and formula whose calculation switches to
 precision as displayed, and an unchanged array formula switching from a fixed
@@ -277,6 +285,14 @@ the introduced-dynamic case from FormulaFence's native warning, maps the
 unchanged-formula driver cases from the observed input change plus the
 candidate profile's dynamic-reference feature, and checks the exact
 connection-level refresh-on-open transition in FormulaFence's `FF023` evidence.
+For the QueryTable case, it separately requires FormulaFence's exact redacted
+`query_table_refresh_controls_changed` profile and matching `FF023`, including
+the isolated QueryTable-level false-to-true request, fixed connection controls,
+and no opaque metadata. WCAB's raw validator independently proves the direct
+worksheet-to-QueryTable and workbook-to-connections graph, stable saved cells
+and direct formula path, and QueryTable-part-only package change. Neither layer
+opens a connection, fetches a URL, refreshes a query, materializes rows,
+calculates a workbook, or claims that a client refreshes successfully.
 It separately requires FormulaFence's `pivot_cache_refresh_controls_changed`
 record and matching `FF023` for the local worksheet-backed PivotCache case.
 FormulaFence safely reports cache-level source/control metadata rather than
