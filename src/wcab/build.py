@@ -113,6 +113,36 @@ _XML_MAP_TOTAL_CELL = "D2"
 _XML_MAP_TOTAL_FORMULA = "=SUM(InvoiceLines[Net amount])"
 _XML_MAP_DASHBOARD_CELL = "B4"
 _XML_MAP_DASHBOARD_FORMULA = "=Export!$D$2"
+_WEB_EXTENSION_TASKPANES_NS = "http://schemas.microsoft.com/office/webextensions/taskpanes/2010/11"
+_WEB_EXTENSION_NS = "http://schemas.microsoft.com/office/webextensions/webextension/2010/11"
+_WEB_EXTENSION_TASKPANES_RELATIONSHIP = (
+    "http://schemas.microsoft.com/office/2011/relationships/webextensiontaskpanes"
+)
+_WEB_EXTENSION_RELATIONSHIP = "http://schemas.microsoft.com/office/2011/relationships/webextension"
+_WEB_EXTENSION_TASKPANES_CONTENT_TYPE = "application/vnd.ms-office.webextensiontaskpanes+xml"
+_WEB_EXTENSION_CONTENT_TYPE = "application/vnd.ms-office.webextension+xml"
+_OFFICE_WEB_ADDIN_TASKPANES_MEMBER = "xl/webextensions/taskpanes.xml"
+_OFFICE_WEB_ADDIN_EXTENSION_MEMBER = "xl/webextensions/webextension1.xml"
+_OFFICE_WEB_ADDIN_TASKPANES_RELATIONSHIPS_MEMBER = "xl/webextensions/_rels/taskpanes.xml.rels"
+_OFFICE_WEB_ADDIN_WORKBOOK_RELATIONSHIP_ID = "rIdWCABOfficeWebAddinTaskpanes"
+_OFFICE_WEB_ADDIN_EXTENSION_RELATIONSHIP_ID = "rIdWCABOfficeWebAddin"
+_OFFICE_WEB_ADDIN_ID = "{33333333-3333-3333-3333-333333333333}"
+_OFFICE_WEB_ADDIN_REFERENCE_ID = "{44444444-4444-4444-4444-444444444444}"
+_OFFICE_WEB_ADDIN_REFERENCE_VERSION = "1.0.0.0"
+_OFFICE_WEB_ADDIN_STORE = "wcab-review-assistant.xml"
+_OFFICE_WEB_ADDIN_STORE_TYPE = "Filesystem"
+_OFFICE_WEB_ADDIN_AUTO_SHOW_PROPERTY = "Office.AutoShowTaskpaneWithDocument"
+_OFFICE_WEB_ADDIN_BASELINE_AUTO_SHOW = False
+_OFFICE_WEB_ADDIN_CANDIDATE_AUTO_SHOW = True
+_OFFICE_WEB_ADDIN_INPUT_SHEET = "Inputs"
+_OFFICE_WEB_ADDIN_INPUT_CELL = "B2"
+_OFFICE_WEB_ADDIN_INPUT_VALUE = 10
+_OFFICE_WEB_ADDIN_MODEL_SHEET = "Model"
+_OFFICE_WEB_ADDIN_MODEL_CELL = "B2"
+_OFFICE_WEB_ADDIN_MODEL_FORMULA = "=Inputs!$B$2*2"
+_OFFICE_WEB_ADDIN_DASHBOARD_SHEET = "Dashboard"
+_OFFICE_WEB_ADDIN_DASHBOARD_CELL = "B4"
+_OFFICE_WEB_ADDIN_DASHBOARD_FORMULA = "=Model!$B$2"
 _PIVOT_CACHE_ID = 1
 _PIVOT_CACHE_SOURCE_SHEET = "Source"
 _PIVOT_CACHE_SOURCE_REF = "A1:B5"
@@ -1000,6 +1030,154 @@ def _inject_xml_map_table_binding(path: Path, *, xpath: str) -> None:
             },
         )
         members["[Content_Types].xml"] = serialize(content_types)
+
+    _rewrite_xlsx_parts(path, mutate)
+
+
+def _office_web_addin_auto_show_workbook() -> Workbook:
+    """Build a small model with a later-added Office Web Add-in declaration.
+
+    The ordinary input/model/dashboard values establish stable workbook context
+    only. A raw OOXML step adds the document-linked task-pane declaration; it
+    does not install, load, or execute an add-in.
+    """
+
+    workbook = Workbook()
+    _configure_workbook(workbook, title="WCAB Office Web Add-in control fixture")
+    inputs = workbook.active
+    inputs.title = _OFFICE_WEB_ADDIN_INPUT_SHEET
+    inputs["A1"] = "Approved units"
+    inputs[_OFFICE_WEB_ADDIN_INPUT_CELL] = _OFFICE_WEB_ADDIN_INPUT_VALUE
+
+    model = workbook.create_sheet(_OFFICE_WEB_ADDIN_MODEL_SHEET)
+    model["A1"] = "Projected units"
+    model[_OFFICE_WEB_ADDIN_MODEL_CELL] = _OFFICE_WEB_ADDIN_MODEL_FORMULA
+
+    dashboard = workbook.create_sheet(_OFFICE_WEB_ADDIN_DASHBOARD_SHEET)
+    dashboard["A4"] = "Projected units"
+    dashboard[_OFFICE_WEB_ADDIN_DASHBOARD_CELL] = _OFFICE_WEB_ADDIN_DASHBOARD_FORMULA
+    return workbook
+
+
+def _inject_office_web_addin_auto_show(path: Path, *, auto_show: bool) -> None:
+    """Attach one synthetic document-linked Office Web Add-in declaration.
+
+    Only the persisted Office.AutoShowTaskpaneWithDocument property is supplied
+    by the caller. The add-in identifier and FileSystem store reference are
+    synthetic; the fixture has no manifest payload or network relationship.
+    This routine writes a narrow relationship graph without launching a client
+    or resolving a reference.
+    """
+
+    if type(auto_show) is not bool:
+        raise ValueError("Office Web Add-in auto_show must be boolean")
+
+    def serialize(element: ElementTree.Element) -> bytes:
+        return ElementTree.tostring(element, encoding="utf-8", xml_declaration=True)
+
+    def mutate(members: dict[str, bytes]) -> None:
+        relationship_tag = f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationship"
+        relationship_id_attribute = f"{{{_DOCUMENT_RELATIONSHIPS_NS}}}id"
+        override_tag = f"{{{_CONTENT_TYPES_NS}}}Override"
+        if any(member.startswith("xl/webextensions/") for member in members):
+            raise ValueError("Office Web Add-in fixture already has web-extension parts")
+
+        workbook_relationships = ElementTree.fromstring(members["xl/_rels/workbook.xml.rels"])
+        if any(
+            relationship.get("Type") == _WEB_EXTENSION_TASKPANES_RELATIONSHIP
+            for relationship in workbook_relationships.findall(relationship_tag)
+        ):
+            raise ValueError("Office Web Add-in fixture already has a task-pane relationship")
+        ElementTree.SubElement(
+            workbook_relationships,
+            relationship_tag,
+            {
+                "Id": _OFFICE_WEB_ADDIN_WORKBOOK_RELATIONSHIP_ID,
+                "Type": _WEB_EXTENSION_TASKPANES_RELATIONSHIP,
+                "Target": "webextensions/taskpanes.xml",
+            },
+        )
+        members["xl/_rels/workbook.xml.rels"] = serialize(workbook_relationships)
+
+        content_types = ElementTree.fromstring(members["[Content_Types].xml"])
+        for member, content_type in (
+            (_OFFICE_WEB_ADDIN_TASKPANES_MEMBER, _WEB_EXTENSION_TASKPANES_CONTENT_TYPE),
+            (_OFFICE_WEB_ADDIN_EXTENSION_MEMBER, _WEB_EXTENSION_CONTENT_TYPE),
+        ):
+            if any(
+                override.get("PartName") == f"/{member}"
+                for override in content_types.findall(override_tag)
+            ):
+                raise ValueError(f"Office Web Add-in fixture already has {member!r}")
+            ElementTree.SubElement(
+                content_types,
+                override_tag,
+                {"PartName": f"/{member}", "ContentType": content_type},
+            )
+        members["[Content_Types].xml"] = serialize(content_types)
+
+        taskpanes = ElementTree.Element(f"{{{_WEB_EXTENSION_TASKPANES_NS}}}taskpanes")
+        taskpane = ElementTree.SubElement(
+            taskpanes,
+            f"{{{_WEB_EXTENSION_TASKPANES_NS}}}taskpane",
+            {
+                "dockstate": "right",
+                "visibility": "0",
+                "width": "350",
+                "row": "4",
+                "locked": "1",
+            },
+        )
+        ElementTree.SubElement(
+            taskpane,
+            f"{{{_WEB_EXTENSION_TASKPANES_NS}}}webextension",
+            {relationship_id_attribute: _OFFICE_WEB_ADDIN_EXTENSION_RELATIONSHIP_ID},
+        )
+        members[_OFFICE_WEB_ADDIN_TASKPANES_MEMBER] = serialize(taskpanes)
+
+        taskpane_relationships = ElementTree.Element(
+            f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationships"
+        )
+        ElementTree.SubElement(
+            taskpane_relationships,
+            relationship_tag,
+            {
+                "Id": _OFFICE_WEB_ADDIN_EXTENSION_RELATIONSHIP_ID,
+                "Type": _WEB_EXTENSION_RELATIONSHIP,
+                "Target": "webextension1.xml",
+            },
+        )
+        members[_OFFICE_WEB_ADDIN_TASKPANES_RELATIONSHIPS_MEMBER] = serialize(
+            taskpane_relationships
+        )
+
+        extension = ElementTree.Element(
+            f"{{{_WEB_EXTENSION_NS}}}webextension",
+            {"id": _OFFICE_WEB_ADDIN_ID},
+        )
+        ElementTree.SubElement(
+            extension,
+            f"{{{_WEB_EXTENSION_NS}}}reference",
+            {
+                "id": _OFFICE_WEB_ADDIN_REFERENCE_ID,
+                "version": _OFFICE_WEB_ADDIN_REFERENCE_VERSION,
+                "store": _OFFICE_WEB_ADDIN_STORE,
+                "storeType": _OFFICE_WEB_ADDIN_STORE_TYPE,
+            },
+        )
+        properties = ElementTree.SubElement(
+            extension,
+            f"{{{_WEB_EXTENSION_NS}}}properties",
+        )
+        ElementTree.SubElement(
+            properties,
+            f"{{{_WEB_EXTENSION_NS}}}property",
+            {
+                "name": _OFFICE_WEB_ADDIN_AUTO_SHOW_PROPERTY,
+                "value": str(auto_show).lower(),
+            },
+        )
+        members[_OFFICE_WEB_ADDIN_EXTENSION_MEMBER] = serialize(extension)
 
     _rewrite_xlsx_parts(path, mutate)
 
@@ -3290,6 +3468,56 @@ def _build_operations_xml_map_table_xpath(root: Path) -> None:
     )
 
 
+def _build_governance_office_web_addin_auto_show(root: Path) -> None:
+    """Build an embedded add-in auto-show request without a cell edit."""
+
+    directory = root / "governance" / "office_web_addin_auto_show_enabled"
+    directory.mkdir(parents=True, exist_ok=True)
+    baseline = directory / "baseline.xlsx"
+    candidate = directory / "candidate.xlsx"
+    _save_workbook(_office_web_addin_auto_show_workbook(), baseline)
+    _save_workbook(_office_web_addin_auto_show_workbook(), candidate)
+    _inject_office_web_addin_auto_show(baseline, auto_show=_OFFICE_WEB_ADDIN_BASELINE_AUTO_SHOW)
+    _inject_office_web_addin_auto_show(candidate, auto_show=_OFFICE_WEB_ADDIN_CANDIDATE_AUTO_SHOW)
+    _write_json(
+        directory / "truth.json",
+        _truth(
+            case_id="governance.office_web_addin_auto_show_enabled",
+            title="An embedded Office Web Add-in requests task-pane auto-show",
+            family="governance",
+            review_expectation="block",
+            facts=[
+                {
+                    "kind": "office_web_addin_auto_show_enabled",
+                    "taskpane_member": _OFFICE_WEB_ADDIN_TASKPANES_MEMBER,
+                    "web_extension_member": _OFFICE_WEB_ADDIN_EXTENSION_MEMBER,
+                    "addin_id": _OFFICE_WEB_ADDIN_ID,
+                    "reference_id": _OFFICE_WEB_ADDIN_REFERENCE_ID,
+                    "reference_version": _OFFICE_WEB_ADDIN_REFERENCE_VERSION,
+                    "store": _OFFICE_WEB_ADDIN_STORE,
+                    "store_type": _OFFICE_WEB_ADDIN_STORE_TYPE,
+                    "baseline_auto_show": _OFFICE_WEB_ADDIN_BASELINE_AUTO_SHOW,
+                    "candidate_auto_show": _OFFICE_WEB_ADDIN_CANDIDATE_AUTO_SHOW,
+                    "input_sheet": _OFFICE_WEB_ADDIN_INPUT_SHEET,
+                    "input_cell": _OFFICE_WEB_ADDIN_INPUT_CELL,
+                    "input_value": _OFFICE_WEB_ADDIN_INPUT_VALUE,
+                    "model_sheet": _OFFICE_WEB_ADDIN_MODEL_SHEET,
+                    "model_cell": _OFFICE_WEB_ADDIN_MODEL_CELL,
+                    "model_formula": _OFFICE_WEB_ADDIN_MODEL_FORMULA,
+                    "dashboard_sheet": _OFFICE_WEB_ADDIN_DASHBOARD_SHEET,
+                    "dashboard_cell": _OFFICE_WEB_ADDIN_DASHBOARD_CELL,
+                    "dashboard_formula": _OFFICE_WEB_ADDIN_DASHBOARD_FORMULA,
+                }
+            ],
+            coverage=[
+                "The pair changes only one Office.AutoShowTaskpaneWithDocument property value in xl/webextensions/webextension1.xml. It does not edit ordinary cells, formulas, calculation properties, task-pane layout, add-in identity, or any other package member.",
+                "The synthetic add-in reference uses a local FileSystem store name and has no manifest payload or external relationship. WCAB does not install, load, execute, or fetch an add-in or manifest, and it does not claim that any task pane opens.",
+                "The stable Inputs!B2-to-Model!B2-to-Dashboard!B4 formula path is workbook context only. It is not evidence that an add-in reads, writes, calculates, or displays any of those cells.",
+            ],
+        ),
+    )
+
+
 def _build_governance_visibility(root: Path) -> None:
     def mutate(workbook: Workbook) -> None:
         workbook["ReviewControls"].sheet_state = "visible"
@@ -4403,6 +4631,7 @@ _BUILDERS: tuple[Callable[[Path], None], ...] = (
     _build_operations_auto_filter_criteria,
     _build_operations_named_sheet_view_filter_criterion,
     _build_operations_xml_map_table_xpath,
+    _build_governance_office_web_addin_auto_show,
     _build_governance_visibility,
     _build_governance_protection,
     _build_governance_workbook_structure_protection,
@@ -4447,6 +4676,7 @@ CASE_IDS = (
     "operations.auto_filter_criteria_changed",
     "operations.named_sheet_view_filter_criterion_changed",
     "operations.xml_map_table_xpath_retargeted",
+    "governance.office_web_addin_auto_show_enabled",
     "governance.hidden_sheet_revealed",
     "governance.formula_cell_unlocked",
     "governance.workbook_structure_lock_removed",

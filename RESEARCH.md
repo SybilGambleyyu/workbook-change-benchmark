@@ -210,6 +210,32 @@ the XPath, and requires that table part to be the sole package change. It
 does not access a file, validate the schema, import or export XML, materialize
 data, calculate formulas, or claim a client result.
 
+## Office Web Add-in auto-show requests change workbook behavior outside cells
+
+Microsoft's [Excel auto-open task-pane guidance](https://learn.microsoft.com/en-us/office/dev/add-ins/excel/pnp-open-in-excel)
+documents the `webextension` and `taskpanes` package parts used to associate
+a workbook with an Office Add-in. Its deployment caveat is important: an
+association is only honored when the referenced add-in is already installed,
+sideloaded, or deployed. The [MS-OWEMXML
+specification](https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-owemxml/4b94ac5d-a8df-44f4-8433-81d43e35a2d7)
+defines the `Office.AutoShowTaskpaneWithDocument` extension property. A
+workbook can therefore acquire a stored request to show an add-in task pane
+without a worksheet-cell diff, and without the package containing an add-in
+manifest or payload.
+
+WCAB 0.28 isolates that declaration in one original synthetic package. It has
+one local workbook-to-taskpane-to-web-extension relationship chain, one hidden
+locked task pane, and one synthetic FileSystem store reference. Its
+`Office.AutoShowTaskpaneWithDocument` value alone moves from false to true;
+the reference, IDs, task-pane layout, ordinary cells, calculation properties,
+and `Inputs!B2 → Model!B2 → Dashboard!B4` formula context remain unchanged.
+The validator follows only local package relationships, compares the
+web-extension XML after erasing that value, and requires that part to be the
+sole package change. The fixture has no manifest payload or external
+relationship. It does not install, load, execute, or fetch an add-in or
+manifest, and it does not claim that any client opens a task pane or that the
+add-in accesses workbook cells.
+
 ## PivotTable cache refresh requests without a cell edit
 
 Microsoft documents an option to [refresh PivotTable data when a workbook

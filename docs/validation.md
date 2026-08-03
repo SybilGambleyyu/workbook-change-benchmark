@@ -1,6 +1,6 @@
 # Validation record
 
-This record describes the WCAB 0.27.0 / schema-version-3 validation run on
+This record describes the WCAB 0.28.0 / schema-version-3 validation run on
 2026-08-03. It is reproducible from this repository; no network service or
 private workbook is required.
 
@@ -32,16 +32,16 @@ wcab validate --fixtures fixtures
 
 Results:
 
-- 42 cases: 41 paired-workbook cases and one directory portfolio case.
-- 44 observable truth facts across 32 `block` and 10 `review` cases.
+- 43 cases: 42 paired-workbook cases and one directory portfolio case.
+- 45 observable truth facts across 33 `block` and 10 `review` cases.
 - Three scoreable coverage expectations: one newly introduced `INDIRECT`
   boundary and two unchanged-formula selector changes (`INDIRECT` address text
   and `OFFSET` column displacement).
-- 129 generated fixture files: 86 workbooks, 42 truth manifests, and one JSONL
+- 132 generated fixture files: 88 workbooks, 43 truth manifests, and one JSONL
   case catalogue, all generated from source.
-- One hundred seventy-one unit tests passed locally under Python 3.13, including
+- One hundred seventy-eight unit tests passed locally under Python 3.13, including
   independent regeneration and byte-for-byte fixture-tree equality.
-- The fixture validator accepted all 42 cases.
+- The fixture validator accepted all 43 cases.
 - The external-data pair has identical package members except for
   `xl/connections.xml`; both archives pass ZIP integrity checks and remain
   readable by openpyxl. Its relationship-backed source is a non-routable
@@ -196,6 +196,16 @@ Results:
   only local workbook and worksheet relationships and does not access a file,
   validate a schema, import/export XML, materialize data, calculate a result,
   or claim client behavior.
+- The Office Web Add-in pair has identical package members except for
+  `xl/webextensions/webextension1.xml`; both archives pass ZIP integrity
+  checks and remain readable by openpyxl. Its workbook-to-taskpane-to-web-
+  extension relationship chain, synthetic local FileSystem reference, add-in
+  IDs, hidden locked pane, ordinary cells, calculation properties, and
+  `Inputs!B2 → Model!B2 → Dashboard!B4` formulas remain unchanged while raw
+  `Office.AutoShowTaskpaneWithDocument` moves exactly from false to true. The
+  fixture has no manifest payload or external relationship. The validation run
+  did not install, load, execute, or fetch an add-in or manifest, or claim
+  that a task pane opens or that the add-in accesses a workbook cell.
 - The saved-formula-result pair has identical package members except for
   `xl/worksheets/sheet2.xml`; both archives pass ZIP integrity checks and
   remain readable by openpyxl. Its direct input, formula expression,
@@ -211,7 +221,7 @@ Results:
 
 ## Distribution supplement
 
-The 0.27.0 release retains the one-row-per-case `manifest.jsonl` catalogue and
+The 0.28.0 release retains the one-row-per-case `manifest.jsonl` catalogue and
 the tool-neutral observation protocol at version 2. Each catalogue row retains
 the schema-version-3 truth contract and includes byte counts and SHA-256
 digests for the workbooks it names.
@@ -219,11 +229,11 @@ digests for the workbooks it names.
 Commands:
 
 ```bash
-python -m build --outdir /tmp/wcab-v027-dist
-twine check /tmp/wcab-v027-dist/*
+python -m build --outdir /tmp/wcab-v028-dist
+twine check /tmp/wcab-v028-dist/*
 python -m venv /tmp/wcab-wheel-test
 /tmp/wcab-wheel-test/bin/python -m pip install \
-  /tmp/wcab-v027-dist/workbook_change_benchmark-0.27.0-py3-none-any.whl
+  /tmp/wcab-v028-dist/workbook_change_benchmark-0.28.0-py3-none-any.whl
 /tmp/wcab-wheel-test/bin/python -c 'import wcab; print(wcab.__version__)'
 /tmp/wcab-wheel-test/bin/wcab validate --fixtures fixtures
 /tmp/wcab-wheel-test/bin/wcab manifest --fixtures fixtures --output /tmp/manifest.jsonl
@@ -234,7 +244,7 @@ cmp fixtures/manifest.jsonl /tmp/manifest.jsonl
   --observations /tmp/observations.json
 python -m venv /tmp/wcab-sdist-test
 /tmp/wcab-sdist-test/bin/python -m pip install \
-  /tmp/wcab-v027-dist/workbook_change_benchmark-0.27.0.tar.gz
+  /tmp/wcab-v028-dist/workbook_change_benchmark-0.28.0.tar.gz
 /tmp/wcab-sdist-test/bin/python -c 'import wcab; print(wcab.__version__)'
 /tmp/wcab-sdist-test/bin/wcab validate --fixtures fixtures
 ```
@@ -246,14 +256,14 @@ Results:
   their uploaded assets in the GitHub release, avoiding a self-referential
   source-distribution checksum in this record.
 - Fresh Python 3.13 wheel and source-distribution installations both reported
-  version 0.27.0 and validated all 42 fixtures; both emitted byte-identical
+  version 0.28.0 and validated all 43 fixtures; both emitted byte-identical
   JSONL output.
-- The full 171-test suite, lint, and format checks passed locally under Python
+- The full 178-test suite, lint, and format checks passed locally under Python
   3.13.
 - The generated unsupported template scored as zero analyzed coverage, zero
   expected-fact recall, and zero coverage-disclosure recall, confirming that
   unsupported cases cannot become a pass.
-- The FormulaFence normalizer emitted 43 matched facts, one intentionally
+- The FormulaFence normalizer emitted 44 matched facts, one intentionally
   unmapped fact, three matched coverage declarations, and no invented review
   disposition.
 
@@ -268,9 +278,9 @@ wcab formulafence --fixtures fixtures --strict
 
 Results:
 
-- All 43 currently mappable diff/portfolio facts were observed.
+- All 44 currently mappable diff/portfolio facts were observed.
 - All three mappable coverage expectations were matched; no mapped fact,
-  coverage expectation, or targeted lint rule was missed across all 42 cases.
+  coverage expectation, or targeted lint rule was missed across all 43 cases.
 - The schema-version-2 structured Table scope case was observed as a
   `table_definition_changed` diff, even though its summary formula text stays
   unchanged.
@@ -446,6 +456,17 @@ Results:
   binding transition, stable declarations/formulas, and table-part-only
   boundary; neither report accessed a file, imported/exported XML,
   materialized data, or inferred a result.
+- The WCAB 0.28 Office Web Add-in case was observed as one exact
+  `office_web_addins_changed` record and `FF028`: FormulaFence's redacted
+  profile retained one declared task-pane part, task pane, web-extension part,
+  and local store reference; one locked hidden task pane; no bindings,
+  snapshots, external relationships, in-content references, or unrecognized
+  parts; and an auto-show count from zero to one. It did not expose add-in IDs,
+  store name, or the property value. WCAB independently established the local
+  relationship graph, false-to-true auto-show property, stable formula context,
+  and web-extension-part-only boundary; neither report installed, loaded,
+  executed, or fetched an add-in or manifest, or claimed that a task pane
+  opens.
 - The WCAB 0.11 saved-formula-result case was observed as one exact
   `formula_cached_result_changed` record and `FF042`: FormulaFence reports
   two formula cells, one numeric saved result, one missing saved result, and

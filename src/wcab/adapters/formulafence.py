@@ -38,6 +38,7 @@ _FACT_TO_CHANGE: dict[str, tuple[str, str | None]] = {
     "auto_filter_criteria_changed": ("filter_visibility_controls_changed", None),
     "named_sheet_view_filter_criterion_changed": ("named_sheet_views_changed", None),
     "xml_map_table_column_xpath_retargeted": ("xml_mapping_controls_changed", None),
+    "office_web_addin_auto_show_enabled": ("office_web_addins_changed", None),
     "sheet_visibility_changed": ("sheet_visibility_changed", None),
     "formula_cell_unlocked": ("cell_protection_assignments_changed", None),
     "workbook_structure_lock_removed": ("workbook_protection_changed", None),
@@ -549,6 +550,86 @@ def _xml_map_table_xpath_finding_observed(finding: dict[str, Any], fact: dict[st
     """Require FormulaFence's matching high-severity XML Map finding."""
 
     return finding.get("rule_id") == "FF049" and _xml_map_table_xpath_details_observed(
+        finding.get("details"), fact
+    )
+
+
+def _office_web_addin_auto_show_details_observed(details: Any, fact: dict[str, Any]) -> bool:
+    """Require FormulaFence's exact redacted Office Web Add-in transition.
+
+    FormulaFence intentionally omits add-in identifiers, store names, XML, and
+    property values. WCAB independently establishes the synthetic local
+    declaration and requires one task-pane auto-show request to appear with no
+    other modeled Office Web Add-in surface.
+    """
+
+    if (
+        fact.get("taskpane_member") != "xl/webextensions/taskpanes.xml"
+        or fact.get("web_extension_member") != "xl/webextensions/webextension1.xml"
+        or fact.get("addin_id") != "{33333333-3333-3333-3333-333333333333}"
+        or fact.get("reference_id") != "{44444444-4444-4444-4444-444444444444}"
+        or fact.get("reference_version") != "1.0.0.0"
+        or fact.get("store") != "wcab-review-assistant.xml"
+        or fact.get("store_type") != "Filesystem"
+        or fact.get("baseline_auto_show") is not False
+        or fact.get("candidate_auto_show") is not True
+        or fact.get("input_sheet") != "Inputs"
+        or fact.get("input_cell") != "B2"
+        or fact.get("input_value") != 10
+        or fact.get("model_sheet") != "Model"
+        or fact.get("model_cell") != "B2"
+        or fact.get("model_formula") != "=Inputs!$B$2*2"
+        or fact.get("dashboard_sheet") != "Dashboard"
+        or fact.get("dashboard_cell") != "B4"
+        or fact.get("dashboard_formula") != "=Model!$B$2"
+        or not isinstance(details, dict)
+    ):
+        return False
+    before = {
+        "present": True,
+        "declared_taskpane_part_count": 1,
+        "taskpane_part_count": 1,
+        "web_extension_part_count": 1,
+        "unrecognized_part_count": 0,
+        "taskpane_count": 1,
+        "visible_taskpane_count": 0,
+        "locked_taskpane_count": 1,
+        "web_extension_reference_count": 1,
+        "auto_show_taskpane_count": 0,
+        "store_reference_count": 1,
+        "alternate_reference_count": 0,
+        "binding_count": 0,
+        "snapshot_reference_count": 0,
+        "related_relationship_count": 1,
+        "external_relationship_count": 0,
+        "worksheet_binding_sheet_count": 0,
+        "worksheet_binding_count": 0,
+        "in_content_drawing_part_count": 0,
+        "in_content_web_extension_reference_count": 0,
+        "in_content_web_extension_part_count": 0,
+    }
+    after = {**before, "auto_show_taskpane_count": 1}
+    return details == {
+        "before": before,
+        "after": after,
+        "web_extension_definition_material_changed": True,
+    }
+
+
+def _office_web_addin_auto_show_observed(change: dict[str, Any], fact: dict[str, Any]) -> bool:
+    """Match FormulaFence's Office Web Add-in control record."""
+
+    return change.get("kind") == "office_web_addins_changed" and (
+        _office_web_addin_auto_show_details_observed(change.get("details"), fact)
+    )
+
+
+def _office_web_addin_auto_show_finding_observed(
+    finding: dict[str, Any], fact: dict[str, Any]
+) -> bool:
+    """Require FormulaFence's matching critical Office Web Add-in finding."""
+
+    return finding.get("rule_id") == "FF028" and _office_web_addin_auto_show_details_observed(
         finding.get("details"), fact
     )
 
@@ -1677,6 +1758,16 @@ def evaluate_diff_case(case_dir: str | Path, *, executable: str = "formulafence"
                 if isinstance(change, dict)
             ) and any(
                 _xml_map_table_xpath_finding_observed(finding, fact)
+                for finding in findings
+                if isinstance(finding, dict)
+            )
+        if kind == "office_web_addin_auto_show_enabled":
+            observed = any(
+                _office_web_addin_auto_show_observed(change, fact)
+                for change in changes
+                if isinstance(change, dict)
+            ) and any(
+                _office_web_addin_auto_show_finding_observed(finding, fact)
                 for finding in findings
                 if isinstance(finding, dict)
             )

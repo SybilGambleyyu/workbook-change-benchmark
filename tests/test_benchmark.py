@@ -99,6 +99,37 @@ def _xml_map_table_xpath_details() -> dict[str, object]:
     }
 
 
+def _office_web_addin_auto_show_details() -> dict[str, object]:
+    before = {
+        "present": True,
+        "declared_taskpane_part_count": 1,
+        "taskpane_part_count": 1,
+        "web_extension_part_count": 1,
+        "unrecognized_part_count": 0,
+        "taskpane_count": 1,
+        "visible_taskpane_count": 0,
+        "locked_taskpane_count": 1,
+        "web_extension_reference_count": 1,
+        "auto_show_taskpane_count": 0,
+        "store_reference_count": 1,
+        "alternate_reference_count": 0,
+        "binding_count": 0,
+        "snapshot_reference_count": 0,
+        "related_relationship_count": 1,
+        "external_relationship_count": 0,
+        "worksheet_binding_sheet_count": 0,
+        "worksheet_binding_count": 0,
+        "in_content_drawing_part_count": 0,
+        "in_content_web_extension_reference_count": 0,
+        "in_content_web_extension_part_count": 0,
+    }
+    return {
+        "before": before,
+        "after": {**before, "auto_show_taskpane_count": 1},
+        "web_extension_definition_material_changed": True,
+    }
+
+
 def _pivot_cache_refresh_details() -> dict[str, object]:
     before = {
         "background_query": False,
@@ -592,6 +623,32 @@ def test_committed_manifest_matches_fixture_tree() -> None:
             "dashboard_sheet": "Dashboard",
             "dashboard_cell": "B4",
             "dashboard_formula": "=Export!$D$2",
+        }
+    ]
+    office_web_addin_row = next(
+        row for row in rows if row["id"] == "governance.office_web_addin_auto_show_enabled"
+    )
+    assert office_web_addin_row["facts"] == [
+        {
+            "kind": "office_web_addin_auto_show_enabled",
+            "taskpane_member": "xl/webextensions/taskpanes.xml",
+            "web_extension_member": "xl/webextensions/webextension1.xml",
+            "addin_id": "{33333333-3333-3333-3333-333333333333}",
+            "reference_id": "{44444444-4444-4444-4444-444444444444}",
+            "reference_version": "1.0.0.0",
+            "store": "wcab-review-assistant.xml",
+            "store_type": "Filesystem",
+            "baseline_auto_show": False,
+            "candidate_auto_show": True,
+            "input_sheet": "Inputs",
+            "input_cell": "B2",
+            "input_value": 10,
+            "model_sheet": "Model",
+            "model_cell": "B2",
+            "model_formula": "=Inputs!$B$2*2",
+            "dashboard_sheet": "Dashboard",
+            "dashboard_cell": "B4",
+            "dashboard_formula": "=Model!$B$2",
         }
     ]
     data_validation_list_source_row = next(
@@ -2501,6 +2558,93 @@ def test_xml_map_table_xpath_pair_changes_only_its_table_part(tmp_path: Path) ->
     ] == ["xl/tables/table1.xml"]
 
 
+def test_validator_rejects_a_false_office_web_addin_auto_show_fact(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "governance" / "office_web_addin_auto_show_enabled"
+    truth_path = case / "truth.json"
+    truth = json.loads(truth_path.read_text(encoding="utf-8"))
+    truth["facts"][0]["candidate_auto_show"] = False
+    truth_path.write_text(json.dumps(truth), encoding="utf-8")
+    assert validate_case(case)
+
+
+def test_validator_rejects_a_corrupted_office_web_addin_auto_show_property(
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = (
+        fixture_root / "governance" / "office_web_addin_auto_show_enabled" / "candidate.xlsx"
+    )
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    namespace = "http://schemas.microsoft.com/office/webextensions/webextension/2010/11"
+    extension_member = "xl/webextensions/webextension1.xml"
+    extension = ElementTree.fromstring(members[extension_member])
+    property_element = next(
+        item
+        for item in extension.iter(f"{{{namespace}}}property")
+        if item.get("name") == "Office.AutoShowTaskpaneWithDocument"
+    )
+    property_element.set("value", "false")
+    members[extension_member] = ElementTree.tostring(
+        extension, encoding="utf-8", xml_declaration=True
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_validator_rejects_an_unrelated_office_web_addin_change(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = (
+        fixture_root / "governance" / "office_web_addin_auto_show_enabled" / "candidate.xlsx"
+    )
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    namespace = "http://schemas.microsoft.com/office/webextensions/webextension/2010/11"
+    extension_member = "xl/webextensions/webextension1.xml"
+    extension = ElementTree.fromstring(members[extension_member])
+    reference = extension.find(f"{{{namespace}}}reference")
+    assert reference is not None
+    reference.set("store", "different-local-store.xml")
+    members[extension_member] = ElementTree.tostring(
+        extension, encoding="utf-8", xml_declaration=True
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_office_web_addin_auto_show_pair_changes_only_its_extension_part(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "governance" / "office_web_addin_auto_show_enabled"
+    with ZipFile(case / "baseline.xlsx") as baseline, ZipFile(case / "candidate.xlsx") as candidate:
+        assert baseline.testzip() is None
+        assert candidate.testzip() is None
+        baseline_members = {
+            entry.filename: baseline.read(entry.filename) for entry in baseline.infolist()
+        }
+        candidate_members = {
+            entry.filename: candidate.read(entry.filename) for entry in candidate.infolist()
+        }
+    assert set(baseline_members) == set(candidate_members)
+    assert [
+        member
+        for member in sorted(baseline_members)
+        if baseline_members[member] != candidate_members[member]
+    ] == ["xl/webextensions/webextension1.xml"]
+
+
 def test_validator_rejects_a_false_workbook_date_system_fact(tmp_path: Path) -> None:
     fixture_root = tmp_path / "fixtures"
     build_all(fixture_root)
@@ -3413,6 +3557,92 @@ def test_formulafence_adapter_requires_the_xml_map_table_xpath_finding(
     assert result["status"] == "missed"
     assert result["matched"] == []
     assert result["missed"] == ["xml_map_table_column_xpath_retargeted"]
+
+
+def test_formulafence_adapter_maps_the_exact_office_web_addin_auto_show_change(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _office_web_addin_auto_show_details()
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "office_web_addins_changed",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF028", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "office_web_addin_auto_show_enabled"
+    )
+    assert result["status"] == "matched"
+    assert result["matched"] == ["office_web_addin_auto_show_enabled"]
+
+
+def test_formulafence_adapter_rejects_an_inexact_office_web_addin_auto_show_change(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _office_web_addin_auto_show_details()
+        details["after"]["auto_show_taskpane_count"] = 2
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "office_web_addins_changed",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF028", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "office_web_addin_auto_show_enabled"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["office_web_addin_auto_show_enabled"]
+
+
+def test_formulafence_adapter_requires_the_office_web_addin_auto_show_finding(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "office_web_addins_changed",
+                    "location": None,
+                    "details": _office_web_addin_auto_show_details(),
+                }
+            ],
+            "findings": [],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "office_web_addin_auto_show_enabled"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["office_web_addin_auto_show_enabled"]
 
 
 def test_formulafence_adapter_maps_the_exact_data_validation_list_source_change(

@@ -22,7 +22,7 @@ configs:
 # Workbook Change Assurance Benchmark (WCAB)
 
 WCAB is an open, deterministic benchmark for tools that review changes to
-Excel workbooks. Each of its 42 synthetic cases supplies baseline/candidate
+Excel workbooks. Each of its 43 synthetic cases supplies baseline/candidate
 fixtures, explicit observable change facts, a reference review
 disposition, documented coverage boundaries, and—in relevant cases—a
 machine-matchable coverage expectation.
@@ -81,7 +81,10 @@ Named Sheet View whose alternate list criterion changes while its base
 AutoFilter, cells, formulas, and dashboard dependency stay fixed, a local XML
 Map whose mapped invoice-table column XPath changes while its map/schema/file
 binding declarations, single-cell mapping, cells, formulas, and dashboard
-dependency stay fixed, and a small
+dependency stay fixed, and a relationship-backed Office Web Add-in task-pane
+declaration whose stored `Office.AutoShowTaskpaneWithDocument` request changes
+from false to true while its synthetic local reference, locked hidden pane,
+ordinary cells, and formula context stay fixed, and a small
 multi-workbook
 portfolio.
 
@@ -98,6 +101,10 @@ a client display or print outcome.
 The XML Map case records a stored import/export binding only: it does not
 access a file, validate a schema, import or export XML, materialize data,
 calculate a result, or claim client behavior.
+
+The Office Web Add-in case records a stored package property only: it does not
+install, load, execute, or fetch an add-in or manifest, and it does not claim
+that a task pane opens or that an add-in accesses workbook cells.
 
 ## Use
 

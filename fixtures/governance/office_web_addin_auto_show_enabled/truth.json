@@ -1,0 +1,38 @@
+{
+  "coverage": [
+    "The pair changes only one Office.AutoShowTaskpaneWithDocument property value in xl/webextensions/webextension1.xml. It does not edit ordinary cells, formulas, calculation properties, task-pane layout, add-in identity, or any other package member.",
+    "The synthetic add-in reference uses a local FileSystem store name and has no manifest payload or external relationship. WCAB does not install, load, execute, or fetch an add-in or manifest, and it does not claim that any task pane opens.",
+    "The stable Inputs!B2-to-Model!B2-to-Dashboard!B4 formula path is workbook context only. It is not evidence that an add-in reads, writes, calculates, or displays any of those cells."
+  ],
+  "coverage_expectations": [],
+  "facts": [
+    {
+      "addin_id": "{33333333-3333-3333-3333-333333333333}",
+      "baseline_auto_show": false,
+      "candidate_auto_show": true,
+      "dashboard_cell": "B4",
+      "dashboard_formula": "=Model!$B$2",
+      "dashboard_sheet": "Dashboard",
+      "input_cell": "B2",
+      "input_sheet": "Inputs",
+      "input_value": 10,
+      "kind": "office_web_addin_auto_show_enabled",
+      "model_cell": "B2",
+      "model_formula": "=Inputs!$B$2*2",
+      "model_sheet": "Model",
+      "reference_id": "{44444444-4444-4444-4444-444444444444}",
+      "reference_version": "1.0.0.0",
+      "store": "wcab-review-assistant.xml",
+      "store_type": "Filesystem",
+      "taskpane_member": "xl/webextensions/taskpanes.xml",
+      "web_extension_member": "xl/webextensions/webextension1.xml"
+    }
+  ],
+  "family": "governance",
+  "id": "governance.office_web_addin_auto_show_enabled",
+  "must_reach": [],
+  "review_expectation": "block",
+  "schema_version": 3,
+  "title": "An embedded Office Web Add-in requests task-pane auto-show",
+  "topology": "pair"
+}

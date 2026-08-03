@@ -346,6 +346,17 @@ cell values. WCAB's raw validator independently establishes the synthetic
 formulas, direct dashboard edge, and table-part-only package change. Neither
 report accesses a file, imports or exports XML, materializes data, or infers
 a result. The adapter
+requires one exact `office_web_addins_changed` record and `FF028` for the
+Office Web Add-in case. FormulaFence's redacted profile must retain one
+declared task-pane part, task pane, web-extension part, and store reference;
+one locked hidden task pane; no bindings, snapshots, external relationships,
+in-content references, or unrecognized parts; and an auto-show count from
+zero to one. It does not expose add-in IDs, the store name, or the property
+value. WCAB's raw validator independently establishes the generated local
+relationship graph, false-to-true property transition, stable ordinary
+workbook context, and web-extension-part-only boundary. Neither report
+installs, loads, executes, or fetches an add-in or manifest, or claims that a
+task pane opens. The adapter
 leaves `review`
 as `null`: FormulaFence surfaces evidence but does not impose WCAB's reference
 policy as a universal approval decision. Any intentionally unmapped fact or coverage expectation

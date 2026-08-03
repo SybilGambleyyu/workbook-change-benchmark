@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.28.0 — 2026-08-03
+
+- Add a deterministic, relationship-backed Office Web Add-in task-pane case.
+  Its synthetic local add-in reference, locked hidden task-pane declaration,
+  and ordinary `Inputs!B2 → Model!B2 → Dashboard!B4` formula context remain
+  fixed while `Office.AutoShowTaskpaneWithDocument` changes from false to
+  true.
+- Add the exact `office_web_addin_auto_show_enabled` fact, a narrow
+  raw-OOXML relationship-graph validator, web-extension-part-only package
+  isolation check, and corruption regressions. WCAB records a stored request
+  only: it does not install, load, execute, or fetch an add-in or manifest,
+  and it does not claim that a task pane opens.
+- Extend the optional FormulaFence adapter to require its exact redacted
+  `office_web_addins_changed` profile and high-severity `FF028`, while
+  WCAB independently establishes the generated local reference, auto-show
+  transition, stable workbook context, and package boundary.
+
 ## 0.27.0 — 2026-08-03
 
 - Add a deterministic XML Map table-binding case. Its synthetic invoice

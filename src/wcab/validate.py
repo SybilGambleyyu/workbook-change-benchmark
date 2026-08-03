@@ -39,6 +39,12 @@ _NAMED_SHEET_VIEW_RELATIONSHIP = (
 _XML_SCHEMA_NS = "http://www.w3.org/2001/XMLSchema"
 _XML_MAP_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/xmlMaps"
 _TABLE_SINGLE_CELLS_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/tableSingleCells"
+_WEB_EXTENSION_TASKPANES_NS = "http://schemas.microsoft.com/office/webextensions/taskpanes/2010/11"
+_WEB_EXTENSION_NS = "http://schemas.microsoft.com/office/webextensions/webextension/2010/11"
+_WEB_EXTENSION_TASKPANES_RELATIONSHIP = (
+    "http://schemas.microsoft.com/office/2011/relationships/webextensiontaskpanes"
+)
+_WEB_EXTENSION_RELATIONSHIP = "http://schemas.microsoft.com/office/2011/relationships/webextension"
 _SLICER_CACHE_RELATIONSHIP = "http://schemas.microsoft.com/office/2007/relationships/slicerCache"
 _DATA_MASHUP_NS = "http://schemas.microsoft.com/DataMashup"
 _POWER_QUERY_CUSTOM_XML_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/customXml"
@@ -1908,6 +1914,160 @@ def _xml_map_table_without_xpath(path: Path, sheet_name: str) -> bytes | None:
     return ElementTree.tostring(table, encoding="utf-8", xml_declaration=True)
 
 
+def _raw_office_web_addin_auto_show_state(path: Path) -> dict[str, Any] | None:
+    """Read WCAB's compact document-linked Office Web Add-in declaration.
+
+    This follows only the generated workbook-to-taskpane-to-webextension local
+    relationship graph. It proves a stored auto-show request without loading a
+    manifest, following a store reference, installing an add-in, or opening an
+    Office client.
+    """
+
+    try:
+        with ZipFile(path) as archive:
+            relationship_tag = f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationship"
+            workbook_relationships = ElementTree.fromstring(
+                archive.read("xl/_rels/workbook.xml.rels")
+            )
+            taskpane_relationships = [
+                relationship
+                for relationship in workbook_relationships.findall(relationship_tag)
+                if relationship.get("Type") == _WEB_EXTENSION_TASKPANES_RELATIONSHIP
+            ]
+            if len(taskpane_relationships) != 1:
+                return None
+            taskpane_relationship_id = taskpane_relationships[0].get("Id")
+            if not isinstance(taskpane_relationship_id, str):
+                return None
+            taskpane_member = _relationship_part_member(
+                workbook_relationships,
+                taskpane_relationship_id,
+                "xl/workbook.xml",
+                relationship_type=_WEB_EXTENSION_TASKPANES_RELATIONSHIP,
+            )
+            if taskpane_member is None:
+                return None
+            taskpanes = ElementTree.fromstring(archive.read(taskpane_member))
+
+            taskpane_directory, taskpane_filename = taskpane_member.rsplit("/", maxsplit=1)
+            taskpane_relationships_member = f"{taskpane_directory}/_rels/{taskpane_filename}.rels"
+            taskpane_relationships_root = ElementTree.fromstring(
+                archive.read(taskpane_relationships_member)
+            )
+            extension_relationships = [
+                relationship
+                for relationship in taskpane_relationships_root.findall(relationship_tag)
+                if relationship.get("Type") == _WEB_EXTENSION_RELATIONSHIP
+            ]
+            if len(extension_relationships) != 1 or len(taskpane_relationships_root) != 1:
+                return None
+            extension_relationship_id = extension_relationships[0].get("Id")
+            if not isinstance(extension_relationship_id, str):
+                return None
+            extension_member = _relationship_part_member(
+                taskpane_relationships_root,
+                extension_relationship_id,
+                taskpane_member,
+                relationship_type=_WEB_EXTENSION_RELATIONSHIP,
+            )
+            if extension_member is None:
+                return None
+            extension = ElementTree.fromstring(archive.read(extension_member))
+
+            content_types = ElementTree.fromstring(archive.read("[Content_Types].xml"))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError, ValueError):
+        return None
+
+    if (
+        taskpanes.tag != f"{{{_WEB_EXTENSION_TASKPANES_NS}}}taskpanes"
+        or taskpanes.attrib
+        or len(taskpanes) != 1
+    ):
+        return None
+    taskpane = taskpanes[0]
+    if taskpane.tag != f"{{{_WEB_EXTENSION_TASKPANES_NS}}}taskpane" or len(taskpane) != 1:
+        return None
+    taskpane_reference = taskpane[0]
+    relationship_id_attribute = f"{{{_DOCUMENT_RELATIONSHIPS_NS}}}id"
+    if (
+        taskpane_reference.tag != f"{{{_WEB_EXTENSION_TASKPANES_NS}}}webextension"
+        or taskpane_reference.get(relationship_id_attribute) != extension_relationship_id
+        or len(taskpane_reference)
+    ):
+        return None
+
+    if extension.tag != f"{{{_WEB_EXTENSION_NS}}}webextension" or len(extension) != 2:
+        return None
+    reference_tag = f"{{{_WEB_EXTENSION_NS}}}reference"
+    properties_tag = f"{{{_WEB_EXTENSION_NS}}}properties"
+    property_tag = f"{{{_WEB_EXTENSION_NS}}}property"
+    references = extension.findall(reference_tag)
+    properties = extension.findall(properties_tag)
+    if len(references) != 1 or len(properties) != 1 or len(properties[0]) != 1:
+        return None
+    property_element = properties[0][0]
+    if property_element.tag != property_tag or len(property_element):
+        return None
+    auto_show = _ooxml_boolean(property_element.get("value"))
+    if auto_show is None:
+        return None
+
+    override_tag = f"{{{_CONTENT_TYPES_NS}}}Override"
+    taskpane_overrides = [
+        override
+        for override in content_types.findall(override_tag)
+        if override.get("PartName") == f"/{taskpane_member}"
+    ]
+    extension_overrides = [
+        override
+        for override in content_types.findall(override_tag)
+        if override.get("PartName") == f"/{extension_member}"
+    ]
+    if len(taskpane_overrides) != 1 or len(extension_overrides) != 1:
+        return None
+    return {
+        "workbook_relationship_attributes": tuple(sorted(taskpane_relationships[0].attrib.items())),
+        "taskpane_member": taskpane_member,
+        "taskpane_content_type_attributes": tuple(sorted(taskpane_overrides[0].attrib.items())),
+        "taskpane_relationships_member": taskpane_relationships_member,
+        "taskpane_to_extension_relationship_attributes": tuple(
+            sorted(extension_relationships[0].attrib.items())
+        ),
+        "taskpane_attributes": tuple(sorted(taskpane.attrib.items())),
+        "taskpane_reference_attributes": tuple(sorted(taskpane_reference.attrib.items())),
+        "extension_member": extension_member,
+        "extension_attributes": tuple(sorted(extension.attrib.items())),
+        "extension_content_type_attributes": tuple(sorted(extension_overrides[0].attrib.items())),
+        "reference_attributes": tuple(sorted(references[0].attrib.items())),
+        "properties_attributes": tuple(sorted(properties[0].attrib.items())),
+        "property_attributes": tuple(sorted(property_element.attrib.items())),
+        "auto_show": auto_show,
+    }
+
+
+def _office_web_addin_without_auto_show(path: Path) -> bytes | None:
+    """Return the generated WebExtension part with only its auto-show value erased."""
+
+    state = _raw_office_web_addin_auto_show_state(path)
+    if state is None:
+        return None
+    try:
+        with ZipFile(path) as archive:
+            extension = ElementTree.fromstring(archive.read(state["extension_member"]))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    property_tag = f"{{{_WEB_EXTENSION_NS}}}property"
+    properties = [
+        property_element
+        for property_element in extension.iter(property_tag)
+        if property_element.get("name") == "Office.AutoShowTaskpaneWithDocument"
+    ]
+    if len(properties) != 1 or "value" not in properties[0].attrib:
+        return None
+    properties[0].attrib.pop("value")
+    return ElementTree.tostring(extension, encoding="utf-8", xml_declaration=True)
+
+
 def _raw_ignored_error_formula_range_state(path: Path, sheet_name: str) -> dict[str, Any] | None:
     """Read WCAB's compact worksheet-local ignored-error declaration.
 
@@ -2862,6 +3022,159 @@ def _validate_fact(
             and _xlsx_member_differences(baseline_path, candidate_path) == {"xl/tables/table1.xml"}
             and _calculation_properties(baseline_path) == _calculation_properties(candidate_path),
             f"{truth['id']}: expected only one XML Map table-column XPath NetAmount -> TaxAmount with stable map, schema, cells, formulas, and package boundary",
+            errors,
+        )
+        return
+
+    if kind == "office_web_addin_auto_show_enabled":
+        input_sheet = fact.get("input_sheet")
+        input_cell = fact.get("input_cell")
+        model_sheet = fact.get("model_sheet")
+        model_cell = fact.get("model_cell")
+        dashboard_sheet = fact.get("dashboard_sheet")
+        dashboard_cell = fact.get("dashboard_cell")
+        before_state = _raw_office_web_addin_auto_show_state(baseline_path)
+        after_state = _raw_office_web_addin_auto_show_state(candidate_path)
+        before_input = (
+            _raw_cell_state(baseline_path, input_sheet, input_cell)
+            if isinstance(input_sheet, str) and isinstance(input_cell, str)
+            else None
+        )
+        after_input = (
+            _raw_cell_state(candidate_path, input_sheet, input_cell)
+            if isinstance(input_sheet, str) and isinstance(input_cell, str)
+            else None
+        )
+        before_model = (
+            _raw_cell_state(baseline_path, model_sheet, model_cell)
+            if isinstance(model_sheet, str) and isinstance(model_cell, str)
+            else None
+        )
+        after_model = (
+            _raw_cell_state(candidate_path, model_sheet, model_cell)
+            if isinstance(model_sheet, str) and isinstance(model_cell, str)
+            else None
+        )
+        before_dashboard = (
+            _raw_cell_state(baseline_path, dashboard_sheet, dashboard_cell)
+            if isinstance(dashboard_sheet, str) and isinstance(dashboard_cell, str)
+            else None
+        )
+        after_dashboard = (
+            _raw_cell_state(candidate_path, dashboard_sheet, dashboard_cell)
+            if isinstance(dashboard_sheet, str) and isinstance(dashboard_cell, str)
+            else None
+        )
+        expected_common_state = {
+            "workbook_relationship_attributes": (
+                ("Id", "rIdWCABOfficeWebAddinTaskpanes"),
+                ("Target", "webextensions/taskpanes.xml"),
+                (
+                    "Type",
+                    "http://schemas.microsoft.com/office/2011/relationships/webextensiontaskpanes",
+                ),
+            ),
+            "taskpane_member": "xl/webextensions/taskpanes.xml",
+            "taskpane_content_type_attributes": (
+                (
+                    "ContentType",
+                    "application/vnd.ms-office.webextensiontaskpanes+xml",
+                ),
+                ("PartName", "/xl/webextensions/taskpanes.xml"),
+            ),
+            "taskpane_relationships_member": "xl/webextensions/_rels/taskpanes.xml.rels",
+            "taskpane_to_extension_relationship_attributes": (
+                ("Id", "rIdWCABOfficeWebAddin"),
+                ("Target", "webextension1.xml"),
+                (
+                    "Type",
+                    "http://schemas.microsoft.com/office/2011/relationships/webextension",
+                ),
+            ),
+            "taskpane_attributes": (
+                ("dockstate", "right"),
+                ("locked", "1"),
+                ("row", "4"),
+                ("visibility", "0"),
+                ("width", "350"),
+            ),
+            "taskpane_reference_attributes": (
+                (
+                    "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id",
+                    "rIdWCABOfficeWebAddin",
+                ),
+            ),
+            "extension_member": "xl/webextensions/webextension1.xml",
+            "extension_attributes": (("id", "{33333333-3333-3333-3333-333333333333}"),),
+            "extension_content_type_attributes": (
+                ("ContentType", "application/vnd.ms-office.webextension+xml"),
+                ("PartName", "/xl/webextensions/webextension1.xml"),
+            ),
+            "reference_attributes": (
+                ("id", "{44444444-4444-4444-4444-444444444444}"),
+                ("store", "wcab-review-assistant.xml"),
+                ("storeType", "Filesystem"),
+                ("version", "1.0.0.0"),
+            ),
+            "properties_attributes": (),
+        }
+        _assert(
+            fact.get("taskpane_member") == "xl/webextensions/taskpanes.xml"
+            and fact.get("web_extension_member") == "xl/webextensions/webextension1.xml"
+            and fact.get("addin_id") == "{33333333-3333-3333-3333-333333333333}"
+            and fact.get("reference_id") == "{44444444-4444-4444-4444-444444444444}"
+            and fact.get("reference_version") == "1.0.0.0"
+            and fact.get("store") == "wcab-review-assistant.xml"
+            and fact.get("store_type") == "Filesystem"
+            and fact.get("baseline_auto_show") is False
+            and fact.get("candidate_auto_show") is True
+            and input_sheet == "Inputs"
+            and input_cell == "B2"
+            and fact.get("input_value") == 10
+            and model_sheet == "Model"
+            and model_cell == "B2"
+            and fact.get("model_formula") == "=Inputs!$B$2*2"
+            and dashboard_sheet == "Dashboard"
+            and dashboard_cell == "B4"
+            and fact.get("dashboard_formula") == "=Model!$B$2"
+            and all(
+                sheet in baseline.sheetnames and sheet in candidate.sheetnames
+                for sheet in (input_sheet, model_sheet, dashboard_sheet)
+            )
+            and before_state is not None
+            and after_state is not None
+            and all(before_state.get(key) == value for key, value in expected_common_state.items())
+            and all(after_state.get(key) == value for key, value in expected_common_state.items())
+            and before_state["property_attributes"]
+            == (
+                ("name", "Office.AutoShowTaskpaneWithDocument"),
+                ("value", "false"),
+            )
+            and after_state["property_attributes"]
+            == (
+                ("name", "Office.AutoShowTaskpaneWithDocument"),
+                ("value", "true"),
+            )
+            and before_state["auto_show"] is False
+            and after_state["auto_show"] is True
+            and before_input is not None
+            and before_input == after_input
+            and before_input[0] == "xl/worksheets/sheet1.xml"
+            and before_input[4] == "10"
+            and before_model is not None
+            and before_model == after_model
+            and before_model[0] == "xl/worksheets/sheet2.xml"
+            and before_model[3] == "=Inputs!$B$2*2"
+            and before_dashboard is not None
+            and before_dashboard == after_dashboard
+            and before_dashboard[0] == "xl/worksheets/sheet3.xml"
+            and before_dashboard[3] == "=Model!$B$2"
+            and _office_web_addin_without_auto_show(baseline_path)
+            == _office_web_addin_without_auto_show(candidate_path)
+            and _xlsx_member_differences(baseline_path, candidate_path)
+            == {"xl/webextensions/webextension1.xml"}
+            and _calculation_properties(baseline_path) == _calculation_properties(candidate_path),
+            f"{truth['id']}: expected one Office Web Add-in auto-show property false -> true with stable task-pane declaration, cells, formulas, and package boundary",
             errors,
         )
         return

@@ -34,7 +34,7 @@ gates, static analyzers, and agent workflows that propose workbook edits.
 
 ## Scope and non-goals
 
-Version `0.27` covers formula-to-value replacements, formula reference drift,
+Version `0.28` covers formula-to-value replacements, formula reference drift,
 value changes with downstream effects, external formula references, named
 ranges, data validation, conditional formatting, sheet visibility, direct cell
 and workbook-structure protection, calculation settings, static cycles,
@@ -78,6 +78,13 @@ mapping, visible cells, table total, and dashboard formula remain unchanged.
 It records a stored import/export data contract only: it does not access a
 file, validate a schema, import or export XML, materialize data, calculate a
 result, or claim client behavior.
+It also covers a relationship-backed Office Web Add-in task-pane declaration
+whose stored `Office.AutoShowTaskpaneWithDocument` request changes from false
+to true while its synthetic local FileSystem reference, hidden locked
+task-pane layout, ordinary cells, and `Inputs!B2 → Model!B2 → Dashboard!B4`
+formula context remain fixed. It records a stored request only: it does not
+install, load, execute, or fetch an add-in or manifest, and it does not claim
+that a task pane opens.
 It also covers a local worksheet-backed PivotTable cache whose raw
 `refreshOnLoad` control changes from false to true while its source cells,
 stored `Report!A1:B2` display cells, and `Dashboard!B4=Report!$B$2` consumer
@@ -396,6 +403,16 @@ and cell values. WCAB's raw validator independently proves the synthetic
 `NetAmount`-to-`TaxAmount` XPath transition, stable map/schema/bindings and
 formulas, and the table-part-only package change. Neither layer accesses a
 file, imports or exports XML, materializes data, or infers a result.
+For the Office Web Add-in case, it requires FormulaFence
+`office_web_addins_changed` evidence and `FF028` with one declared task-pane
+part, task pane, web-extension part, and local store reference; one locked,
+hidden task pane; no bindings, snapshots, external relationships, in-content
+references, or unrecognized parts; and an auto-show count moving from zero to
+one. FormulaFence deliberately redacts the add-in IDs, store name, and property
+value. WCAB's raw validator independently proves the generated local
+reference, false-to-true stored property transition, stable workbook context,
+and web-extension-part-only package change. Neither layer installs, loads,
+executes, or fetches an add-in or manifest, or claims that a task pane opens.
 The adapter keeps unmapped facts explicit; it does not treat the benign
 structural-rewrite annotation as a generic semantic-equivalence claim.
 
