@@ -236,6 +236,34 @@ relationship. It does not install, load, execute, or fetch an add-in or
 manifest, and it does not claim that any client opens a task pane or that the
 add-in accesses workbook cells.
 
+## Embedded OLE auto-load requests change workbook-open behavior outside cells
+
+Microsoft's [OLEObject.AutoLoad reference](https://learn.microsoft.com/en-us/office/vba/api/excel.oleobject.autoload)
+defines the property as whether an OLE object is automatically loaded when its
+workbook opens. It defaults to false for new OLE objects, Microsoft advises
+against setting it true for most object types, and explicitly distinguishes
+ActiveX controls, which ignore the property because they always load. The Open
+XML [`OleObject.AutoLoad` reference](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.spreadsheet.oleobject.autoload?view=openxml-3.0.1)
+records the same stored `autoLoad` schema boolean, while the
+[`OleObject` element reference](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.spreadsheet.oleobject?view=openxml-3.0.1)
+defines its relationship identifier as the pointer to object-persistence data.
+That creates a material review surface independent of a cell diff, without
+requiring a benchmark to launch an object server.
+
+WCAB 0.29 isolates that declaration in one original synthetic package. It has
+one worksheet `oleObject` declaration, one standard internal OLE relationship,
+and one fixed opaque ASCII payload under a synthetic unregistered ProgID. Its
+`autoLoad` value alone moves from false to true; its relationship, content
+type, bytes, ordinary cells, calculation properties, and
+`Inputs!B2 → Model!B2 → Dashboard!B4` formula context remain fixed. The
+validator follows only that local relationship, compares worksheet XML after
+erasing `autoLoad`, verifies the fixed opaque bytes without deserializing them,
+and requires the worksheet part to be the sole package change. The fixture has
+no linked target, ActiveX control, object presentation, macro, or external
+relationship. It does not deserialize, open, render, execute, register, or
+invoke an object server, and it does not claim that an object loads
+successfully.
+
 ## PivotTable cache refresh requests without a cell edit
 
 Microsoft documents an option to [refresh PivotTable data when a workbook

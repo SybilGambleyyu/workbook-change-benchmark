@@ -34,7 +34,7 @@ gates, static analyzers, and agent workflows that propose workbook edits.
 
 ## Scope and non-goals
 
-Version `0.28` covers formula-to-value replacements, formula reference drift,
+Version `0.29` covers formula-to-value replacements, formula reference drift,
 value changes with downstream effects, external formula references, named
 ranges, data validation, conditional formatting, sheet visibility, direct cell
 and workbook-structure protection, calculation settings, static cycles,
@@ -85,6 +85,13 @@ task-pane layout, ordinary cells, and `Inputs!B2 → Model!B2 → Dashboard!B4`
 formula context remain fixed. It records a stored request only: it does not
 install, load, execute, or fetch an add-in or manifest, and it does not claim
 that a task pane opens.
+It also covers one local worksheet OLE declaration whose stored
+`oleObject/@autoLoad` control changes from false to true while its one fixed
+internal relationship, opaque synthetic bytes, ordinary cells, calculation
+properties, and `Inputs!B2 → Model!B2 → Dashboard!B4` formula context remain
+unchanged. It records a raw request only: it does not deserialize, open,
+render, execute, register, or invoke an object server, and it does not claim
+that an object loads successfully.
 It also covers a local worksheet-backed PivotTable cache whose raw
 `refreshOnLoad` control changes from false to true while its source cells,
 stored `Report!A1:B2` display cells, and `Dashboard!B4=Report!$B$2` consumer
@@ -413,6 +420,17 @@ value. WCAB's raw validator independently proves the generated local
 reference, false-to-true stored property transition, stable workbook context,
 and web-extension-part-only package change. Neither layer installs, loads,
 executes, or fetches an add-in or manifest, or claims that a task pane opens.
+For the embedded OLE auto-load case, it requires FormulaFence
+`worksheet_embedded_controls_changed` evidence and `FF029` with one
+control-bearing worksheet, one internal fingerprinted payload, one OLE object,
+no ActiveX, VML, linked object, external relationship, or unrecognized part,
+and an auto-load count moving from zero to one. FormulaFence deliberately
+redacts the ProgID, relationship target, content type, and bytes. WCAB's raw
+validator independently proves the fixed local relationship, inert synthetic
+payload, false-to-true stored control, stable formula context, and
+worksheet-only package change. Neither layer deserializes, opens, renders,
+executes, registers, or invokes an object server, or claims that an object
+loads successfully.
 The adapter keeps unmapped facts explicit; it does not treat the benign
 structural-rewrite annotation as a generic semantic-equivalence claim.
 

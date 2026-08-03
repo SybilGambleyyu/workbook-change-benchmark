@@ -356,7 +356,17 @@ value. WCAB's raw validator independently establishes the generated local
 relationship graph, false-to-true property transition, stable ordinary
 workbook context, and web-extension-part-only boundary. Neither report
 installs, loads, executes, or fetches an add-in or manifest, or claims that a
-task pane opens. The adapter
+task pane opens. The adapter requires one exact
+`worksheet_embedded_controls_changed` record and `FF029` for the embedded OLE
+auto-load case. FormulaFence's redacted profile must retain one control-bearing
+worksheet, one OLE object, one internal fingerprinted payload, and no ActiveX,
+VML, linked object, external relationship, or unrecognized control, while only
+its auto-load count moves from zero to one. It does not expose the ProgID,
+relationship target, content type, or bytes. WCAB's raw validator independently
+establishes the inert local relationship, fixed opaque bytes, false-to-true
+property transition, stable formula context, and worksheet-only boundary.
+Neither report deserializes, opens, renders, executes, registers, or invokes an
+object server, or claims successful loading. The adapter
 leaves `review`
 as `null`: FormulaFence surfaces evidence but does not impose WCAB's reference
 policy as a universal approval decision. Any intentionally unmapped fact or coverage expectation

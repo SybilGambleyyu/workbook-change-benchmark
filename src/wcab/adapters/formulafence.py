@@ -39,6 +39,7 @@ _FACT_TO_CHANGE: dict[str, tuple[str, str | None]] = {
     "named_sheet_view_filter_criterion_changed": ("named_sheet_views_changed", None),
     "xml_map_table_column_xpath_retargeted": ("xml_mapping_controls_changed", None),
     "office_web_addin_auto_show_enabled": ("office_web_addins_changed", None),
+    "ole_object_auto_load_enabled": ("worksheet_embedded_controls_changed", None),
     "sheet_visibility_changed": ("sheet_visibility_changed", None),
     "formula_cell_unlocked": ("cell_protection_assignments_changed", None),
     "workbook_structure_lock_removed": ("workbook_protection_changed", None),
@@ -630,6 +631,94 @@ def _office_web_addin_auto_show_finding_observed(
     """Require FormulaFence's matching critical Office Web Add-in finding."""
 
     return finding.get("rule_id") == "FF028" and _office_web_addin_auto_show_details_observed(
+        finding.get("details"), fact
+    )
+
+
+def _ole_object_auto_load_details_observed(details: Any, fact: dict[str, Any]) -> bool:
+    """Require FormulaFence's exact redacted embedded-OLE transition.
+
+    FormulaFence intentionally does not expose an OLE ProgID, relationship
+    target, content type, or bytes. WCAB independently validates that inert
+    local graph and requires one fixed embedded object whose load-on-open count
+    changes without any modeled control, link, or payload change.
+    """
+
+    if (
+        fact.get("sheet") != "Inputs"
+        or fact.get("worksheet_member") != "xl/worksheets/sheet1.xml"
+        or fact.get("worksheet_relationships_member") != "xl/worksheets/_rels/sheet1.xml.rels"
+        or fact.get("relationship_id") != "rIdWCABEmbeddedOle"
+        or fact.get("relationship_type")
+        != "http://schemas.openxmlformats.org/officeDocument/2006/relationships/oleObject"
+        or fact.get("target") != "../embeddings/wcab-review-embedded-object.bin"
+        or fact.get("embedded_object_member") != "xl/embeddings/wcab-review-embedded-object.bin"
+        or fact.get("content_type") != "application/vnd.openxmlformats-officedocument.oleObject"
+        or fact.get("prog_id") != "WCAB.Review.Embedded.Object"
+        or fact.get("dv_aspect") != "DVASPECT_CONTENT"
+        or fact.get("shape_id") != 1026
+        or fact.get("baseline_auto_load") is not False
+        or fact.get("candidate_auto_load") is not True
+        or fact.get("input_sheet") != "Inputs"
+        or fact.get("input_cell") != "B2"
+        or fact.get("input_value") != 10
+        or fact.get("model_sheet") != "Model"
+        or fact.get("model_cell") != "B2"
+        or fact.get("model_formula") != "=Inputs!$B$2*2"
+        or fact.get("dashboard_sheet") != "Dashboard"
+        or fact.get("dashboard_cell") != "B4"
+        or fact.get("dashboard_formula") != "=Model!$B$2"
+        or not isinstance(details, dict)
+    ):
+        return False
+    before = {
+        "present": True,
+        "control_sheet_count": 1,
+        "worksheet_control_count": 0,
+        "active_x_part_count": 0,
+        "active_x_binary_reference_count": 0,
+        "form_control_property_part_count": 0,
+        "legacy_vml_drawing_part_count": 0,
+        "legacy_vml_control_count": 0,
+        "legacy_vml_macro_assignment_count": 0,
+        "legacy_vml_cell_link_count": 0,
+        "legacy_vml_source_range_count": 0,
+        "legacy_vml_camera_source_range_count": 0,
+        "control_macro_assignment_count": 0,
+        "control_cell_link_count": 0,
+        "control_source_range_count": 0,
+        "form_control_formula_binding_count": 0,
+        "ole_object_count": 1,
+        "linked_ole_object_count": 0,
+        "auto_load_ole_object_count": 0,
+        "auto_update_ole_object_count": 0,
+        "related_relationship_count": 1,
+        "external_relationship_count": 0,
+        "internal_related_part_count": 1,
+        "fingerprinted_related_part_count": 1,
+        "uninspected_related_part_count": 0,
+        "unrecognized_part_count": 0,
+    }
+    after = {**before, "auto_load_ole_object_count": 1}
+    return details == {
+        "before": before,
+        "after": after,
+        "worksheet_control_definition_material_changed": True,
+    }
+
+
+def _ole_object_auto_load_observed(change: dict[str, Any], fact: dict[str, Any]) -> bool:
+    """Match FormulaFence's worksheet embedded-control change record."""
+
+    return change.get("kind") == "worksheet_embedded_controls_changed" and (
+        _ole_object_auto_load_details_observed(change.get("details"), fact)
+    )
+
+
+def _ole_object_auto_load_finding_observed(finding: dict[str, Any], fact: dict[str, Any]) -> bool:
+    """Require FormulaFence's matching critical embedded-control finding."""
+
+    return finding.get("rule_id") == "FF029" and _ole_object_auto_load_details_observed(
         finding.get("details"), fact
     )
 
@@ -1768,6 +1857,16 @@ def evaluate_diff_case(case_dir: str | Path, *, executable: str = "formulafence"
                 if isinstance(change, dict)
             ) and any(
                 _office_web_addin_auto_show_finding_observed(finding, fact)
+                for finding in findings
+                if isinstance(finding, dict)
+            )
+        if kind == "ole_object_auto_load_enabled":
+            observed = any(
+                _ole_object_auto_load_observed(change, fact)
+                for change in changes
+                if isinstance(change, dict)
+            ) and any(
+                _ole_object_auto_load_finding_observed(finding, fact)
                 for finding in findings
                 if isinstance(finding, dict)
             )

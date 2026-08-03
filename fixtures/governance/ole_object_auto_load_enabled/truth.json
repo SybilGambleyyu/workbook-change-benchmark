@@ -1,0 +1,42 @@
+{
+  "coverage": [
+    "The pair changes only raw xl/worksheets/sheet1.xml oleObject/@autoLoad from false to true. It does not edit ordinary cells, formulas, calculation properties, content types, relationships, or the embedded-object bytes.",
+    "The object has one fixed internal worksheet relationship and an opaque synthetic ASCII payload under a synthetic unregistered ProgID. There is no linked target, ActiveX control, object presentation, macro, or external relationship.",
+    "WCAB does not deserialize, open, render, execute, register, or invoke an object server, and it does not claim that an object loads successfully. The stable Inputs!B2-to-Model!B2-to-Dashboard!B4 formula path is workbook context only."
+  ],
+  "coverage_expectations": [],
+  "facts": [
+    {
+      "baseline_auto_load": false,
+      "candidate_auto_load": true,
+      "content_type": "application/vnd.openxmlformats-officedocument.oleObject",
+      "dashboard_cell": "B4",
+      "dashboard_formula": "=Model!$B$2",
+      "dashboard_sheet": "Dashboard",
+      "dv_aspect": "DVASPECT_CONTENT",
+      "embedded_object_member": "xl/embeddings/wcab-review-embedded-object.bin",
+      "input_cell": "B2",
+      "input_sheet": "Inputs",
+      "input_value": 10,
+      "kind": "ole_object_auto_load_enabled",
+      "model_cell": "B2",
+      "model_formula": "=Inputs!$B$2*2",
+      "model_sheet": "Model",
+      "prog_id": "WCAB.Review.Embedded.Object",
+      "relationship_id": "rIdWCABEmbeddedOle",
+      "relationship_type": "http://schemas.openxmlformats.org/officeDocument/2006/relationships/oleObject",
+      "shape_id": 1026,
+      "sheet": "Inputs",
+      "target": "../embeddings/wcab-review-embedded-object.bin",
+      "worksheet_member": "xl/worksheets/sheet1.xml",
+      "worksheet_relationships_member": "xl/worksheets/_rels/sheet1.xml.rels"
+    }
+  ],
+  "family": "governance",
+  "id": "governance.ole_object_auto_load_enabled",
+  "must_reach": [],
+  "review_expectation": "block",
+  "schema_version": 3,
+  "title": "An embedded OLE object requests automatic loading on workbook open",
+  "topology": "pair"
+}

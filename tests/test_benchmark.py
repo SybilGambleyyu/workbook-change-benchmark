@@ -130,6 +130,42 @@ def _office_web_addin_auto_show_details() -> dict[str, object]:
     }
 
 
+def _ole_object_auto_load_details() -> dict[str, object]:
+    before = {
+        "present": True,
+        "control_sheet_count": 1,
+        "worksheet_control_count": 0,
+        "active_x_part_count": 0,
+        "active_x_binary_reference_count": 0,
+        "form_control_property_part_count": 0,
+        "legacy_vml_drawing_part_count": 0,
+        "legacy_vml_control_count": 0,
+        "legacy_vml_macro_assignment_count": 0,
+        "legacy_vml_cell_link_count": 0,
+        "legacy_vml_source_range_count": 0,
+        "legacy_vml_camera_source_range_count": 0,
+        "control_macro_assignment_count": 0,
+        "control_cell_link_count": 0,
+        "control_source_range_count": 0,
+        "form_control_formula_binding_count": 0,
+        "ole_object_count": 1,
+        "linked_ole_object_count": 0,
+        "auto_load_ole_object_count": 0,
+        "auto_update_ole_object_count": 0,
+        "related_relationship_count": 1,
+        "external_relationship_count": 0,
+        "internal_related_part_count": 1,
+        "fingerprinted_related_part_count": 1,
+        "uninspected_related_part_count": 0,
+        "unrecognized_part_count": 0,
+    }
+    return {
+        "before": before,
+        "after": {**before, "auto_load_ole_object_count": 1},
+        "worksheet_control_definition_material_changed": True,
+    }
+
+
 def _pivot_cache_refresh_details() -> dict[str, object]:
     before = {
         "background_query": False,
@@ -640,6 +676,36 @@ def test_committed_manifest_matches_fixture_tree() -> None:
             "store_type": "Filesystem",
             "baseline_auto_show": False,
             "candidate_auto_show": True,
+            "input_sheet": "Inputs",
+            "input_cell": "B2",
+            "input_value": 10,
+            "model_sheet": "Model",
+            "model_cell": "B2",
+            "model_formula": "=Inputs!$B$2*2",
+            "dashboard_sheet": "Dashboard",
+            "dashboard_cell": "B4",
+            "dashboard_formula": "=Model!$B$2",
+        }
+    ]
+    ole_object_row = next(
+        row for row in rows if row["id"] == "governance.ole_object_auto_load_enabled"
+    )
+    assert ole_object_row["facts"] == [
+        {
+            "kind": "ole_object_auto_load_enabled",
+            "sheet": "Inputs",
+            "worksheet_member": "xl/worksheets/sheet1.xml",
+            "worksheet_relationships_member": "xl/worksheets/_rels/sheet1.xml.rels",
+            "relationship_id": "rIdWCABEmbeddedOle",
+            "relationship_type": "http://schemas.openxmlformats.org/officeDocument/2006/relationships/oleObject",
+            "target": "../embeddings/wcab-review-embedded-object.bin",
+            "embedded_object_member": "xl/embeddings/wcab-review-embedded-object.bin",
+            "content_type": "application/vnd.openxmlformats-officedocument.oleObject",
+            "prog_id": "WCAB.Review.Embedded.Object",
+            "dv_aspect": "DVASPECT_CONTENT",
+            "shape_id": 1026,
+            "baseline_auto_load": False,
+            "candidate_auto_load": True,
             "input_sheet": "Inputs",
             "input_cell": "B2",
             "input_value": 10,
@@ -2645,6 +2711,86 @@ def test_office_web_addin_auto_show_pair_changes_only_its_extension_part(tmp_pat
     ] == ["xl/webextensions/webextension1.xml"]
 
 
+def test_validator_rejects_a_false_ole_object_auto_load_fact(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "governance" / "ole_object_auto_load_enabled"
+    truth_path = case / "truth.json"
+    truth = json.loads(truth_path.read_text(encoding="utf-8"))
+    truth["facts"][0]["candidate_auto_load"] = False
+    truth_path.write_text(json.dumps(truth), encoding="utf-8")
+    assert validate_case(case)
+
+
+def test_validator_rejects_a_corrupted_ole_object_auto_load_flag(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = fixture_root / "governance" / "ole_object_auto_load_enabled" / "candidate.xlsx"
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    namespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    worksheet_member = "xl/worksheets/sheet1.xml"
+    worksheet = ElementTree.fromstring(members[worksheet_member])
+    ole_object = worksheet.find(f".//{{{namespace}}}oleObject")
+    assert ole_object is not None
+    ole_object.set("autoLoad", "false")
+    members[worksheet_member] = ElementTree.tostring(
+        worksheet, encoding="utf-8", xml_declaration=True
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_validator_rejects_an_unrelated_ole_object_change(tmp_path: Path) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = fixture_root / "governance" / "ole_object_auto_load_enabled" / "candidate.xlsx"
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    namespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    worksheet_member = "xl/worksheets/sheet1.xml"
+    worksheet = ElementTree.fromstring(members[worksheet_member])
+    ole_object = worksheet.find(f".//{{{namespace}}}oleObject")
+    assert ole_object is not None
+    ole_object.set("progId", "WCAB.Other.Embedded.Object")
+    members[worksheet_member] = ElementTree.tostring(
+        worksheet, encoding="utf-8", xml_declaration=True
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
+
+
+def test_ole_object_auto_load_pair_changes_only_its_inputs_worksheet(
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "governance" / "ole_object_auto_load_enabled"
+    with ZipFile(case / "baseline.xlsx") as baseline, ZipFile(case / "candidate.xlsx") as candidate:
+        assert baseline.testzip() is None
+        assert candidate.testzip() is None
+        baseline_members = {
+            entry.filename: baseline.read(entry.filename) for entry in baseline.infolist()
+        }
+        candidate_members = {
+            entry.filename: candidate.read(entry.filename) for entry in candidate.infolist()
+        }
+    assert set(baseline_members) == set(candidate_members)
+    assert [
+        member
+        for member in sorted(baseline_members)
+        if baseline_members[member] != candidate_members[member]
+    ] == ["xl/worksheets/sheet1.xml"]
+
+
 def test_validator_rejects_a_false_workbook_date_system_fact(tmp_path: Path) -> None:
     fixture_root = tmp_path / "fixtures"
     build_all(fixture_root)
@@ -3643,6 +3789,92 @@ def test_formulafence_adapter_requires_the_office_web_addin_auto_show_finding(
     assert result["status"] == "missed"
     assert result["matched"] == []
     assert result["missed"] == ["office_web_addin_auto_show_enabled"]
+
+
+def test_formulafence_adapter_maps_the_exact_ole_object_auto_load_change(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _ole_object_auto_load_details()
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "worksheet_embedded_controls_changed",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF029", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "ole_object_auto_load_enabled"
+    )
+    assert result["status"] == "matched"
+    assert result["matched"] == ["ole_object_auto_load_enabled"]
+
+
+def test_formulafence_adapter_rejects_an_inexact_ole_object_auto_load_change(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _ole_object_auto_load_details()
+        details["after"]["external_relationship_count"] = 1
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "worksheet_embedded_controls_changed",
+                    "location": None,
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF029", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "ole_object_auto_load_enabled"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["ole_object_auto_load_enabled"]
+
+
+def test_formulafence_adapter_requires_the_ole_object_auto_load_finding(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "worksheet_embedded_controls_changed",
+                    "location": None,
+                    "details": _ole_object_auto_load_details(),
+                }
+            ],
+            "findings": [],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "ole_object_auto_load_enabled"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["ole_object_auto_load_enabled"]
 
 
 def test_formulafence_adapter_maps_the_exact_data_validation_list_source_change(

@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.29.0 — 2026-08-03
+
+- Add a deterministic, relationship-backed worksheet embedded-OLE auto-load
+  case. Its one internal relationship, opaque synthetic bytes, synthetic
+  unregistered ProgID, ordinary `Inputs!B2 → Model!B2 → Dashboard!B4` formula
+  context, and all non-worksheet package members remain fixed while raw
+  `oleObject/@autoLoad` changes from false to true.
+- Add the exact `ole_object_auto_load_enabled` fact, a narrow raw-OOXML
+  relationship-graph validator, worksheet-only package-isolation check, and
+  corruption regressions. WCAB records a stored request only: it does not
+  deserialize, open, render, execute, register, or invoke an object server,
+  and it does not claim that an object loads successfully.
+- Extend the optional FormulaFence adapter to require its exact redacted
+  `worksheet_embedded_controls_changed` profile and critical `FF029`, while
+  WCAB independently establishes the generated local relationship, fixed
+  opaque bytes, auto-load transition, stable workbook context, and package
+  boundary.
+
 ## 0.28.0 — 2026-08-03
 
 - Add a deterministic, relationship-backed Office Web Add-in task-pane case.

@@ -22,7 +22,7 @@ configs:
 # Workbook Change Assurance Benchmark (WCAB)
 
 WCAB is an open, deterministic benchmark for tools that review changes to
-Excel workbooks. Each of its 43 synthetic cases supplies baseline/candidate
+Excel workbooks. Each of its 44 synthetic cases supplies baseline/candidate
 fixtures, explicit observable change facts, a reference review
 disposition, documented coverage boundaries, and—in relevant cases—a
 machine-matchable coverage expectation.
@@ -84,7 +84,10 @@ binding declarations, single-cell mapping, cells, formulas, and dashboard
 dependency stay fixed, and a relationship-backed Office Web Add-in task-pane
 declaration whose stored `Office.AutoShowTaskpaneWithDocument` request changes
 from false to true while its synthetic local reference, locked hidden pane,
-ordinary cells, and formula context stay fixed, and a small
+ordinary cells, and formula context stay fixed, and one local worksheet OLE
+declaration whose raw `autoLoad` request moves from false to true while its
+internal relationship, opaque synthetic bytes, ordinary cells, and formula
+context stay fixed, and a small
 multi-workbook
 portfolio.
 
@@ -105,6 +108,10 @@ calculate a result, or claim client behavior.
 The Office Web Add-in case records a stored package property only: it does not
 install, load, execute, or fetch an add-in or manifest, and it does not claim
 that a task pane opens or that an add-in accesses workbook cells.
+
+The embedded OLE case records a stored package property only: it does not
+deserialize, open, render, execute, register, or invoke an object server, and
+it does not claim that the opaque synthetic object loads successfully.
 
 ## Use
 

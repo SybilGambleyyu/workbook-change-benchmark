@@ -45,6 +45,11 @@ _WEB_EXTENSION_TASKPANES_RELATIONSHIP = (
     "http://schemas.microsoft.com/office/2011/relationships/webextensiontaskpanes"
 )
 _WEB_EXTENSION_RELATIONSHIP = "http://schemas.microsoft.com/office/2011/relationships/webextension"
+_OLE_OBJECT_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/oleObject"
+_OLE_OBJECT_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.oleObject"
+_OLE_OBJECT_PAYLOAD = (
+    b"WCAB opaque synthetic embedded-object fixture bytes; never deserialized or opened."
+)
 _SLICER_CACHE_RELATIONSHIP = "http://schemas.microsoft.com/office/2007/relationships/slicerCache"
 _DATA_MASHUP_NS = "http://schemas.microsoft.com/DataMashup"
 _POWER_QUERY_CUSTOM_XML_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/customXml"
@@ -2068,6 +2073,122 @@ def _office_web_addin_without_auto_show(path: Path) -> bytes | None:
     return ElementTree.tostring(extension, encoding="utf-8", xml_declaration=True)
 
 
+def _raw_ole_object_auto_load_state(path: Path, sheet_name: str) -> dict[str, Any] | None:
+    """Read WCAB's one relationship-backed embedded-object declaration.
+
+    This follows only the generated internal worksheet relationship and checks
+    the fixed opaque bytes as bytes. It does not deserialize an OLE container,
+    render a presentation, invoke a ProgID, register an object server, or open
+    an Office client.
+    """
+
+    try:
+        with ZipFile(path) as archive:
+            worksheet_member = _worksheet_member_for_sheet(archive, sheet_name)
+            if worksheet_member is None:
+                return None
+            worksheet = ElementTree.fromstring(archive.read(worksheet_member))
+            ole_objects_tag = f"{{{_SPREADSHEETML_NS}}}oleObjects"
+            ole_object_tag = f"{{{_SPREADSHEETML_NS}}}oleObject"
+            controls_tag = f"{{{_SPREADSHEETML_NS}}}controls"
+            ole_objects = worksheet.findall(ole_objects_tag)
+            if (
+                len(ole_objects) != 1
+                or ole_objects[0].attrib
+                or len(ole_objects[0]) != 1
+                or worksheet.findall(controls_tag)
+            ):
+                return None
+            ole_object = ole_objects[0][0]
+            relationship_id = ole_object.get(f"{{{_DOCUMENT_RELATIONSHIPS_NS}}}id")
+            if (
+                ole_object.tag != ole_object_tag
+                or len(ole_object)
+                or not isinstance(relationship_id, str)
+            ):
+                return None
+
+            worksheet_directory, worksheet_filename = worksheet_member.rsplit("/", maxsplit=1)
+            worksheet_relationships_member = (
+                f"{worksheet_directory}/_rels/{worksheet_filename}.rels"
+            )
+            relationships = ElementTree.fromstring(archive.read(worksheet_relationships_member))
+            relationship_tag = f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationship"
+            matching_relationships = [
+                relationship
+                for relationship in relationships.findall(relationship_tag)
+                if relationship.get("Id") == relationship_id
+                and relationship.get("Type") == _OLE_OBJECT_RELATIONSHIP
+                and relationship.get("TargetMode") is None
+            ]
+            if len(matching_relationships) != 1 or len(relationships) != 1:
+                return None
+            embedded_object_member = _relationship_part_member(
+                relationships,
+                relationship_id,
+                worksheet_member,
+                relationship_type=_OLE_OBJECT_RELATIONSHIP,
+            )
+            if embedded_object_member is None:
+                return None
+            payload = archive.read(embedded_object_member)
+            content_types = ElementTree.fromstring(archive.read("[Content_Types].xml"))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError, ValueError):
+        return None
+
+    auto_load = _ooxml_boolean(ole_object.get("autoLoad"))
+    default_tag = f"{{{_CONTENT_TYPES_NS}}}Default"
+    override_tag = f"{{{_CONTENT_TYPES_NS}}}Override"
+    binary_defaults = [
+        default
+        for default in content_types.findall(default_tag)
+        if default.get("Extension") == "bin"
+    ]
+    if (
+        auto_load is None
+        or payload != _OLE_OBJECT_PAYLOAD
+        or len(binary_defaults) != 1
+        or binary_defaults[0].get("ContentType") != _OLE_OBJECT_CONTENT_TYPE
+        or any(
+            override.get("PartName") == f"/{embedded_object_member}"
+            for override in content_types.findall(override_tag)
+        )
+    ):
+        return None
+    return {
+        "worksheet_member": worksheet_member,
+        "worksheet_relationships_member": worksheet_relationships_member,
+        "ole_objects_attributes": tuple(sorted(ole_objects[0].attrib.items())),
+        "ole_object_attributes": tuple(sorted(ole_object.attrib.items())),
+        "relationship_attributes": tuple(sorted(matching_relationships[0].attrib.items())),
+        "embedded_object_member": embedded_object_member,
+        "content_type_attributes": tuple(sorted(binary_defaults[0].attrib.items())),
+        "payload_size": len(payload),
+        "auto_load": auto_load,
+    }
+
+
+def _ole_object_without_auto_load(path: Path, sheet_name: str) -> bytes | None:
+    """Return the generated worksheet with only the OLE auto-load flag erased."""
+
+    state = _raw_ole_object_auto_load_state(path, sheet_name)
+    if state is None:
+        return None
+    try:
+        with ZipFile(path) as archive:
+            worksheet = ElementTree.fromstring(archive.read(state["worksheet_member"]))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+    ole_objects = worksheet.findall(f"{{{_SPREADSHEETML_NS}}}oleObjects")
+    if len(ole_objects) != 1 or len(ole_objects[0]) != 1:
+        return None
+    ole_object = ole_objects[0][0]
+    if "autoLoad" not in ole_object.attrib:
+        return None
+    ole_object.attrib.pop("autoLoad")
+    return ElementTree.tostring(worksheet, encoding="utf-8", xml_declaration=True)
+
+
 def _raw_ignored_error_formula_range_state(path: Path, sheet_name: str) -> dict[str, Any] | None:
     """Read WCAB's compact worksheet-local ignored-error declaration.
 
@@ -3175,6 +3296,156 @@ def _validate_fact(
             == {"xl/webextensions/webextension1.xml"}
             and _calculation_properties(baseline_path) == _calculation_properties(candidate_path),
             f"{truth['id']}: expected one Office Web Add-in auto-show property false -> true with stable task-pane declaration, cells, formulas, and package boundary",
+            errors,
+        )
+        return
+
+    if kind == "ole_object_auto_load_enabled":
+        sheet_name = fact.get("sheet")
+        input_sheet = fact.get("input_sheet")
+        input_cell = fact.get("input_cell")
+        model_sheet = fact.get("model_sheet")
+        model_cell = fact.get("model_cell")
+        dashboard_sheet = fact.get("dashboard_sheet")
+        dashboard_cell = fact.get("dashboard_cell")
+        before_state = (
+            _raw_ole_object_auto_load_state(baseline_path, sheet_name)
+            if isinstance(sheet_name, str)
+            else None
+        )
+        after_state = (
+            _raw_ole_object_auto_load_state(candidate_path, sheet_name)
+            if isinstance(sheet_name, str)
+            else None
+        )
+        before_input = (
+            _raw_cell_state(baseline_path, input_sheet, input_cell)
+            if isinstance(input_sheet, str) and isinstance(input_cell, str)
+            else None
+        )
+        after_input = (
+            _raw_cell_state(candidate_path, input_sheet, input_cell)
+            if isinstance(input_sheet, str) and isinstance(input_cell, str)
+            else None
+        )
+        before_model = (
+            _raw_cell_state(baseline_path, model_sheet, model_cell)
+            if isinstance(model_sheet, str) and isinstance(model_cell, str)
+            else None
+        )
+        after_model = (
+            _raw_cell_state(candidate_path, model_sheet, model_cell)
+            if isinstance(model_sheet, str) and isinstance(model_cell, str)
+            else None
+        )
+        before_dashboard = (
+            _raw_cell_state(baseline_path, dashboard_sheet, dashboard_cell)
+            if isinstance(dashboard_sheet, str) and isinstance(dashboard_cell, str)
+            else None
+        )
+        after_dashboard = (
+            _raw_cell_state(candidate_path, dashboard_sheet, dashboard_cell)
+            if isinstance(dashboard_sheet, str) and isinstance(dashboard_cell, str)
+            else None
+        )
+        expected_common_state = {
+            "worksheet_member": "xl/worksheets/sheet1.xml",
+            "worksheet_relationships_member": "xl/worksheets/_rels/sheet1.xml.rels",
+            "ole_objects_attributes": (),
+            "relationship_attributes": (
+                ("Id", "rIdWCABEmbeddedOle"),
+                ("Target", "../embeddings/wcab-review-embedded-object.bin"),
+                (
+                    "Type",
+                    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/oleObject",
+                ),
+            ),
+            "embedded_object_member": "xl/embeddings/wcab-review-embedded-object.bin",
+            "content_type_attributes": (
+                (
+                    "ContentType",
+                    "application/vnd.openxmlformats-officedocument.oleObject",
+                ),
+                ("Extension", "bin"),
+            ),
+            "payload_size": len(_OLE_OBJECT_PAYLOAD),
+        }
+        expected_before_attributes = (
+            ("autoLoad", "false"),
+            ("dvAspect", "DVASPECT_CONTENT"),
+            ("progId", "WCAB.Review.Embedded.Object"),
+            ("shapeId", "1026"),
+            (
+                "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id",
+                "rIdWCABEmbeddedOle",
+            ),
+        )
+        expected_after_attributes = (
+            ("autoLoad", "true"),
+            ("dvAspect", "DVASPECT_CONTENT"),
+            ("progId", "WCAB.Review.Embedded.Object"),
+            ("shapeId", "1026"),
+            (
+                "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id",
+                "rIdWCABEmbeddedOle",
+            ),
+        )
+        _assert(
+            sheet_name == "Inputs"
+            and fact.get("worksheet_member") == "xl/worksheets/sheet1.xml"
+            and fact.get("worksheet_relationships_member") == "xl/worksheets/_rels/sheet1.xml.rels"
+            and fact.get("relationship_id") == "rIdWCABEmbeddedOle"
+            and fact.get("relationship_type")
+            == "http://schemas.openxmlformats.org/officeDocument/2006/relationships/oleObject"
+            and fact.get("target") == "../embeddings/wcab-review-embedded-object.bin"
+            and fact.get("embedded_object_member")
+            == "xl/embeddings/wcab-review-embedded-object.bin"
+            and fact.get("content_type")
+            == "application/vnd.openxmlformats-officedocument.oleObject"
+            and fact.get("prog_id") == "WCAB.Review.Embedded.Object"
+            and fact.get("dv_aspect") == "DVASPECT_CONTENT"
+            and fact.get("shape_id") == 1026
+            and fact.get("baseline_auto_load") is False
+            and fact.get("candidate_auto_load") is True
+            and input_sheet == "Inputs"
+            and input_cell == "B2"
+            and fact.get("input_value") == 10
+            and model_sheet == "Model"
+            and model_cell == "B2"
+            and fact.get("model_formula") == "=Inputs!$B$2*2"
+            and dashboard_sheet == "Dashboard"
+            and dashboard_cell == "B4"
+            and fact.get("dashboard_formula") == "=Model!$B$2"
+            and all(
+                sheet in baseline.sheetnames and sheet in candidate.sheetnames
+                for sheet in (input_sheet, model_sheet, dashboard_sheet)
+            )
+            and before_state is not None
+            and after_state is not None
+            and all(before_state.get(key) == value for key, value in expected_common_state.items())
+            and all(after_state.get(key) == value for key, value in expected_common_state.items())
+            and before_state["ole_object_attributes"] == expected_before_attributes
+            and after_state["ole_object_attributes"] == expected_after_attributes
+            and before_state["auto_load"] is False
+            and after_state["auto_load"] is True
+            and before_input is not None
+            and before_input == after_input
+            and before_input[0] == "xl/worksheets/sheet1.xml"
+            and before_input[4] == "10"
+            and before_model is not None
+            and before_model == after_model
+            and before_model[0] == "xl/worksheets/sheet2.xml"
+            and before_model[3] == "=Inputs!$B$2*2"
+            and before_dashboard is not None
+            and before_dashboard == after_dashboard
+            and before_dashboard[0] == "xl/worksheets/sheet3.xml"
+            and before_dashboard[3] == "=Model!$B$2"
+            and _ole_object_without_auto_load(baseline_path, sheet_name)
+            == _ole_object_without_auto_load(candidate_path, sheet_name)
+            and _xlsx_member_differences(baseline_path, candidate_path)
+            == {"xl/worksheets/sheet1.xml"}
+            and _calculation_properties(baseline_path) == _calculation_properties(candidate_path),
+            f"{truth['id']}: expected one local embedded OLE auto-load flag false -> true with stable relationship, opaque bytes, cells, formulas, and package boundary",
             errors,
         )
         return

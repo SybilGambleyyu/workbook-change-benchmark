@@ -50,6 +50,9 @@ WCAB 0.28 adds a relationship-backed Office Web Add-in task-pane auto-show
 property transition with an unchanged synthetic local reference, task-pane
 layout, cells, formulas, and every package member except its web-extension
 part.
+WCAB 0.29 adds a worksheet embedded-OLE auto-load transition with an unchanged
+internal relationship, inert synthetic bytes, cells, formulas, and every
+package member except its worksheet part.
 Version 2 remains
 available in the immutable v0.2.0 and v0.3.0 releases.
 
@@ -94,6 +97,7 @@ Facts are observed directly from the fixture files by `wcab validate`.
 | `named_sheet_view_filter_criterion_changed` | `sheet`, `view_member`, `base_filter_ref`, `filter_column_id`, `baseline_filter_value`, `candidate_filter_value`, `subtotal_cell`, `subtotal_formula`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | One relationship-backed Named Sheet View list criterion changes while its worksheet AutoFilter binding, formulas, direct dependency edge, and every package member except its Named Sheet View part remain unchanged. The validator does not activate, render, or apply the view, calculate a subtotal, or infer visible rows. |
 | `xml_map_table_column_xpath_retargeted` | `sheet`, `table_member`, `table_name`, `table_ref`, `mapped_column_id`, `mapped_column_name`, `map_member`, `map_id`, `schema_id`, `connection_id`, `baseline_xpath`, `candidate_xpath`, `single_cell_member`, `single_cell`, `single_cell_xpath`, `total_cell`, `total_formula`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | One relationship-backed XML Map table-column binding changes its raw XPath while map/schema/file-binding declarations, a sheet-level single-cell mapping, table cells, formulas, calculation properties, and every package member except its table part remain unchanged. The validator does not access a file, validate a schema, import/export XML, materialize data, calculate, or infer a client result. |
 | `office_web_addin_auto_show_enabled` | `taskpane_member`, `web_extension_member`, `addin_id`, `reference_id`, `reference_version`, `store`, `store_type`, `baseline_auto_show`, `candidate_auto_show`, `input_sheet`, `input_cell`, `input_value`, `model_sheet`, `model_cell`, `model_formula`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | One workbook-to-taskpane-to-web-extension relationship graph retains its synthetic local reference, task-pane layout, ordinary cells, formulas, calculation properties, and every package member except its web-extension part while raw `Office.AutoShowTaskpaneWithDocument` changes from false to true. The validator does not install, load, execute, or fetch an add-in or manifest, or claim that a task pane opens. |
+| `ole_object_auto_load_enabled` | `sheet`, `worksheet_member`, `worksheet_relationships_member`, `relationship_id`, `relationship_type`, `target`, `embedded_object_member`, `content_type`, `prog_id`, `dv_aspect`, `shape_id`, `baseline_auto_load`, `candidate_auto_load`, `input_sheet`, `input_cell`, `input_value`, `model_sheet`, `model_cell`, `model_formula`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | One worksheet OLE declaration retains its fixed internal relationship, opaque synthetic bytes, ordinary cells, formulas, calculation properties, and every package member except its worksheet while raw `oleObject/@autoLoad` changes from false to true. The validator does not deserialize, open, render, execute, register, or invoke an object server, or claim that an object loads successfully. |
 | `sheet_visibility_changed` | `sheet`, `baseline_state`, `candidate_state` | The stored sheet state changes. |
 | `formula_cell_unlocked` | `sheet`, `cell` | A formula cell is explicitly unlocked while its sheet remains protected. |
 | `workbook_structure_lock_removed` | `baseline_lock_structure`, `candidate_lock_structure`, `hidden_sheet`, `hidden_sheet_state`, `formula_sheet`, `formula_cell`, `formula` | Raw `workbookProtection/@lockStructure` changes exactly from `true` to `false` while the declared hidden-sheet state, formula, calculation properties, and every package member except `xl/workbook.xml` remain unchanged. The validator does not test a password, encryption, authorization, or client behavior. |
@@ -473,6 +477,31 @@ There is no manifest payload or external relationship. The benchmark does not
 install, load, execute, or fetch an add-in or manifest, and it does not claim
 that a task pane opens or that the add-in reads, writes, calculates, or
 displays workbook cells.
+
+## Worksheet embedded OLE auto-load
+
+Microsoft's [OLEObject.AutoLoad reference](https://learn.microsoft.com/en-us/office/vba/api/excel.oleobject.autoload)
+defines the property as whether an OLE object is automatically loaded when the
+containing workbook opens, documents false as the default for new OLE objects,
+and notes that ActiveX controls ignore this property. The Open XML
+[`OleObject.AutoLoad` reference](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.spreadsheet.oleobject.autoload?view=openxml-3.0.1)
+models `autoLoad` as a boolean attribute, and its
+[`OleObject` element reference](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.spreadsheet.oleobject?view=openxml-3.0.1)
+defines the relationship identifier that points to object-persistence data.
+
+The WCAB embedded-OLE pair has one `Inputs` worksheet `oleObject` declaration,
+one direct internal `oleObject` relationship, and one fixed opaque ASCII
+payload marked with the standard embedded-object content type. It keeps the
+synthetic unregistered ProgID, `DVASPECT_CONTENT`, shape ID, relationship,
+bytes, `Inputs!B2=10`, `Model!B2=Inputs!$B$2*2`, and
+`Dashboard!B4=Model!$B$2` fixed. Only `oleObject/@autoLoad` changes: `false`
+in the baseline and `true` in the candidate. The raw validator follows only
+the local relationship, verifies the fixed bytes without deserializing them,
+erases only `autoLoad` for comparison, and requires
+`xl/worksheets/sheet1.xml` to be the sole changed package member. There is no
+linked target, ActiveX control, presentation, macro, or external relationship.
+The benchmark does not deserialize, open, render, execute, register, or invoke
+an object server, and does not claim successful loading.
 
 ## DrawingML chart-series source references
 

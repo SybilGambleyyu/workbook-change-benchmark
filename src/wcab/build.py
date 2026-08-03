@@ -143,6 +143,29 @@ _OFFICE_WEB_ADDIN_MODEL_FORMULA = "=Inputs!$B$2*2"
 _OFFICE_WEB_ADDIN_DASHBOARD_SHEET = "Dashboard"
 _OFFICE_WEB_ADDIN_DASHBOARD_CELL = "B4"
 _OFFICE_WEB_ADDIN_DASHBOARD_FORMULA = "=Model!$B$2"
+_OLE_OBJECT_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/oleObject"
+_OLE_OBJECT_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.oleObject"
+_OLE_OBJECT_WORKSHEET_MEMBER = "xl/worksheets/sheet1.xml"
+_OLE_OBJECT_RELATIONSHIPS_MEMBER = "xl/worksheets/_rels/sheet1.xml.rels"
+_OLE_OBJECT_RELATIONSHIP_ID = "rIdWCABEmbeddedOle"
+_OLE_OBJECT_MEMBER = "xl/embeddings/wcab-review-embedded-object.bin"
+_OLE_OBJECT_PROG_ID = "WCAB.Review.Embedded.Object"
+_OLE_OBJECT_DV_ASPECT = "DVASPECT_CONTENT"
+_OLE_OBJECT_SHAPE_ID = 1026
+_OLE_OBJECT_BASELINE_AUTO_LOAD = False
+_OLE_OBJECT_CANDIDATE_AUTO_LOAD = True
+_OLE_OBJECT_INPUT_SHEET = "Inputs"
+_OLE_OBJECT_INPUT_CELL = "B2"
+_OLE_OBJECT_INPUT_VALUE = 10
+_OLE_OBJECT_MODEL_SHEET = "Model"
+_OLE_OBJECT_MODEL_CELL = "B2"
+_OLE_OBJECT_MODEL_FORMULA = "=Inputs!$B$2*2"
+_OLE_OBJECT_DASHBOARD_SHEET = "Dashboard"
+_OLE_OBJECT_DASHBOARD_CELL = "B4"
+_OLE_OBJECT_DASHBOARD_FORMULA = "=Model!$B$2"
+_OLE_OBJECT_PAYLOAD = (
+    b"WCAB opaque synthetic embedded-object fixture bytes; never deserialized or opened."
+)
 _PIVOT_CACHE_ID = 1
 _PIVOT_CACHE_SOURCE_SHEET = "Source"
 _PIVOT_CACHE_SOURCE_REF = "A1:B5"
@@ -1178,6 +1201,135 @@ def _inject_office_web_addin_auto_show(path: Path, *, auto_show: bool) -> None:
             },
         )
         members[_OFFICE_WEB_ADDIN_EXTENSION_MEMBER] = serialize(extension)
+
+    _rewrite_xlsx_parts(path, mutate)
+
+
+def _ole_object_auto_load_workbook() -> Workbook:
+    """Build a small model with a later-added embedded OLE declaration.
+
+    The ordinary input/model/dashboard values establish stable workbook context
+    only. A raw OOXML step adds a relationship-backed opaque embedded-object
+    declaration; it does not deserialize the bytes or start an object server.
+    """
+
+    workbook = Workbook()
+    _configure_workbook(workbook, title="WCAB embedded OLE auto-load fixture")
+    inputs = workbook.active
+    inputs.title = _OLE_OBJECT_INPUT_SHEET
+    inputs["A1"] = "Approved units"
+    inputs[_OLE_OBJECT_INPUT_CELL] = _OLE_OBJECT_INPUT_VALUE
+
+    model = workbook.create_sheet(_OLE_OBJECT_MODEL_SHEET)
+    model["A1"] = "Projected units"
+    model[_OLE_OBJECT_MODEL_CELL] = _OLE_OBJECT_MODEL_FORMULA
+
+    dashboard = workbook.create_sheet(_OLE_OBJECT_DASHBOARD_SHEET)
+    dashboard["A4"] = "Projected units"
+    dashboard[_OLE_OBJECT_DASHBOARD_CELL] = _OLE_OBJECT_DASHBOARD_FORMULA
+    return workbook
+
+
+def _inject_ole_object_auto_load(path: Path, *, auto_load: bool) -> None:
+    """Attach one local embedded OLE object with an explicit load-on-open flag.
+
+    The fixture uses the standard worksheet-to-embedded-object relationship and
+    content type, but stores only fixed opaque ASCII bytes under a synthetic,
+    unregistered ProgID. It never supplies an ActiveX control, a linked target,
+    an object presentation, or executable content. The caller changes only the
+    persisted ``oleObject/@autoLoad`` boolean.
+    """
+
+    if type(auto_load) is not bool:
+        raise ValueError("OLE object auto_load must be boolean")
+
+    def serialize(element: ElementTree.Element) -> bytes:
+        return ElementTree.tostring(element, encoding="utf-8", xml_declaration=True)
+
+    def mutate(members: dict[str, bytes]) -> None:
+        default_tag = f"{{{_CONTENT_TYPES_NS}}}Default"
+        relationship_tag = f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationship"
+        relationship_id_attribute = f"{{{_DOCUMENT_RELATIONSHIPS_NS}}}id"
+        ole_objects_tag = f"{{{_SPREADSHEETML_NS}}}oleObjects"
+        ole_object_tag = f"{{{_SPREADSHEETML_NS}}}oleObject"
+
+        if _OLE_OBJECT_MEMBER in members:
+            raise ValueError("OLE auto-load fixture already has its embedded-object part")
+        content_types = ElementTree.fromstring(members["[Content_Types].xml"])
+        binary_defaults = [
+            default
+            for default in content_types.findall(default_tag)
+            if default.get("Extension") == "bin"
+        ]
+        if not binary_defaults:
+            ElementTree.SubElement(
+                content_types,
+                default_tag,
+                {
+                    "Extension": "bin",
+                    "ContentType": _OLE_OBJECT_CONTENT_TYPE,
+                },
+            )
+        elif (
+            len(binary_defaults) != 1
+            or binary_defaults[0].get("ContentType") != _OLE_OBJECT_CONTENT_TYPE
+        ):
+            raise ValueError("OLE auto-load fixture has an incompatible binary content type")
+        members["[Content_Types].xml"] = serialize(content_types)
+
+        worksheet = ElementTree.fromstring(members[_OLE_OBJECT_WORKSHEET_MEMBER])
+        if worksheet.findall(ole_objects_tag):
+            raise ValueError("OLE auto-load fixture already has worksheet OLE objects")
+        ole_objects = ElementTree.Element(ole_objects_tag)
+        ElementTree.SubElement(
+            ole_objects,
+            ole_object_tag,
+            {
+                "progId": _OLE_OBJECT_PROG_ID,
+                "dvAspect": _OLE_OBJECT_DV_ASPECT,
+                "autoLoad": str(auto_load).lower(),
+                "shapeId": str(_OLE_OBJECT_SHAPE_ID),
+                relationship_id_attribute: _OLE_OBJECT_RELATIONSHIP_ID,
+            },
+        )
+        trailing_tags = {
+            f"{{{_SPREADSHEETML_NS}}}controls",
+            f"{{{_SPREADSHEETML_NS}}}webPublishItems",
+            f"{{{_SPREADSHEETML_NS}}}tableParts",
+            f"{{{_SPREADSHEETML_NS}}}extLst",
+        }
+        insert_index = next(
+            (index for index, child in enumerate(worksheet) if child.tag in trailing_tags),
+            len(worksheet),
+        )
+        worksheet.insert(insert_index, ole_objects)
+        members[_OLE_OBJECT_WORKSHEET_MEMBER] = serialize(worksheet)
+
+        relationships = ElementTree.fromstring(
+            members.get(
+                _OLE_OBJECT_RELATIONSHIPS_MEMBER,
+                b'<?xml version="1.0" encoding="UTF-8"?>'
+                b'<Relationships xmlns="http://schemas.openxmlformats.org/'
+                b'package/2006/relationships"/>',
+            )
+        )
+        if any(
+            relationship.get("Id") == _OLE_OBJECT_RELATIONSHIP_ID
+            or relationship.get("Type") == _OLE_OBJECT_RELATIONSHIP
+            for relationship in relationships.findall(relationship_tag)
+        ):
+            raise ValueError("OLE auto-load fixture already has its worksheet relationship")
+        ElementTree.SubElement(
+            relationships,
+            relationship_tag,
+            {
+                "Id": _OLE_OBJECT_RELATIONSHIP_ID,
+                "Type": _OLE_OBJECT_RELATIONSHIP,
+                "Target": "../embeddings/wcab-review-embedded-object.bin",
+            },
+        )
+        members[_OLE_OBJECT_RELATIONSHIPS_MEMBER] = serialize(relationships)
+        members[_OLE_OBJECT_MEMBER] = _OLE_OBJECT_PAYLOAD
 
     _rewrite_xlsx_parts(path, mutate)
 
@@ -3518,6 +3670,60 @@ def _build_governance_office_web_addin_auto_show(root: Path) -> None:
     )
 
 
+def _build_governance_ole_object_auto_load(root: Path) -> None:
+    """Build one opaque embedded-object auto-load request without a cell edit."""
+
+    directory = root / "governance" / "ole_object_auto_load_enabled"
+    directory.mkdir(parents=True, exist_ok=True)
+    baseline = directory / "baseline.xlsx"
+    candidate = directory / "candidate.xlsx"
+    _save_workbook(_ole_object_auto_load_workbook(), baseline)
+    _save_workbook(_ole_object_auto_load_workbook(), candidate)
+    _inject_ole_object_auto_load(baseline, auto_load=_OLE_OBJECT_BASELINE_AUTO_LOAD)
+    _inject_ole_object_auto_load(candidate, auto_load=_OLE_OBJECT_CANDIDATE_AUTO_LOAD)
+    _write_json(
+        directory / "truth.json",
+        _truth(
+            case_id="governance.ole_object_auto_load_enabled",
+            title="An embedded OLE object requests automatic loading on workbook open",
+            family="governance",
+            review_expectation="block",
+            facts=[
+                {
+                    "kind": "ole_object_auto_load_enabled",
+                    "sheet": _OLE_OBJECT_INPUT_SHEET,
+                    "worksheet_member": _OLE_OBJECT_WORKSHEET_MEMBER,
+                    "worksheet_relationships_member": _OLE_OBJECT_RELATIONSHIPS_MEMBER,
+                    "relationship_id": _OLE_OBJECT_RELATIONSHIP_ID,
+                    "relationship_type": _OLE_OBJECT_RELATIONSHIP,
+                    "target": "../embeddings/wcab-review-embedded-object.bin",
+                    "embedded_object_member": _OLE_OBJECT_MEMBER,
+                    "content_type": _OLE_OBJECT_CONTENT_TYPE,
+                    "prog_id": _OLE_OBJECT_PROG_ID,
+                    "dv_aspect": _OLE_OBJECT_DV_ASPECT,
+                    "shape_id": _OLE_OBJECT_SHAPE_ID,
+                    "baseline_auto_load": _OLE_OBJECT_BASELINE_AUTO_LOAD,
+                    "candidate_auto_load": _OLE_OBJECT_CANDIDATE_AUTO_LOAD,
+                    "input_sheet": _OLE_OBJECT_INPUT_SHEET,
+                    "input_cell": _OLE_OBJECT_INPUT_CELL,
+                    "input_value": _OLE_OBJECT_INPUT_VALUE,
+                    "model_sheet": _OLE_OBJECT_MODEL_SHEET,
+                    "model_cell": _OLE_OBJECT_MODEL_CELL,
+                    "model_formula": _OLE_OBJECT_MODEL_FORMULA,
+                    "dashboard_sheet": _OLE_OBJECT_DASHBOARD_SHEET,
+                    "dashboard_cell": _OLE_OBJECT_DASHBOARD_CELL,
+                    "dashboard_formula": _OLE_OBJECT_DASHBOARD_FORMULA,
+                }
+            ],
+            coverage=[
+                "The pair changes only raw xl/worksheets/sheet1.xml oleObject/@autoLoad from false to true. It does not edit ordinary cells, formulas, calculation properties, content types, relationships, or the embedded-object bytes.",
+                "The object has one fixed internal worksheet relationship and an opaque synthetic ASCII payload under a synthetic unregistered ProgID. There is no linked target, ActiveX control, object presentation, macro, or external relationship.",
+                "WCAB does not deserialize, open, render, execute, register, or invoke an object server, and it does not claim that an object loads successfully. The stable Inputs!B2-to-Model!B2-to-Dashboard!B4 formula path is workbook context only.",
+            ],
+        ),
+    )
+
+
 def _build_governance_visibility(root: Path) -> None:
     def mutate(workbook: Workbook) -> None:
         workbook["ReviewControls"].sheet_state = "visible"
@@ -4632,6 +4838,7 @@ _BUILDERS: tuple[Callable[[Path], None], ...] = (
     _build_operations_named_sheet_view_filter_criterion,
     _build_operations_xml_map_table_xpath,
     _build_governance_office_web_addin_auto_show,
+    _build_governance_ole_object_auto_load,
     _build_governance_visibility,
     _build_governance_protection,
     _build_governance_workbook_structure_protection,
@@ -4677,6 +4884,7 @@ CASE_IDS = (
     "operations.named_sheet_view_filter_criterion_changed",
     "operations.xml_map_table_xpath_retargeted",
     "governance.office_web_addin_auto_show_enabled",
+    "governance.ole_object_auto_load_enabled",
     "governance.hidden_sheet_revealed",
     "governance.formula_cell_unlocked",
     "governance.workbook_structure_lock_removed",
