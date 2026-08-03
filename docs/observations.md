@@ -190,7 +190,19 @@ a source fingerprint. WCAB's raw validator—not the adapter—then establishes
 the two reserved endpoint texts, the stable package graph and formula context,
 and the `xl/connections.xml`-only package boundary. Neither report opens a
 connection, fetches a URL, refreshes a query, materializes rows, calculates a
-workbook, or claims a client result. For the QueryTable case,
+workbook, or claims a client result. For the OPC package-signature Manifest
+case, it requires one high-severity `digital_signature_controls_changed` record
+and matching `FF050`: FormulaFence's redacted before/after profiles must retain
+one signature origin, one XML signature, one Manifest direct-part reference,
+no certificate/VBA/unrecognized signatures, and no relationship selectors while
+the direct-part category moves from one workbook part to one worksheet part.
+It also requires both package-signature material and Manifest-coverage flags.
+FormulaFence does not expose a URI, selector, digest, signature value,
+certificate, identity, or trust assertion. WCAB's raw validator—not the
+adapter—then establishes the synthetic URI transition, fixed bounded package
+shape, stable cells/formula, and `_xmlsignatures/sig1.xml`-only boundary.
+Neither report validates a digest, signature, transform, certificate, trust
+chain, or consumer decision. For the QueryTable case,
 it requires one exact `query_table_refresh_controls_changed` record and
 matching `FF023`: its redacted profile must retain one
 `ImportedData` table, connection ID 1, fixed refresh/edit/fill/growth controls,

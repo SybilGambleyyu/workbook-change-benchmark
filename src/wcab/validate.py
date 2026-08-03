@@ -31,6 +31,7 @@ _SPREADSHEETML_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 _PACKAGE_RELATIONSHIPS_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
 _DOCUMENT_RELATIONSHIPS_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 _CONTENT_TYPES_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
+_XML_DIGITAL_SIGNATURE_NS = "http://www.w3.org/2000/09/xmldsig#"
 _OFFICE_2010_SPREADSHEET_NS = "http://schemas.microsoft.com/office/spreadsheetml/2009/9/main"
 _OFFICE_2013_SPREADSHEET_NS = "http://schemas.microsoft.com/office/spreadsheetml/2010/11/main"
 _OFFICE_2014_REVISION_NS = "http://schemas.microsoft.com/office/spreadsheetml/2014/revision"
@@ -64,6 +65,16 @@ _QUERY_TABLE_CONNECTIONS_CONTENT_TYPE = (
 _EXTERNAL_DATA_CONNECTIONS_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/connections"
 _EXTERNAL_DATA_CONNECTIONS_CONTENT_TYPE = (
     "application/vnd.openxmlformats-officedocument.spreadsheetml.connections+xml"
+)
+_PACKAGE_SIGNATURE_ORIGIN_RELATIONSHIP = f"{_PACKAGE_RELATIONSHIPS_NS}/digital-signature/origin"
+_PACKAGE_SIGNATURE_SIGNATURE_RELATIONSHIP = (
+    f"{_PACKAGE_RELATIONSHIPS_NS}/digital-signature/signature"
+)
+_PACKAGE_SIGNATURE_ORIGIN_CONTENT_TYPE = (
+    "application/vnd.openxmlformats-package.digital-signature-origin"
+)
+_PACKAGE_SIGNATURE_XML_CONTENT_TYPE = (
+    "application/vnd.openxmlformats-package.digital-signature-xmlsignature+xml"
 )
 _POWER_PIVOT_DATA_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/powerPivotData"
 _POWER_PIVOT_DATA_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.model+data"
@@ -267,6 +278,137 @@ def _external_data_connection_without_web_query_url(path: Path, connection_id: i
         return None
     web_properties[0].attrib.pop("url")
     return ElementTree.tostring(connections, encoding="utf-8", xml_declaration=True)
+
+
+def _raw_package_signature_manifest_state(path: Path) -> dict[str, Any] | None:
+    """Read WCAB's one structurally shaped OPC signature declaration.
+
+    The fixture is intentionally not a cryptographically valid signature. This
+    raw validator establishes only its package relationship graph and the one
+    Manifest URI; it never evaluates a digest, signature, transform, or
+    certificate and never contacts a trust service.
+    """
+
+    root_relationships_member = "_rels/.rels"
+    origin_member = "_xmlsignatures/origin.sigs"
+    origin_relationships_member = "_xmlsignatures/_rels/origin.sigs.rels"
+    signature_member = "_xmlsignatures/sig1.xml"
+    try:
+        with ZipFile(path) as archive:
+            root_relationships = ElementTree.fromstring(archive.read(root_relationships_member))
+            origin_payload = archive.read(origin_member)
+            origin_relationships = ElementTree.fromstring(archive.read(origin_relationships_member))
+            content_types = ElementTree.fromstring(archive.read("[Content_Types].xml"))
+            envelope = ElementTree.fromstring(archive.read(signature_member))
+    except (BadZipFile, KeyError, OSError, ElementTree.ParseError):
+        return None
+
+    relationship_tag = f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationship"
+    origin_relationships_found = [
+        relationship
+        for relationship in root_relationships.findall(relationship_tag)
+        if relationship.get("Type") == _PACKAGE_SIGNATURE_ORIGIN_RELATIONSHIP
+    ]
+    if (
+        len(origin_relationships_found) != 1
+        or set(origin_relationships_found[0].attrib) != {"Id", "Type", "Target"}
+        or origin_relationships_found[0].get("Target") != origin_member
+        or origin_payload != b""
+    ):
+        return None
+    signature_relationships_found = [
+        relationship
+        for relationship in origin_relationships.findall(relationship_tag)
+        if relationship.get("Type") == _PACKAGE_SIGNATURE_SIGNATURE_RELATIONSHIP
+    ]
+    if (
+        origin_relationships.tag != f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationships"
+        or origin_relationships.attrib
+        or len(origin_relationships) != 1
+        or len(signature_relationships_found) != 1
+        or set(signature_relationships_found[0].attrib) != {"Id", "Type", "Target"}
+        or signature_relationships_found[0].get("Target") != "sig1.xml"
+    ):
+        return None
+
+    default_tag = f"{{{_CONTENT_TYPES_NS}}}Default"
+    override_tag = f"{{{_CONTENT_TYPES_NS}}}Override"
+    origin_content_types = [
+        item for item in content_types.findall(default_tag) if item.get("Extension") == "sigs"
+    ]
+    signature_content_types = [
+        item
+        for item in content_types.findall(override_tag)
+        if item.get("PartName") == f"/{signature_member}"
+    ]
+    if (
+        len(origin_content_types) != 1
+        or set(origin_content_types[0].attrib) != {"Extension", "ContentType"}
+        or origin_content_types[0].get("ContentType") != _PACKAGE_SIGNATURE_ORIGIN_CONTENT_TYPE
+        or len(signature_content_types) != 1
+        or set(signature_content_types[0].attrib) != {"PartName", "ContentType"}
+        or signature_content_types[0].get("ContentType") != _PACKAGE_SIGNATURE_XML_CONTENT_TYPE
+    ):
+        return None
+
+    signature_tag = f"{{{_XML_DIGITAL_SIGNATURE_NS}}}Signature"
+    signed_info_tag = f"{{{_XML_DIGITAL_SIGNATURE_NS}}}SignedInfo"
+    signature_value_tag = f"{{{_XML_DIGITAL_SIGNATURE_NS}}}SignatureValue"
+    object_tag = f"{{{_XML_DIGITAL_SIGNATURE_NS}}}Object"
+    manifest_tag = f"{{{_XML_DIGITAL_SIGNATURE_NS}}}Manifest"
+    reference_tag = f"{{{_XML_DIGITAL_SIGNATURE_NS}}}Reference"
+    if envelope.tag != signature_tag:
+        return None
+    signed_infos = envelope.findall(signed_info_tag)
+    signature_values = envelope.findall(signature_value_tag)
+    objects = envelope.findall(object_tag)
+    if len(signed_infos) != 1 or len(signature_values) != 1 or len(objects) != 1:
+        return None
+    signed_info_references = signed_infos[0].findall(reference_tag)
+    manifests = objects[0].findall(manifest_tag)
+    if len(signed_info_references) != 1 or len(manifests) != 1:
+        return None
+    manifest_references = manifests[0].findall(reference_tag)
+    if len(manifest_references) != 1:
+        return None
+    signed_info_uri = signed_info_references[0].get("URI")
+    manifest_uri = manifest_references[0].get("URI")
+    object_id = objects[0].get("Id")
+    if (
+        not isinstance(signed_info_uri, str)
+        or not isinstance(manifest_uri, str)
+        or not isinstance(object_id, str)
+        or signed_info_uri != f"#{object_id}"
+    ):
+        return None
+    manifest_reference_attributes = tuple(sorted(manifest_references[0].attrib.items()))
+    manifest_references[0].set("URI", "")
+    envelope_without_manifest_uri = ElementTree.tostring(
+        envelope,
+        encoding="utf-8",
+        xml_declaration=True,
+    )
+    return {
+        "root_relationships_member": root_relationships_member,
+        "origin_member": origin_member,
+        "origin_payload": origin_payload,
+        "origin_relationships_member": origin_relationships_member,
+        "origin_relationship_attributes": tuple(
+            sorted(origin_relationships_found[0].attrib.items())
+        ),
+        "signature_member": signature_member,
+        "signature_relationship_attributes": tuple(
+            sorted(signature_relationships_found[0].attrib.items())
+        ),
+        "origin_content_type_attributes": tuple(sorted(origin_content_types[0].attrib.items())),
+        "signature_content_type_attributes": tuple(
+            sorted(signature_content_types[0].attrib.items())
+        ),
+        "signed_info_reference_uri": signed_info_uri,
+        "manifest_reference_attributes": manifest_reference_attributes,
+        "manifest_uri": manifest_uri,
+        "envelope_without_manifest_uri": envelope_without_manifest_uri,
+    }
 
 
 def _raw_query_table_refresh_state(path: Path, sheet_name: str) -> dict[str, Any] | None:
@@ -6972,6 +7114,173 @@ def _validate_fact(
             and (dashboard_sheet, dashboard_cell)
             in graph.get((summary_sheet, summary_cell), set()),
             f"{truth['id']}: expected one stable external-data web-query URL retarget with saved cells and local formulas unchanged",
+            errors,
+        )
+        return
+
+    if kind == "package_signature_manifest_direct_part_retargeted":
+        root_relationships_member = fact.get("root_relationships_member")
+        origin_member = fact.get("origin_member")
+        origin_relationships_member = fact.get("origin_relationships_member")
+        origin_relationship_id = fact.get("origin_relationship_id")
+        origin_relationship_type = fact.get("origin_relationship_type")
+        signature_member = fact.get("signature_member")
+        signature_relationship_id = fact.get("signature_relationship_id")
+        signature_relationship_type = fact.get("signature_relationship_type")
+        signature_content_type = fact.get("signature_content_type")
+        signed_info_reference_uri = fact.get("signed_info_reference_uri")
+        baseline_manifest_uri = fact.get("baseline_manifest_uri")
+        candidate_manifest_uri = fact.get("candidate_manifest_uri")
+        stable_sheet = fact.get("stable_sheet")
+        stable_value_cell = fact.get("stable_value_cell")
+        stable_value = fact.get("stable_value")
+        stable_formula_cell = fact.get("stable_formula_cell")
+        stable_formula = fact.get("stable_formula")
+        before_state = _raw_package_signature_manifest_state(baseline_path)
+        after_state = _raw_package_signature_manifest_state(candidate_path)
+        before_value = (
+            _raw_cell_state(baseline_path, stable_sheet, stable_value_cell)
+            if isinstance(stable_sheet, str) and isinstance(stable_value_cell, str)
+            else None
+        )
+        after_value = (
+            _raw_cell_state(candidate_path, stable_sheet, stable_value_cell)
+            if isinstance(stable_sheet, str) and isinstance(stable_value_cell, str)
+            else None
+        )
+        before_formula = (
+            _raw_cell_state(baseline_path, stable_sheet, stable_formula_cell)
+            if isinstance(stable_sheet, str) and isinstance(stable_formula_cell, str)
+            else None
+        )
+        after_formula = (
+            _raw_cell_state(candidate_path, stable_sheet, stable_formula_cell)
+            if isinstance(stable_sheet, str) and isinstance(stable_formula_cell, str)
+            else None
+        )
+        expected_origin_relationship_attributes = (
+            tuple(
+                sorted(
+                    {
+                        "Id": origin_relationship_id,
+                        "Type": origin_relationship_type,
+                        "Target": origin_member,
+                    }.items()
+                )
+            )
+            if all(
+                isinstance(value, str)
+                for value in (
+                    origin_relationship_id,
+                    origin_relationship_type,
+                    origin_member,
+                )
+            )
+            else None
+        )
+        expected_signature_relationship_attributes = (
+            tuple(
+                sorted(
+                    {
+                        "Id": signature_relationship_id,
+                        "Type": signature_relationship_type,
+                        "Target": "sig1.xml",
+                    }.items()
+                )
+            )
+            if all(
+                isinstance(value, str)
+                for value in (signature_relationship_id, signature_relationship_type)
+            )
+            else None
+        )
+        expected_signature_content_type_attributes = (
+            tuple(
+                sorted(
+                    {
+                        "PartName": f"/{signature_member}",
+                        "ContentType": signature_content_type,
+                    }.items()
+                )
+            )
+            if isinstance(signature_member, str) and isinstance(signature_content_type, str)
+            else None
+        )
+        _assert(
+            root_relationships_member == "_rels/.rels"
+            and origin_member == "_xmlsignatures/origin.sigs"
+            and origin_relationships_member == "_xmlsignatures/_rels/origin.sigs.rels"
+            and origin_relationship_id == "rIdWCABPackageSignatureOrigin"
+            and origin_relationship_type == _PACKAGE_SIGNATURE_ORIGIN_RELATIONSHIP
+            and signature_member == "_xmlsignatures/sig1.xml"
+            and signature_relationship_id == "rIdWCABPackageXmlSignature"
+            and signature_relationship_type == _PACKAGE_SIGNATURE_SIGNATURE_RELATIONSHIP
+            and signature_content_type == _PACKAGE_SIGNATURE_XML_CONTENT_TYPE
+            and signed_info_reference_uri == "#idWCABPackageObject"
+            and baseline_manifest_uri
+            == (
+                "/xl/workbook.xml?ContentType=application/vnd.openxmlformats-officedocument."
+                "spreadsheetml.sheet.main+xml"
+            )
+            and candidate_manifest_uri
+            == (
+                "/xl/worksheets/sheet1.xml?ContentType=application/vnd.openxmlformats-officedocument."
+                "spreadsheetml.worksheet+xml"
+            )
+            and fact.get("baseline_direct_part_class") == "workbook"
+            and fact.get("candidate_direct_part_class") == "worksheet"
+            and stable_sheet == "Controls"
+            and stable_value_cell == "B10"
+            and stable_value == 12
+            and stable_formula_cell == "D10"
+            and stable_formula == "=B10*C10"
+            and before_state is not None
+            and after_state is not None
+            and before_state["root_relationships_member"] == root_relationships_member
+            and after_state["root_relationships_member"] == root_relationships_member
+            and before_state["origin_member"] == origin_member
+            and after_state["origin_member"] == origin_member
+            and before_state["origin_payload"] == b""
+            and after_state["origin_payload"] == b""
+            and before_state["origin_relationships_member"] == origin_relationships_member
+            and after_state["origin_relationships_member"] == origin_relationships_member
+            and before_state["origin_relationship_attributes"]
+            == expected_origin_relationship_attributes
+            and after_state["origin_relationship_attributes"]
+            == expected_origin_relationship_attributes
+            and before_state["signature_member"] == signature_member
+            and after_state["signature_member"] == signature_member
+            and before_state["signature_relationship_attributes"]
+            == expected_signature_relationship_attributes
+            and after_state["signature_relationship_attributes"]
+            == expected_signature_relationship_attributes
+            and before_state["origin_content_type_attributes"]
+            == (("ContentType", _PACKAGE_SIGNATURE_ORIGIN_CONTENT_TYPE), ("Extension", "sigs"))
+            and after_state["origin_content_type_attributes"]
+            == (("ContentType", _PACKAGE_SIGNATURE_ORIGIN_CONTENT_TYPE), ("Extension", "sigs"))
+            and before_state["signature_content_type_attributes"]
+            == expected_signature_content_type_attributes
+            and after_state["signature_content_type_attributes"]
+            == expected_signature_content_type_attributes
+            and before_state["signed_info_reference_uri"] == signed_info_reference_uri
+            and after_state["signed_info_reference_uri"] == signed_info_reference_uri
+            and before_state["manifest_reference_attributes"] == (("URI", baseline_manifest_uri),)
+            and after_state["manifest_reference_attributes"] == (("URI", candidate_manifest_uri),)
+            and before_state["manifest_uri"] == baseline_manifest_uri
+            and after_state["manifest_uri"] == candidate_manifest_uri
+            and before_state["envelope_without_manifest_uri"]
+            == after_state["envelope_without_manifest_uri"]
+            and before_value is not None
+            and after_value is not None
+            and before_value == after_value
+            and before_value[4] == str(stable_value)
+            and before_formula is not None
+            and after_formula is not None
+            and before_formula == after_formula
+            and before_formula[3] == stable_formula
+            and _xlsx_member_differences(baseline_path, candidate_path) == {signature_member}
+            and _calculation_properties(baseline_path) == _calculation_properties(candidate_path),
+            f"{truth['id']}: expected one OPC package-signature Manifest direct-part retarget only",
             errors,
         )
         return

@@ -79,7 +79,10 @@ very-hidden macro sheet and fixed package shape; it records only the stored
 WCAB 0.37 adds a relationship-backed external-data web-query source transition
 with unchanged connection controls, saved cells, formulas, and every package
 member except `xl/connections.xml`; it records only the stored endpoint
-declaration without contacting it.
+declaration without contacting it. WCAB 0.38 adds a structurally shaped OPC
+package-signature `Object/Manifest` direct-part transition with fixed
+relationship graph and ordinary workbook context; it records only the
+declared package scope, never cryptographic verification or a trust decision.
 Version 2 remains
 available in the immutable v0.2.0 and v0.3.0 releases.
 
@@ -137,6 +140,7 @@ Facts are observed directly from the fixture files by `wcab validate`.
 | `formula_cached_result_changed` | `sheet`, `cell`, `formula`, `input_sheet`, `input_cell`, `input_value`, `result_type`, `baseline_cached_result`, `candidate_cached_result` | One raw numeric formula-cell `<v>` value changes while its raw `<f>` expression, direct input, calculation properties, and every other package member remain unchanged. The validator reads OOXML only; it does not calculate, validate, or interpret the saved result. |
 | `external_data_connection_refresh_on_load_changed` | `connection_id`, `baseline_refresh_on_load`, `candidate_refresh_on_load` | The relationship-backed connection with this workbook-local ID explicitly changes `refreshOnLoad` from `false` to `true`. The validator reads raw OOXML only. |
 | `external_data_connection_web_query_url_changed` | `connection_id`, `connection_member`, `connection_content_type`, `workbook_relationships_member`, `relationship_id`, `relationship_type`, `refresh_on_load`, `baseline_url`, `candidate_url`, `saved_value_sheet`, `saved_value_cell`, `saved_value`, `summary_sheet`, `summary_cell`, `summary_formula`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | One relationship-backed web-query connection retains its ID, type, refresh controls, relationship, content type, stored imported cell, ordinary formulas, calculation properties, and every package member except `xl/connections.xml` while raw `webPr/@url` moves between declared reserved URLs. The validator reads local OOXML only; it does not resolve, open, fetch, authenticate to, trust, refresh, calculate, or claim a client result. |
+| `package_signature_manifest_direct_part_retargeted` | `root_relationships_member`, `origin_member`, `origin_relationships_member`, `origin_relationship_id`, `origin_relationship_type`, `signature_member`, `signature_relationship_id`, `signature_relationship_type`, `signature_content_type`, `signed_info_reference_uri`, `baseline_manifest_uri`, `candidate_manifest_uri`, `baseline_direct_part_class`, `candidate_direct_part_class`, `stable_sheet`, `stable_value_cell`, `stable_value`, `stable_formula_cell`, `stable_formula` | One structurally shaped OPC digital-signature envelope retains its origin/signature relationship graph, content types, `SignedInfo` local-object reference, ordinary cells/formula context, calculation properties, and every package member except `_xmlsignatures/sig1.xml` while its one `Object/Manifest` direct-part URI moves from the workbook part to a worksheet part. The fixture's digest/signature values are synthetic; the validator does not verify cryptography, transforms, certificates, identity, trust, or a consumer decision. |
 | `query_table_refresh_on_load_changed` | `sheet`, `connection_id`, `connection_member`, `connection_url`, `query_table_member`, `worksheet_member`, `worksheet_relationships_member`, `relationship_id`, `relationship_type`, `baseline_refresh_on_load`, `candidate_refresh_on_load`, `background_refresh`, `refresh_disabled`, `remove_data_on_save`, `fill_formulas`, `connection_edit_disabled`, `growth_behavior`, `saved_value_cell`, `saved_value`, `summary_sheet`, `summary_cell`, `summary_formula`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | One direct internal worksheet QueryTable relationship and one fixed internal workbook connection retain their controls, saved cells, formulas, calculation properties, and every package member except the QueryTable part while raw `queryTable/@refreshOnLoad` changes from `false` to `true`. The validator does not open a connection, fetch a URL, refresh, materialize data, calculate, or claim a client result. |
 | `cell_hyperlink_target_changed` | `sheet`, `cell`, `cell_value`, `worksheet_member`, `worksheet_relationships_member`, `relationship_id`, `relationship_type`, `target_mode`, `baseline_target`, `candidate_target`, `summary_sheet`, `summary_cell`, `summary_formula`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula` | One worksheet `hyperlink` declaration retains its visible cell value, relationship ID/type/mode, no local location/display/tooltip, formulas, calculation properties, and every package member except its worksheet relationship part while the one external relationship `Target` moves between the declared reserved URLs. The validator does not resolve, open, fetch, visit, execute, calculate, or claim that a client follows a target. |
 | `pivot_cache_refresh_on_load_changed` | `cache_id`, `source_type`, `source_sheet`, `source_ref`, `pivot_sheet`, `pivot_ref`, `pivot_output_cell`, `dashboard_sheet`, `dashboard_cell`, `dashboard_formula`, `baseline_refresh_on_load`, `candidate_refresh_on_load` | One relationship-bound local worksheet PivotCache changes raw `refreshOnLoad` from `false` to `true`; its source binding, PivotTable location, stored report/dashboard cells, calculation properties, and every package member except its cache definition remain unchanged. The validator neither refreshes nor renders a PivotTable. |
@@ -594,6 +598,29 @@ unchanged. The raw validator checks the local package graph and compares the
 connection part after removing only the URL. It does not resolve, open, fetch,
 authenticate to, trust, refresh, calculate, or otherwise interact with either
 endpoint, or claim a client result.
+
+## OPC package-signature Manifest declarations
+
+An OPC package signature has package relationships that locate a signature
+origin and XML signature part. Within an XMLDSIG envelope, a `SignedInfo`
+reference can name a local `Object`; an `Object/Manifest/Reference` is the
+separate declaration that can name a package part. Those two scopes are not
+interchangeable review evidence.
+
+WCAB 0.38 keeps one root-to-origin relationship, one origin-to-signature
+relationship, the required origin/signature content types, one `SignedInfo`
+reference to `#idWCABPackageObject`, ordinary `Controls!B10=12` and
+`Controls!D10=B10*C10` context, calculation properties, and all package
+members except `_xmlsignatures/sig1.xml` fixed. Its one
+`Object/Manifest/Reference/@URI` moves from the direct workbook part to the
+direct worksheet part. The raw validator verifies that bounded structural
+shape, compares the signature XML after erasing only that URI, and never emits
+the raw URI through an adapter contract.
+
+The generated digest and signature values are deliberately synthetic. WCAB
+does not validate a digest, signature, canonicalization, transform, certificate,
+identity, revocation, trust chain, timestamp, policy, or a package consumer's
+decision. It records only the declared structural package scope.
 
 ## XLM Auto_Open binding
 

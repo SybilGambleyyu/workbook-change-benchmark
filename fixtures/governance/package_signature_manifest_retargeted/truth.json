@@ -1,0 +1,39 @@
+{
+  "coverage": [
+    "The pair changes only _xmlsignatures/sig1.xml: its OPC Object/Manifest direct part URI moves from xl/workbook.xml to xl/worksheets/sheet1.xml. The origin graph, XML signature shape, content type, ordinary cells, formulas, and every other package member stay fixed.",
+    "The XMLDSIG digest and signature values are deliberately synthetic. The benchmark records only declared package scope; it does not verify cryptography, XML transform processing, digest values, certificate identity/trust, or a package consumer's trust decision.",
+    "The raw manifest URIs are public WCAB truth used by its local validator. An adapter must instead require FormulaFence's redacted aggregate before/after coverage profile and FF050 evidence, never a URI or selector."
+  ],
+  "coverage_expectations": [],
+  "facts": [
+    {
+      "baseline_direct_part_class": "workbook",
+      "baseline_manifest_uri": "/xl/workbook.xml?ContentType=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml",
+      "candidate_direct_part_class": "worksheet",
+      "candidate_manifest_uri": "/xl/worksheets/sheet1.xml?ContentType=application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml",
+      "kind": "package_signature_manifest_direct_part_retargeted",
+      "origin_member": "_xmlsignatures/origin.sigs",
+      "origin_relationship_id": "rIdWCABPackageSignatureOrigin",
+      "origin_relationship_type": "http://schemas.openxmlformats.org/package/2006/relationships/digital-signature/origin",
+      "origin_relationships_member": "_xmlsignatures/_rels/origin.sigs.rels",
+      "root_relationships_member": "_rels/.rels",
+      "signature_content_type": "application/vnd.openxmlformats-package.digital-signature-xmlsignature+xml",
+      "signature_member": "_xmlsignatures/sig1.xml",
+      "signature_relationship_id": "rIdWCABPackageXmlSignature",
+      "signature_relationship_type": "http://schemas.openxmlformats.org/package/2006/relationships/digital-signature/signature",
+      "signed_info_reference_uri": "#idWCABPackageObject",
+      "stable_formula": "=B10*C10",
+      "stable_formula_cell": "D10",
+      "stable_sheet": "Controls",
+      "stable_value": 12,
+      "stable_value_cell": "B10"
+    }
+  ],
+  "family": "governance",
+  "id": "governance.package_signature_manifest_retargeted",
+  "must_reach": [],
+  "review_expectation": "block",
+  "schema_version": 3,
+  "title": "An OPC package signature declares a different package part",
+  "topology": "pair"
+}

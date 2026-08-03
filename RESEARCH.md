@@ -117,6 +117,30 @@ claims a client result. The fixture also motivates FormulaFence's safe
 material without emitting either endpoint, a command, a parameter, or a
 fingerprint.
 
+## Package-signature scope can change outside worksheet cells
+
+The [Open Packaging Conventions specification](https://ecma-international.org/wp-content/uploads/ECMA-376-Part-2-5th-edition.pdf)
+defines package relationships and digital-signature parts, while the W3C
+[XML Signature specification](https://www.w3.org/TR/xmldsig-core/) distinguishes
+the `Reference` items in `SignedInfo` from the `Reference` items collected by a
+`Manifest`. A `SignedInfo` URI can therefore point to a local signature
+`Object`, while a separate `Object/Manifest` declaration names the package
+parts whose stated scope a reviewer needs to understand. Treating those two
+namespaces as interchangeable would turn a signature-local reference into an
+unsupported package-coverage claim.
+
+WCAB 0.38 isolates this boundary with one structurally shaped package signature.
+Its root-to-origin and origin-to-signature relationships, origin/signature
+content types, one `SignedInfo` local-object reference, ordinary
+`Controls!B10=12` and `Controls!D10=B10*C10` context, calculation properties,
+and all package members except `_xmlsignatures/sig1.xml` remain fixed. Only one
+`Object/Manifest/Reference/@URI` moves from the direct workbook part to the
+direct worksheet part. The raw validator checks that bounded local declaration
+and compares the signature XML after erasing only that URI. The digest and
+signature values are deliberately synthetic: this is not a cryptographic
+verification, transform evaluation, certificate/identity check, trust-chain
+assessment, or package-consumer decision.
+
 ## External sources can hide in defined names without an externalLink part
 
 Microsoft's [workbook-link guidance](https://support.microsoft.com/en-us/excel/manage-workbook-links)

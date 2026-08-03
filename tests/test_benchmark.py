@@ -235,6 +235,52 @@ def _external_data_connection_web_query_url_details() -> dict[str, object]:
     }
 
 
+def _package_signature_manifest_direct_part_retargeted_details() -> dict[str, object]:
+    common = {
+        "present": True,
+        "package_signature_origin_count": 1,
+        "package_xml_signature_count": 1,
+        "package_signature_reference_count": 1,
+        "package_signature_certificate_count": 0,
+        "package_signature_certificate_part_count": 0,
+        "package_signature_certificate_relationship_count": 0,
+        "vba_project_signature_count": 0,
+        "vba_project_signature_relationship_count": 0,
+        "unrecognized_digital_signature_count": 0,
+    }
+    coverage = {
+        "manifest_reference_count": 1,
+        "direct_part_reference_count": 1,
+        "relationship_reference_count": 0,
+        "relationship_group_reference_count": 0,
+        "vba_project_part_reference_count": 0,
+        "external_data_connection_part_reference_count": 0,
+        "unrecognized_reference_count": 0,
+    }
+    before = {
+        **common,
+        "package_signature_coverage": {
+            **coverage,
+            "workbook_part_reference_count": 1,
+            "worksheet_part_reference_count": 0,
+        },
+    }
+    after = {
+        **common,
+        "package_signature_coverage": {
+            **coverage,
+            "workbook_part_reference_count": 0,
+            "worksheet_part_reference_count": 1,
+        },
+    }
+    return {
+        "before": before,
+        "after": after,
+        "package_signature_material_changed": True,
+        "package_signature_manifest_coverage_changed": True,
+    }
+
+
 def _cell_hyperlink_target_details() -> dict[str, object]:
     profile = {
         "present": True,
@@ -1131,6 +1177,47 @@ def test_committed_manifest_matches_fixture_tree() -> None:
             "dashboard_formula": "=Summary!$B$2",
         }
     ]
+    package_signature_row = next(
+        row for row in rows if row["id"] == "governance.package_signature_manifest_retargeted"
+    )
+    assert package_signature_row["facts"] == [
+        {
+            "kind": "package_signature_manifest_direct_part_retargeted",
+            "root_relationships_member": "_rels/.rels",
+            "origin_member": "_xmlsignatures/origin.sigs",
+            "origin_relationships_member": "_xmlsignatures/_rels/origin.sigs.rels",
+            "origin_relationship_id": "rIdWCABPackageSignatureOrigin",
+            "origin_relationship_type": (
+                "http://schemas.openxmlformats.org/package/2006/relationships/"
+                "digital-signature/origin"
+            ),
+            "signature_member": "_xmlsignatures/sig1.xml",
+            "signature_relationship_id": "rIdWCABPackageXmlSignature",
+            "signature_relationship_type": (
+                "http://schemas.openxmlformats.org/package/2006/relationships/"
+                "digital-signature/signature"
+            ),
+            "signature_content_type": (
+                "application/vnd.openxmlformats-package.digital-signature-xmlsignature+xml"
+            ),
+            "signed_info_reference_uri": "#idWCABPackageObject",
+            "baseline_manifest_uri": (
+                "/xl/workbook.xml?ContentType=application/vnd.openxmlformats-officedocument."
+                "spreadsheetml.sheet.main+xml"
+            ),
+            "candidate_manifest_uri": (
+                "/xl/worksheets/sheet1.xml?ContentType="
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"
+            ),
+            "baseline_direct_part_class": "workbook",
+            "candidate_direct_part_class": "worksheet",
+            "stable_sheet": "Controls",
+            "stable_value_cell": "B10",
+            "stable_value": 12,
+            "stable_formula_cell": "D10",
+            "stable_formula": "=B10*C10",
+        }
+    ]
     query_table_row = next(
         row for row in rows if row["id"] == "governance.query_table_refresh_on_open"
     )
@@ -1793,6 +1880,89 @@ def test_external_data_connection_source_pair_changes_only_its_web_query_url(
     baseline_web_properties.attrib.pop("url")
     candidate_web_properties.attrib.pop("url")
     assert ElementTree.tostring(baseline_connections) == ElementTree.tostring(candidate_connections)
+
+
+def test_package_signature_manifest_pair_changes_only_its_direct_part_uri(
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    case = fixture_root / "governance" / "package_signature_manifest_retargeted"
+    assert validate_case(case) == []
+    with ZipFile(case / "baseline.xlsx") as baseline, ZipFile(case / "candidate.xlsx") as candidate:
+        assert baseline.testzip() is None
+        assert candidate.testzip() is None
+        baseline_members = {
+            entry.filename: baseline.read(entry.filename) for entry in baseline.infolist()
+        }
+        candidate_members = {
+            entry.filename: candidate.read(entry.filename) for entry in candidate.infolist()
+        }
+    assert set(baseline_members) == set(candidate_members)
+    signature_member = "_xmlsignatures/sig1.xml"
+    assert [
+        member
+        for member in sorted(baseline_members)
+        if baseline_members[member] != candidate_members[member]
+    ] == [signature_member]
+
+    namespace = "http://www.w3.org/2000/09/xmldsig#"
+    reference_path = f"{{{namespace}}}Object/{{{namespace}}}Manifest/{{{namespace}}}Reference"
+    signed_info_reference_path = f"{{{namespace}}}SignedInfo/{{{namespace}}}Reference"
+    baseline_signature = ElementTree.fromstring(baseline_members[signature_member])
+    candidate_signature = ElementTree.fromstring(candidate_members[signature_member])
+    baseline_signed_info = baseline_signature.findall(signed_info_reference_path)
+    candidate_signed_info = candidate_signature.findall(signed_info_reference_path)
+    assert [reference.get("URI") for reference in baseline_signed_info] == ["#idWCABPackageObject"]
+    assert [reference.get("URI") for reference in candidate_signed_info] == ["#idWCABPackageObject"]
+    baseline_manifest = baseline_signature.findall(reference_path)
+    candidate_manifest = candidate_signature.findall(reference_path)
+    assert [reference.get("URI") for reference in baseline_manifest] == [
+        "/xl/workbook.xml?ContentType=application/vnd.openxmlformats-officedocument."
+        "spreadsheetml.sheet.main+xml"
+    ]
+    assert [reference.get("URI") for reference in candidate_manifest] == [
+        "/xl/worksheets/sheet1.xml?ContentType="
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"
+    ]
+    baseline_manifest[0].set("URI", "")
+    candidate_manifest[0].set("URI", "")
+    assert ElementTree.tostring(baseline_signature) == ElementTree.tostring(candidate_signature)
+
+
+def test_validator_rejects_a_corrupted_package_signature_manifest_uri(
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+    candidate = (
+        fixture_root / "governance" / "package_signature_manifest_retargeted" / "candidate.xlsx"
+    )
+    with ZipFile(candidate) as archive:
+        members = {entry.filename: archive.read(entry.filename) for entry in archive.infolist()}
+    namespace = "http://www.w3.org/2000/09/xmldsig#"
+    signature_member = "_xmlsignatures/sig1.xml"
+    signature = ElementTree.fromstring(members[signature_member])
+    manifest_reference = signature.find(
+        f"{{{namespace}}}Object/{{{namespace}}}Manifest/{{{namespace}}}Reference"
+    )
+    assert manifest_reference is not None
+    manifest_reference.set(
+        "URI",
+        "/xl/workbook.xml?ContentType=application/vnd.openxmlformats-officedocument."
+        "spreadsheetml.sheet.main+xml",
+    )
+    members[signature_member] = ElementTree.tostring(
+        signature,
+        encoding="utf-8",
+        xml_declaration=True,
+    )
+    staging = candidate.with_suffix(".corrupt.xlsx")
+    with ZipFile(staging, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    staging.replace(candidate)
+    assert validate_case(candidate.parent)
 
 
 def test_validator_rejects_a_false_query_table_refresh_fact(tmp_path: Path) -> None:
@@ -4571,6 +4741,68 @@ def test_formulafence_adapter_requires_the_exact_external_data_web_query_url_cat
     assert result["status"] == "missed"
     assert result["matched"] == []
     assert result["missed"] == ["external_data_connection_web_query_url_changed"]
+
+
+def test_formulafence_adapter_maps_the_exact_package_signature_manifest_retarget(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _package_signature_manifest_direct_part_retargeted_details()
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "digital_signature_controls_changed",
+                    "location": None,
+                    "severity": "high",
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF050", "severity": "high", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "package_signature_manifest_retargeted"
+    )
+    assert result["status"] == "matched"
+    assert result["matched"] == ["package_signature_manifest_direct_part_retargeted"]
+
+
+def test_formulafence_adapter_requires_the_manifest_coverage_detail(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    fixture_root = tmp_path / "fixtures"
+    build_all(fixture_root)
+
+    def fake_diff(*_args, **_kwargs):
+        details = _package_signature_manifest_direct_part_retargeted_details()
+        details["package_signature_manifest_coverage_changed"] = False
+        return {
+            "summary": {"change_count": 1},
+            "changes": [
+                {
+                    "kind": "digital_signature_controls_changed",
+                    "location": None,
+                    "severity": "high",
+                    "details": details,
+                }
+            ],
+            "findings": [{"rule_id": "FF050", "severity": "high", "details": details}],
+        }
+
+    monkeypatch.setattr(formulafence, "diff", fake_diff)
+    result = formulafence.evaluate_diff_case(
+        fixture_root / "governance" / "package_signature_manifest_retargeted"
+    )
+    assert result["status"] == "missed"
+    assert result["matched"] == []
+    assert result["missed"] == ["package_signature_manifest_direct_part_retargeted"]
 
 
 def test_formulafence_adapter_maps_the_exact_query_table_refresh_change(

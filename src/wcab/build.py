@@ -42,6 +42,7 @@ _SPREADSHEETML_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 _PACKAGE_RELATIONSHIPS_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
 _DOCUMENT_RELATIONSHIPS_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 _CONTENT_TYPES_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
+_XML_DIGITAL_SIGNATURE_NS = "http://www.w3.org/2000/09/xmldsig#"
 _OFFICE_2013_SPREADSHEET_NS = "http://schemas.microsoft.com/office/spreadsheetml/2010/11/main"
 _DYNAMIC_ARRAY_NS = "http://schemas.microsoft.com/office/spreadsheetml/2017/dynamicarray"
 _EXTERNAL_WORKBOOK_LINK_FORMULA = "='[WCABSource.xlsx]Inputs'!$B$2"
@@ -226,6 +227,34 @@ _EXTERNAL_DATA_CONNECTION_SOURCE_BASELINE_URL = (
 )
 _EXTERNAL_DATA_CONNECTION_SOURCE_CANDIDATE_URL = (
     "https://review.example.invalid/wcab-external-data-source"
+)
+_PACKAGE_SIGNATURE_ORIGIN_RELATIONSHIP = f"{_PACKAGE_RELATIONSHIPS_NS}/digital-signature/origin"
+_PACKAGE_SIGNATURE_SIGNATURE_RELATIONSHIP = (
+    f"{_PACKAGE_RELATIONSHIPS_NS}/digital-signature/signature"
+)
+_PACKAGE_SIGNATURE_ORIGIN_CONTENT_TYPE = (
+    "application/vnd.openxmlformats-package.digital-signature-origin"
+)
+_PACKAGE_SIGNATURE_XML_CONTENT_TYPE = (
+    "application/vnd.openxmlformats-package.digital-signature-xmlsignature+xml"
+)
+_PACKAGE_SIGNATURE_ORIGIN_MEMBER = "_xmlsignatures/origin.sigs"
+_PACKAGE_SIGNATURE_ORIGIN_RELATIONSHIPS_MEMBER = "_xmlsignatures/_rels/origin.sigs.rels"
+_PACKAGE_SIGNATURE_MEMBER = "_xmlsignatures/sig1.xml"
+_PACKAGE_SIGNATURE_ORIGIN_RELATIONSHIP_ID = "rIdWCABPackageSignatureOrigin"
+_PACKAGE_SIGNATURE_XML_RELATIONSHIP_ID = "rIdWCABPackageXmlSignature"
+_PACKAGE_SIGNATURE_OBJECT_ID = "idWCABPackageObject"
+_PACKAGE_SIGNATURE_WORKBOOK_CONTENT_TYPE = (
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"
+)
+_PACKAGE_SIGNATURE_WORKSHEET_CONTENT_TYPE = (
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"
+)
+_PACKAGE_SIGNATURE_BASELINE_MANIFEST_URI = (
+    "/xl/workbook.xml?ContentType=" + _PACKAGE_SIGNATURE_WORKBOOK_CONTENT_TYPE
+)
+_PACKAGE_SIGNATURE_CANDIDATE_MANIFEST_URI = (
+    "/xl/worksheets/sheet1.xml?ContentType=" + _PACKAGE_SIGNATURE_WORKSHEET_CONTENT_TYPE
 )
 _QUERY_TABLE_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/queryTable"
 _QUERY_TABLE_CONNECTIONS_RELATIONSHIP = f"{_DOCUMENT_RELATIONSHIPS_NS}/connections"
@@ -2441,6 +2470,154 @@ def _add_external_data_connection(path: Path, *, refresh_on_load: bool, url: str
             {"url": url},
         )
         members[_EXTERNAL_DATA_CONNECTION_MEMBER] = serialize(connections)
+
+    _rewrite_xlsx_parts(path, mutate)
+
+
+def _add_package_signature_manifest(path: Path, *, manifest_uri: str) -> None:
+    """Add a structurally shaped OPC signature whose Manifest names one part.
+
+    The fixture deliberately uses non-cryptographic sentinel digest/signature
+    values. It exists to isolate declaration scope, not to represent a valid
+    signer, digest, transform result, certificate, or trust decision.
+    """
+
+    def serialize(root: ElementTree.Element) -> bytes:
+        return ElementTree.tostring(root, encoding="utf-8", xml_declaration=True)
+
+    def add_override(
+        content_types: ElementTree.Element,
+        member: str,
+        content_type: str,
+    ) -> None:
+        override_tag = f"{{{_CONTENT_TYPES_NS}}}Override"
+        existing = [
+            item
+            for item in content_types.findall(override_tag)
+            if item.get("PartName") == f"/{member}"
+        ]
+        if not existing:
+            ElementTree.SubElement(
+                content_types,
+                override_tag,
+                {"PartName": f"/{member}", "ContentType": content_type},
+            )
+            return
+        if len(existing) != 1 or existing[0].get("ContentType") != content_type:
+            raise ValueError(f"package-signature fixture has unexpected content type for {member}")
+
+    def mutate(members: dict[str, bytes]) -> None:
+        content_types = ElementTree.fromstring(members["[Content_Types].xml"])
+        default_tag = f"{{{_CONTENT_TYPES_NS}}}Default"
+        sigs_defaults = [
+            item for item in content_types.findall(default_tag) if item.get("Extension") == "sigs"
+        ]
+        if not sigs_defaults:
+            ElementTree.SubElement(
+                content_types,
+                default_tag,
+                {
+                    "Extension": "sigs",
+                    "ContentType": _PACKAGE_SIGNATURE_ORIGIN_CONTENT_TYPE,
+                },
+            )
+        elif (
+            len(sigs_defaults) != 1
+            or sigs_defaults[0].get("ContentType") != _PACKAGE_SIGNATURE_ORIGIN_CONTENT_TYPE
+        ):
+            raise ValueError("package-signature fixture has unexpected .sigs content type")
+        add_override(
+            content_types,
+            _PACKAGE_SIGNATURE_MEMBER,
+            _PACKAGE_SIGNATURE_XML_CONTENT_TYPE,
+        )
+        members["[Content_Types].xml"] = serialize(content_types)
+
+        relationship_tag = f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationship"
+        root_relationships = ElementTree.fromstring(members["_rels/.rels"])
+        if any(
+            relationship.get("Id") == _PACKAGE_SIGNATURE_ORIGIN_RELATIONSHIP_ID
+            for relationship in root_relationships.findall(relationship_tag)
+        ):
+            raise ValueError("package-signature fixture already has its origin relationship")
+        ElementTree.SubElement(
+            root_relationships,
+            relationship_tag,
+            {
+                "Id": _PACKAGE_SIGNATURE_ORIGIN_RELATIONSHIP_ID,
+                "Type": _PACKAGE_SIGNATURE_ORIGIN_RELATIONSHIP,
+                "Target": _PACKAGE_SIGNATURE_ORIGIN_MEMBER,
+            },
+        )
+        members["_rels/.rels"] = serialize(root_relationships)
+
+        origin_relationships = ElementTree.Element(f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationships")
+        ElementTree.SubElement(
+            origin_relationships,
+            relationship_tag,
+            {
+                "Id": _PACKAGE_SIGNATURE_XML_RELATIONSHIP_ID,
+                "Type": _PACKAGE_SIGNATURE_SIGNATURE_RELATIONSHIP,
+                "Target": "sig1.xml",
+            },
+        )
+        members[_PACKAGE_SIGNATURE_ORIGIN_MEMBER] = b""
+        members[_PACKAGE_SIGNATURE_ORIGIN_RELATIONSHIPS_MEMBER] = serialize(origin_relationships)
+
+        signature = _XML_DIGITAL_SIGNATURE_NS
+        envelope = ElementTree.Element(f"{{{signature}}}Signature")
+        signed_info = ElementTree.SubElement(envelope, f"{{{signature}}}SignedInfo")
+        ElementTree.SubElement(
+            signed_info,
+            f"{{{signature}}}CanonicalizationMethod",
+            {"Algorithm": "http://www.w3.org/TR/2001/REC-xml-c14n-20010315"},
+        )
+        ElementTree.SubElement(
+            signed_info,
+            f"{{{signature}}}SignatureMethod",
+            {"Algorithm": "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"},
+        )
+        signed_info_reference = ElementTree.SubElement(
+            signed_info,
+            f"{{{signature}}}Reference",
+            {"URI": f"#{_PACKAGE_SIGNATURE_OBJECT_ID}"},
+        )
+        ElementTree.SubElement(
+            signed_info_reference,
+            f"{{{signature}}}DigestMethod",
+            {"Algorithm": "http://www.w3.org/2001/04/xmlenc#sha256"},
+        )
+        ElementTree.SubElement(
+            signed_info_reference,
+            f"{{{signature}}}DigestValue",
+        ).text = "WCAB-PRIVATE-SIGNED-INFO-DIGEST"
+        ElementTree.SubElement(
+            envelope, f"{{{signature}}}SignatureValue"
+        ).text = "WCAB-PRIVATE-SIGNATURE-VALUE"
+        package_object = ElementTree.SubElement(
+            envelope,
+            f"{{{signature}}}Object",
+            {"Id": _PACKAGE_SIGNATURE_OBJECT_ID},
+        )
+        manifest = ElementTree.SubElement(
+            package_object,
+            f"{{{signature}}}Manifest",
+        )
+        manifest_reference = ElementTree.SubElement(
+            manifest,
+            f"{{{signature}}}Reference",
+            {"URI": manifest_uri},
+        )
+        ElementTree.SubElement(
+            manifest_reference,
+            f"{{{signature}}}DigestMethod",
+            {"Algorithm": "http://www.w3.org/2001/04/xmlenc#sha256"},
+        )
+        ElementTree.SubElement(
+            manifest_reference,
+            f"{{{signature}}}DigestValue",
+        ).text = "WCAB-PRIVATE-MANIFEST-DIGEST"
+        members[_PACKAGE_SIGNATURE_MEMBER] = serialize(envelope)
 
     _rewrite_xlsx_parts(path, mutate)
 
@@ -5213,6 +5390,63 @@ def _build_governance_external_data_connection_source(root: Path) -> None:
     )
 
 
+def _build_governance_package_signature_manifest_retarget(root: Path) -> None:
+    """Build a pair whose only delta is one OPC Manifest target declaration."""
+
+    directory = root / "governance" / "package_signature_manifest_retargeted"
+    directory.mkdir(parents=True, exist_ok=True)
+    baseline = directory / "baseline.xlsx"
+    candidate = directory / "candidate.xlsx"
+    _save_workbook(_governance_workbook(), baseline)
+    _save_workbook(_governance_workbook(), candidate)
+    _add_package_signature_manifest(
+        baseline,
+        manifest_uri=_PACKAGE_SIGNATURE_BASELINE_MANIFEST_URI,
+    )
+    _add_package_signature_manifest(
+        candidate,
+        manifest_uri=_PACKAGE_SIGNATURE_CANDIDATE_MANIFEST_URI,
+    )
+    _write_json(
+        directory / "truth.json",
+        _truth(
+            case_id="governance.package_signature_manifest_retargeted",
+            title="An OPC package signature declares a different package part",
+            family="governance",
+            review_expectation="block",
+            facts=[
+                {
+                    "kind": "package_signature_manifest_direct_part_retargeted",
+                    "root_relationships_member": "_rels/.rels",
+                    "origin_member": _PACKAGE_SIGNATURE_ORIGIN_MEMBER,
+                    "origin_relationships_member": _PACKAGE_SIGNATURE_ORIGIN_RELATIONSHIPS_MEMBER,
+                    "origin_relationship_id": _PACKAGE_SIGNATURE_ORIGIN_RELATIONSHIP_ID,
+                    "origin_relationship_type": _PACKAGE_SIGNATURE_ORIGIN_RELATIONSHIP,
+                    "signature_member": _PACKAGE_SIGNATURE_MEMBER,
+                    "signature_relationship_id": _PACKAGE_SIGNATURE_XML_RELATIONSHIP_ID,
+                    "signature_relationship_type": _PACKAGE_SIGNATURE_SIGNATURE_RELATIONSHIP,
+                    "signature_content_type": _PACKAGE_SIGNATURE_XML_CONTENT_TYPE,
+                    "signed_info_reference_uri": f"#{_PACKAGE_SIGNATURE_OBJECT_ID}",
+                    "baseline_manifest_uri": _PACKAGE_SIGNATURE_BASELINE_MANIFEST_URI,
+                    "candidate_manifest_uri": _PACKAGE_SIGNATURE_CANDIDATE_MANIFEST_URI,
+                    "baseline_direct_part_class": "workbook",
+                    "candidate_direct_part_class": "worksheet",
+                    "stable_sheet": "Controls",
+                    "stable_value_cell": "B10",
+                    "stable_value": 12,
+                    "stable_formula_cell": "D10",
+                    "stable_formula": "=B10*C10",
+                }
+            ],
+            coverage=[
+                "The pair changes only _xmlsignatures/sig1.xml: its OPC Object/Manifest direct part URI moves from xl/workbook.xml to xl/worksheets/sheet1.xml. The origin graph, XML signature shape, content type, ordinary cells, formulas, and every other package member stay fixed.",
+                "The XMLDSIG digest and signature values are deliberately synthetic. The benchmark records only declared package scope; it does not verify cryptography, XML transform processing, digest values, certificate identity/trust, or a package consumer's trust decision.",
+                "The raw manifest URIs are public WCAB truth used by its local validator. An adapter must instead require FormulaFence's redacted aggregate before/after coverage profile and FF050 evidence, never a URI or selector.",
+            ],
+        ),
+    )
+
+
 def _build_governance_query_table_refresh(root: Path) -> None:
     """Build a pair whose QueryTable, not connection, requests refresh on open."""
 
@@ -6565,6 +6799,7 @@ _BUILDERS: tuple[Callable[[Path], None], ...] = (
     _build_governance_static_cycle,
     _build_governance_external_data_refresh,
     _build_governance_external_data_connection_source,
+    _build_governance_package_signature_manifest_retarget,
     _build_governance_query_table_refresh,
     _build_governance_cell_hyperlink_target,
     _build_governance_pivot_cache_refresh,
@@ -6621,6 +6856,7 @@ CASE_IDS = (
     "governance.static_cycle_introduced",
     "governance.external_data_refresh_on_open",
     "governance.external_data_connection_source_changed",
+    "governance.package_signature_manifest_retargeted",
     "governance.query_table_refresh_on_open",
     "governance.cell_hyperlink_target_changed",
     "governance.pivot_cache_refresh_on_open",

@@ -34,7 +34,7 @@ gates, static analyzers, and agent workflows that propose workbook edits.
 
 ## Scope and non-goals
 
-Version `0.37` covers formula-to-value replacements, formula reference drift,
+Version `0.38` covers formula-to-value replacements, formula reference drift,
 value changes with downstream effects, external formula references, named
 ranges, data validation, conditional formatting, sheet visibility, direct cell
 and workbook-structure protection, calculation settings, static cycles,
@@ -68,7 +68,15 @@ URL moves between two reserved `example.invalid` endpoints while its identity,
 refresh controls, visible saved cells, and formula context remain fixed. It
 records the stored endpoint only: it does not resolve, open, fetch,
 authenticate to, trust, refresh, calculate, or otherwise interact with either
-source, and does not claim a client returns a value. It also covers an
+source, and does not claim a client returns a value. It also covers one
+structurally shaped OPC package-signature `Object/Manifest` declaration whose
+one direct-part URI moves from `xl/workbook.xml` to
+`xl/worksheets/sheet1.xml` while the signature graph, `SignedInfo` local-object
+reference, ordinary cells/formula context, calculation properties, and every
+other package member remain fixed. Its digest and signature values are
+deliberately synthetic: WCAB records declared package scope only, never a
+cryptographic verification, transform result, certificate, identity, trust
+chain, or consumer trust decision. It also covers an
 external-workbook link policy that switches from never to always updating when
 the workbook opens. It also covers
 an unchanged external-workbook formula whose local `externalLink` package

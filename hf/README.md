@@ -22,7 +22,7 @@ configs:
 # Workbook Change Assurance Benchmark (WCAB)
 
 WCAB is an open, deterministic benchmark for tools that review changes to
-Excel workbooks. Each of its 54 synthetic cases supplies baseline/candidate
+Excel workbooks. Each of its 55 synthetic cases supplies baseline/candidate
 fixtures, explicit observable change facts, a reference review
 disposition, documented coverage boundaries, and—in relevant cases—a
 machine-matchable coverage expectation.
@@ -49,7 +49,12 @@ dynamic selectors change, an external-data connection that begins refreshing
 when the workbook opens, a separate relationship-backed external-data
 web-query connection whose stored source URL moves between reserved
 `example.invalid` endpoints while its connection identity, refresh controls,
-saved cells, and formula context remain fixed, a local worksheet-backed PivotTable cache whose
+saved cells, and formula context remain fixed, a structurally shaped OPC
+package-signature `Object/Manifest` declaration whose one direct-part URI moves
+from the workbook part to a worksheet part while its bounded signature graph
+and ordinary workbook context remain fixed (with deliberately synthetic digest
+and signature values, so this is not cryptographic or trust validation), a
+local worksheet-backed PivotTable cache whose
 stored `refreshOnLoad` request becomes enabled while its source, stored report
 cells, and direct dashboard formula remain fixed, a local PivotTable value
 field whose stored `subtotal` changes from `sum` to `average` while its source,

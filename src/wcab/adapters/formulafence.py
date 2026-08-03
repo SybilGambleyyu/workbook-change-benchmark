@@ -64,6 +64,10 @@ _FACT_TO_CHANGE: dict[str, tuple[str, str | None]] = {
         "external_data_connections_changed",
         None,
     ),
+    "package_signature_manifest_direct_part_retargeted": (
+        "digital_signature_controls_changed",
+        None,
+    ),
     "query_table_refresh_on_load_changed": ("query_table_refresh_controls_changed", None),
     "cell_hyperlink_target_changed": ("cell_hyperlink_controls_changed", None),
     "pivot_cache_refresh_on_load_changed": ("pivot_cache_refresh_controls_changed", None),
@@ -344,6 +348,116 @@ def _external_data_connection_web_query_url_finding_observed(
         finding.get("rule_id") == "FF023"
         and finding.get("severity") == "high"
         and _external_data_connection_web_query_url_details_observed(finding.get("details"), fact)
+    )
+
+
+def _package_signature_manifest_direct_part_retargeted_details_observed(
+    details: Any,
+    fact: dict[str, Any],
+) -> bool:
+    """Require FormulaFence's exact redacted Manifest-scope evidence.
+
+    WCAB validates its synthetic raw Manifest URIs locally. FormulaFence must
+    instead report only aggregate coverage classes, never a URI, selector,
+    digest, certificate, or trust assertion.
+    """
+
+    if (
+        fact.get("root_relationships_member") != "_rels/.rels"
+        or fact.get("origin_member") != "_xmlsignatures/origin.sigs"
+        or fact.get("origin_relationships_member") != "_xmlsignatures/_rels/origin.sigs.rels"
+        or fact.get("origin_relationship_id") != "rIdWCABPackageSignatureOrigin"
+        or fact.get("origin_relationship_type")
+        != "http://schemas.openxmlformats.org/package/2006/relationships/digital-signature/origin"
+        or fact.get("signature_member") != "_xmlsignatures/sig1.xml"
+        or fact.get("signature_relationship_id") != "rIdWCABPackageXmlSignature"
+        or fact.get("signature_relationship_type")
+        != "http://schemas.openxmlformats.org/package/2006/relationships/digital-signature/signature"
+        or fact.get("signature_content_type")
+        != "application/vnd.openxmlformats-package.digital-signature-xmlsignature+xml"
+        or fact.get("signed_info_reference_uri") != "#idWCABPackageObject"
+        or fact.get("baseline_manifest_uri")
+        != "/xl/workbook.xml?ContentType=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"
+        or fact.get("candidate_manifest_uri")
+        != "/xl/worksheets/sheet1.xml?ContentType=application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"
+        or fact.get("baseline_direct_part_class") != "workbook"
+        or fact.get("candidate_direct_part_class") != "worksheet"
+        or not isinstance(details, dict)
+    ):
+        return False
+
+    common = {
+        "present": True,
+        "package_signature_origin_count": 1,
+        "package_xml_signature_count": 1,
+        "package_signature_reference_count": 1,
+        "package_signature_certificate_count": 0,
+        "package_signature_certificate_part_count": 0,
+        "package_signature_certificate_relationship_count": 0,
+        "vba_project_signature_count": 0,
+        "vba_project_signature_relationship_count": 0,
+        "unrecognized_digital_signature_count": 0,
+    }
+    coverage = {
+        "manifest_reference_count": 1,
+        "direct_part_reference_count": 1,
+        "relationship_reference_count": 0,
+        "relationship_group_reference_count": 0,
+        "vba_project_part_reference_count": 0,
+        "external_data_connection_part_reference_count": 0,
+        "unrecognized_reference_count": 0,
+    }
+    before = {
+        **common,
+        "package_signature_coverage": {
+            **coverage,
+            "workbook_part_reference_count": 1,
+            "worksheet_part_reference_count": 0,
+        },
+    }
+    after = {
+        **common,
+        "package_signature_coverage": {
+            **coverage,
+            "workbook_part_reference_count": 0,
+            "worksheet_part_reference_count": 1,
+        },
+    }
+    return details == {
+        "before": before,
+        "after": after,
+        "package_signature_material_changed": True,
+        "package_signature_manifest_coverage_changed": True,
+    }
+
+
+def _package_signature_manifest_direct_part_retargeted_observed(
+    change: dict[str, Any],
+    fact: dict[str, Any],
+) -> bool:
+    """Match FormulaFence's high-severity package-signature scope evidence."""
+
+    return (
+        change.get("kind") == "digital_signature_controls_changed"
+        and change.get("severity") == "high"
+        and _package_signature_manifest_direct_part_retargeted_details_observed(
+            change.get("details"), fact
+        )
+    )
+
+
+def _package_signature_manifest_direct_part_retargeted_finding_observed(
+    finding: dict[str, Any],
+    fact: dict[str, Any],
+) -> bool:
+    """Require FormulaFence's matching high-severity FF050 finding."""
+
+    return (
+        finding.get("rule_id") == "FF050"
+        and finding.get("severity") == "high"
+        and _package_signature_manifest_direct_part_retargeted_details_observed(
+            finding.get("details"), fact
+        )
     )
 
 
@@ -2570,6 +2684,16 @@ def evaluate_diff_case(case_dir: str | Path, *, executable: str = "formulafence"
                 if isinstance(change, dict)
             ) and any(
                 _external_data_connection_web_query_url_finding_observed(finding, fact)
+                for finding in findings
+                if isinstance(finding, dict)
+            )
+        if kind == "package_signature_manifest_direct_part_retargeted":
+            observed = any(
+                _package_signature_manifest_direct_part_retargeted_observed(change, fact)
+                for change in changes
+                if isinstance(change, dict)
+            ) and any(
+                _package_signature_manifest_direct_part_retargeted_finding_observed(finding, fact)
                 for finding in findings
                 if isinstance(finding, dict)
             )

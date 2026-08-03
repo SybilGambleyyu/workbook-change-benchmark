@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.38.0 — 2026-08-02
+
+- Add a deterministic OPC package-signature Manifest-scope transition. Its
+  deliberately non-cryptographic XMLDSIG envelope keeps its root/origin/signature
+  relationship graph, content types, `SignedInfo` local-object reference,
+  ordinary cells/formula context, calculation properties, and every package
+  member except `_xmlsignatures/sig1.xml` fixed while one `Object/Manifest`
+  direct-part URI moves from the workbook part to a worksheet part.
+- Add the exact `package_signature_manifest_direct_part_retargeted` fact,
+  raw-OOXML structural validator, package-isolation check, and corruption
+  regression. WCAB records only a declared package scope: it does not verify a
+  digest, signature, transform, certificate, identity, trust chain, or package
+  consumer decision.
+- Extend the optional FormulaFence adapter to require its exact high-severity
+  `digital_signature_controls_changed` / `FF050` evidence: one origin, one
+  XML signature, one Manifest direct-part reference, and a redacted aggregate
+  coverage transition from one workbook part to one worksheet part. WCAB's raw
+  validator independently establishes the public synthetic URI transition.
+
 ## 0.37.0 — 2026-08-02
 
 - Add a deterministic relationship-backed external-data source-transition
